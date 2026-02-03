@@ -1,28 +1,26 @@
 // ✅ FILE: src/main.ts (COPY/PASTE THIS WHOLE FILE)
 console.log("✅ src/main.ts loaded");
 
+// -------------------------
+// ✅ CONFIG
+// -------------------------
 const SUPABASE_FN_URL =
   "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/generate-lesson";
 
-// ✅ Billing checkout edge function (you will create this edge function)
 const SUPABASE_BILLING_FN_URL =
   "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/create-checkout-session";
 
-// Use your project URL for Supabase Auth + REST
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 
-// Hard timeout so users never wait forever
-const HARD_TIMEOUT_MS = 30000;
+// ✅ Put your Supabase anon/public key here (recommended).
+const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
+
+// ✅ Longer timeout
+const HARD_TIMEOUT_MS = 180000; // 3 minutes
 
 // ✅ Stripe publishable key (SAFE in frontend)
 const STRIPE_PUBLISHABLE_KEY =
   "pk_live_51SuRvaQu6FSRjIW6zjcH0X7n0jmSi8fOB10P5Oe1c4ZYn5nV5dd7lMeGkQZ4u4mx7mfH5d01bAbqoP8nbs14TyqP00HzRaaPcz";
-
-// Stripe.js must be loaded in index.html:
-// <script src="https://js.stripe.com/v3/"></script>
-const stripe = (window as any).Stripe
-  ? (window as any).Stripe(STRIPE_PUBLISHABLE_KEY)
-  : null;
 
 // -------------------------
 // Helpers
@@ -58,6 +56,18 @@ function escapeHtml(s: string) {
     .replaceAll(">", "&gt;");
 }
 
+/**
+ * ✅ Turn plain URLs into clickable links.
+ * Safe because we run AFTER escaping.
+ */
+function linkifyHtml(html: string) {
+  return (html || "").replace(
+    /(^|[\s>(])((https?:\/\/)[^\s<]+)(?=$|[\s)<.,!?])/g,
+    (_m, lead, url) =>
+      `${lead}<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`,
+  );
+}
+
 function htmlToPlainText(html: string) {
   const tmp = document.createElement("div");
   tmp.innerHTML = html;
@@ -76,18 +86,105 @@ function esc(s: any) {
   return escapeHtml(String(s ?? ""));
 }
 
-// ✅ IMPORTANT: anon key getter must be TOP-LEVEL (used by auth + postgrest)
 function getAnonKey(): string {
-  const a = document.getElementById("anonKey") as HTMLInputElement | null;
-  if (a?.value?.trim()) return a.value.trim();
-  const b = document.getElementById("anonKey_app") as HTMLInputElement | null;
-  if (b?.value?.trim()) return b.value.trim();
-  return "";
+  return (SUPABASE_ANON_KEY || "").trim();
+}
+
+function getStripe() {
+  const w = window as any;
+  if (!w.Stripe) return null;
+  return w.Stripe(STRIPE_PUBLISHABLE_KEY);
+}
+
+// -------------------------
+// ✅ NEW: Presets + Exports helpers
+// -------------------------
+const LS_PRESETS_KEY = "lr_presets_v1";
+
+type Preset = {
+  name: string;
+  createdAt: number;
+  data: Record<string, any>;
+};
+
+function loadPresets(): Preset[] {
+  try {
+    const raw = localStorage.getItem(LS_PRESETS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as Preset[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePresets(presets: Preset[]) {
+  localStorage.setItem(LS_PRESETS_KEY, JSON.stringify(presets.slice(0, 30)));
+}
+
+function upsertPreset(name: string, data: Record<string, any>) {
+  const presets = loadPresets();
+  const i = presets.findIndex(
+    (p) => p.name.toLowerCase() === name.toLowerCase(),
+  );
+  const next: Preset = { name, createdAt: Date.now(), data };
+  if (i >= 0) presets[i] = next;
+  else presets.unshift(next);
+  savePresets(presets);
+}
+
+function deletePreset(name: string) {
+  const presets = loadPresets().filter(
+    (p) => p.name.toLowerCase() !== name.toLowerCase(),
+  );
+  savePresets(presets);
+}
+
+function openPrintWindow(title: string, meta: string, bodyHtml: string) {
+  const w = window.open("", "_blank");
+  if (!w) throw new Error("Popup blocked. Allow popups to print.");
+
+  w.document.open();
+  w.document.write(`
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>${escapeHtml(title)}</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 28px; color: #111; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    .meta { color: #444; font-size: 12px; margin-bottom: 14px; }
+    .rule { border-top: 1px solid #ddd; margin: 14px 0; }
+    .noemoji { filter: grayscale(100%); }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+    th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; font-size: 12px; }
+    th { background: #f5f5f5; text-align: left; }
+    ul, ol { margin-top: 6px; }
+    .secHead { margin-top: 16px; }
+    .secTitle { font-weight: 700; }
+    .secIcon { display: none; }
+    a { color: #0b57d0; }
+    @media print {
+      a { color: #000; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(title)}</h1>
+  <div class="meta">${escapeHtml(meta)}</div>
+  <div class="rule"></div>
+  <div class="noemoji">${bodyHtml}</div>
+</body>
+</html>
+  `.trim());
+  w.document.close();
+  w.focus();
+  w.print();
 }
 
 // -------------------------
 // Minimal Supabase Auth (NO supabase-js import)
-// Uses Supabase Auth REST + PostgREST with JWT
 // -------------------------
 type Session = {
   access_token: string;
@@ -114,7 +211,11 @@ function setSavedSession(s: Session | null) {
 
 async function supabaseAuthPOST(path: string, body: any) {
   const anon = getAnonKey();
-  if (!anon) throw new Error("Paste your Supabase anon/public key first.");
+  if (!anon)
+    throw new Error(
+      "Missing Supabase anon key. Paste it into SUPABASE_ANON_KEY in main.ts.",
+    );
+
   const res = await fetch(`${SUPABASE_URL}/auth/v1/${path}`, {
     method: "POST",
     headers: {
@@ -183,7 +284,11 @@ async function postgrest(
   } = {},
 ) {
   const anon = getAnonKey();
-  if (!anon) throw new Error("Paste your Supabase anon/public key first.");
+  if (!anon)
+    throw new Error(
+      "Missing Supabase anon key. Paste it into SUPABASE_ANON_KEY in main.ts.",
+    );
+
   const session = requireSession();
 
   const url = `${SUPABASE_URL}/rest/v1/${table}${
@@ -348,9 +453,7 @@ function parseTabTable(lines: string[], startIndex: number) {
   const trs = body
     .map(
       (row) =>
-        `<tr>${row
-          .map((c) => `<td>${escapeHtml(c)}</td>`)
-          .join("")}</tr>`,
+        `<tr>${row.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`,
     )
     .join("");
 
@@ -392,9 +495,7 @@ function parsePipeTable(lines: string[], startIndex: number) {
   const trs = body
     .map(
       (row) =>
-        `<tr>${row
-          .map((c) => `<td>${escapeHtml(c)}</td>`)
-          .join("")}</tr>`,
+        `<tr>${row.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`,
     )
     .join("");
 
@@ -408,8 +509,9 @@ function formatLessonToHtml(rawText: string) {
 
   const escaped = escapeHtml(cleaned);
   const bolded = escaped.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  const boldedAndLinkified = linkifyHtml(bolded);
 
-  const lines = bolded.split("\n");
+  const lines = boldedAndLinkified.split("\n");
   const out: string[] = [];
   let inUl = false;
   let inOl = false;
@@ -687,37 +789,77 @@ async function downloadTextAsPdf(opts: {
 }
 
 // -------------------------
+// ✅ Whole-lesson de-dupe (handles accidental repeated output)
+// -------------------------
+function dedupeWholeTextIfRepeated(t: string) {
+  const s = (t || "").trim();
+  if (s.length < 200) return t;
+
+  const mid = Math.floor(s.length / 2);
+  const a = s.slice(0, mid).trim();
+  const b = s.slice(mid).trim();
+
+  if (a.length > 300 && b.startsWith(a.slice(0, Math.min(600, a.length)))) {
+    if (b.includes(a)) return b;
+    if (a.includes(b)) return a;
+  }
+
+  if (b.length > 300 && s.includes(b) && a.includes(b.slice(0, 200))) {
+    return a.length >= b.length ? a : b;
+  }
+
+  return t;
+}
+
+// -------------------------
+// ✅ Mode normalization (keeps backward compat if old values appear)
+// -------------------------
+function normalizeMode(v: string) {
+  const x = (v || "").trim();
+  if (x === "lite") return "one_pager"; // legacy -> one-pager
+  if (x === "full") return "full_lesson"; // legacy -> full lesson
+  return x || "full_lesson";
+}
+
+// -------------------------
 // App
 // -------------------------
 try {
-  // Optional Landing/App wrappers
   const landingView = getElOpt<HTMLElement>("landingView");
   const appView = getElOpt<HTMLElement>("appView");
-  const anonKeyApp = getElOpt<HTMLInputElement>("anonKey_app");
   const logOutBtnApp = getElOpt<HTMLButtonElement>("logOutBtn_app");
   const messageApp = getElOpt<HTMLElement>("message_app");
 
-  // Existing controls
   const btn = getEl<HTMLButtonElement>("generateBtn");
   const copyBtn = getEl<HTMLButtonElement>("copyBtn");
   const downloadPdfBtn = getEl<HTMLButtonElement>("downloadPdfBtn");
 
-  // ✅ Billing button (add <button id="billingBtn">Start free trial</button> anywhere you want)
-  const billingBtn = getElOpt<HTMLButtonElement>("billingBtn");
+  // ✅ Optional export + preset controls (won't crash if missing)
+  const printBtn = getElOpt<HTMLButtonElement>("printBtn");
+  const copyDocsBtn = getElOpt<HTMLButtonElement>("copyDocsBtn");
+  const outputStyle = getElOpt<HTMLSelectElement>("outputStyle");
+
+  const presetName = getElOpt<HTMLInputElement>("presetName");
+  const savePresetBtn = getElOpt<HTMLButtonElement>("savePresetBtn");
+  const presetSelect = getElOpt<HTMLSelectElement>("presetSelect");
+  const loadPresetBtn = getElOpt<HTMLButtonElement>("loadPresetBtn");
+  const deletePresetBtn = getElOpt<HTMLButtonElement>("deletePresetBtn");
+
+  // Billing buttons (optional)
+  const billingBtn = getElOpt<HTMLButtonElement>("billingBtn"); // landing
+  const billingBtnApp = getElOpt<HTMLButtonElement>("billingBtn_app"); // app
 
   const output = getEl<HTMLElement>("output");
-  const message = getEl<HTMLElement>("message"); // landing message
+  const message = getEl<HTMLElement>("message");
   const metaLineEl = getEl<HTMLElement>("metaLine");
   const statusPill = getEl<HTMLElement>("statusPill");
 
-  const anonKey = getEl<HTMLInputElement>("anonKey");
   const mode = getEl<HTMLSelectElement>("mode");
   const state = getEl<HTMLSelectElement>("state");
   const publisher = getEl<HTMLSelectElement>("publisher");
   const publisherOtherWrap = getEl<HTMLElement>("publisherOtherWrap");
   const publisherOther = getEl<HTMLInputElement>("publisherOther");
 
-  // ✅ FIX: these are <select> in your HTML
   const grade = getEl<HTMLSelectElement>("grade");
   const subject = getEl<HTMLSelectElement>("subject");
 
@@ -726,6 +868,71 @@ try {
   const lesson = getEl<HTMLInputElement>("lesson");
   const testMode = getEl<HTMLInputElement>("testMode");
 
+  // ✅ curriculum-agnostic inputs
+  const skillFocus = getElOpt<HTMLTextAreaElement>("skillFocus");
+  const subNotes = getElOpt<HTMLTextAreaElement>("subNotes"); // ✅ NEW
+  const lessonCycleTemplate = getElOpt<HTMLSelectElement>("lessonCycleTemplate");
+  const publisherComponents = getElOpt<HTMLTextAreaElement>("publisherComponents");
+  const supportingStandards = getElOpt<HTMLInputElement>("supportingStandards");
+  const lessonLength = getElOpt<HTMLInputElement>("lessonLength");
+  const includeStaar = getElOpt<HTMLSelectElement>("includeStaar");
+
+  const ebSupport = getElOpt<HTMLInputElement>("ebSupport");
+  const spedSupport = getElOpt<HTMLInputElement>("spedSupport");
+  const vocabularyFocus = getElOpt<HTMLInputElement>("vocabularyFocus");
+  const checksForUnderstanding = getElOpt<HTMLInputElement>("checksForUnderstanding");
+  const writingExtension = getElOpt<HTMLInputElement>("writingExtension");
+
+  const practiceToggle = getElOpt<HTMLInputElement>("practiceToggle");
+  const practiceGenre = getElOpt<HTMLSelectElement>("practiceGenre");
+  const slangLevel = getElOpt<HTMLSelectElement>("slangLevel");
+  const practiceTopic = getElOpt<HTMLInputElement>("practiceTopic");
+  const allowTrendy = getElOpt<HTMLSelectElement>("allowTrendy");
+
+  // ✅ NEW (optional): Worksheet Pack UI controls (won't crash if missing)
+  // Add these IDs to index.html when you're ready:
+  // - worksheetToggle (checkbox)
+  // - worksheetBeginnerCount, worksheetIntermediateCount, worksheetAdvancedCount (number inputs)
+  const worksheetToggle = getElOpt<HTMLInputElement>("worksheetToggle");
+  const worksheetBeginnerCount = getElOpt<HTMLInputElement>("worksheetBeginnerCount");
+  const worksheetIntermediateCount = getElOpt<HTMLInputElement>("worksheetIntermediateCount");
+  const worksheetAdvancedCount = getElOpt<HTMLInputElement>("worksheetAdvancedCount");
+
+  // ✅ NEW: Worksheet Pack UI expand/collapse (no crashes if elements not present)
+  // This hides the count inputs unless worksheetToggle is checked.
+  function setupWorksheetPackUI() {
+    if (!worksheetToggle) return;
+
+    // Find the nearest sensible container to hide/show for each input:
+    const blocks: HTMLElement[] = [];
+
+    const addBlock = (el: HTMLElement | null) => {
+      if (!el) return;
+      // Prefer hiding the closest <label> (your UI uses labels as wrappers)
+      const wrap =
+        (el.closest("label") as HTMLElement | null) ||
+        (el.parentElement as HTMLElement | null);
+      if (wrap && !blocks.includes(wrap)) blocks.push(wrap);
+    };
+
+    addBlock(worksheetBeginnerCount);
+    addBlock(worksheetIntermediateCount);
+    addBlock(worksheetAdvancedCount);
+
+    // If none exist yet, nothing to toggle.
+    if (!blocks.length) return;
+
+    const apply = () => {
+      const show = !!worksheetToggle.checked;
+      blocks.forEach((b) => {
+        b.style.display = show ? "" : "none";
+      });
+    };
+
+    worksheetToggle.addEventListener("change", apply);
+    apply(); // run once at load
+  }
+
   // Auth UI
   const authEmail = getEl<HTMLInputElement>("authEmail");
   const authPassword = getEl<HTMLInputElement>("authPassword");
@@ -733,8 +940,9 @@ try {
   const logInBtn = getEl<HTMLButtonElement>("logInBtn");
   const logOutBtn = getEl<HTMLButtonElement>("logOutBtn");
   const authStatusPill = getEl<HTMLElement>("authStatusPill");
+  const forgotPwBtn = getElOpt<HTMLButtonElement>("forgotPwBtn");
 
-  // Favorite + library UI
+  // Library UI
   const favoriteBtn = getEl<HTMLButtonElement>("favoriteBtn");
   const openLibraryBtn = getEl<HTMLButtonElement>("openLibraryBtn");
   const closeLibraryBtn = getEl<HTMLButtonElement>("closeLibraryBtn");
@@ -749,19 +957,12 @@ try {
   let lastLessonId: string | null = null;
   let lastLessonFavorite = false;
 
-  // Sync anon key into app view display field
-  function syncAnonKeyToApp() {
-    if (anonKeyApp) anonKeyApp.value = anonKey.value.trim();
-  }
-  anonKey.addEventListener("input", syncAnonKeyToApp);
-  syncAnonKeyToApp();
-
   function setStatus(text: string) {
     statusPill.textContent = text;
   }
 
   function activeMessageEl(): HTMLElement {
-    const appIsVisible = appView ? appView.style.display !== "none" : true;
+    const appIsVisible = appView ? appView.style.display !== "none" : false;
     if (appIsVisible && messageApp) return messageApp;
     return message;
   }
@@ -803,7 +1004,6 @@ try {
     if (!landingView || !appView) return;
     landingView.style.display = isLoggedIn ? "none" : "block";
     appView.style.display = isLoggedIn ? "block" : "none";
-    syncAnonKeyToApp();
   }
 
   function refreshAuthUI() {
@@ -822,9 +1022,11 @@ try {
 
     favoriteBtn.disabled = !loggedIn || !lastLessonId;
 
-    if (billingBtn) billingBtn.disabled = !loggedIn;
+    if (billingBtn) billingBtn.disabled = false;
+    if (billingBtnApp) billingBtnApp.disabled = !loggedIn;
   }
 
+  // Publisher "Other" UI
   const refreshPublisherUI = () => {
     publisherOtherWrap.style.display =
       publisher.value === "Other" ? "block" : "none";
@@ -832,21 +1034,212 @@ try {
   publisher.addEventListener("change", refreshPublisherUI);
   refreshPublisherUI();
 
+  // ✅ IMPORTANT: initialize the worksheet UI toggle once
+  setupWorksheetPackUI();
+
+  // ✅ Preset UI wiring (won't crash if not present)
+  function collectFormState(): Record<string, any> {
+    return {
+      mode: mode.value,
+      state: state.value,
+      publisher: publisher.value,
+      publisherOther: publisherOther.value,
+      grade: grade.value,
+      subject: subject.value,
+      standard: standard.value,
+      unit: unit.value,
+      lesson: lesson.value,
+      skillFocus: skillFocus?.value ?? "",
+      subNotes: subNotes?.value ?? "",
+      lessonCycleTemplate: lessonCycleTemplate?.value ?? "",
+      publisherComponents: publisherComponents?.value ?? "",
+      supportingStandards: supportingStandards?.value ?? "",
+      lessonLength: lessonLength?.value ?? "",
+      includeStaar: includeStaar?.value ?? "no",
+      outputStyle: outputStyle?.value ?? "default",
+      ebSupport: ebSupport?.checked ?? true,
+      spedSupport: spedSupport?.checked ?? true,
+      vocabularyFocus: vocabularyFocus?.checked ?? true,
+      checksForUnderstanding: checksForUnderstanding?.checked ?? true,
+      writingExtension: writingExtension?.checked ?? false,
+      practiceToggle: practiceToggle?.checked ?? false,
+      practiceGenre: practiceGenre?.value ?? "informational",
+      slangLevel: slangLevel?.value ?? "light",
+      practiceTopic: practiceTopic?.value ?? "",
+      allowTrendy: allowTrendy?.value ?? "yes",
+
+      // ✅ NEW: worksheets
+      worksheetToggle: worksheetToggle?.checked ?? false,
+      worksheetBeginnerCount: worksheetBeginnerCount?.value ?? "",
+      worksheetIntermediateCount: worksheetIntermediateCount?.value ?? "",
+      worksheetAdvancedCount: worksheetAdvancedCount?.value ?? "",
+    };
+  }
+
+  function applyFormState(data: Record<string, any>) {
+    if (data.mode) mode.value = data.mode;
+    if (data.state !== undefined) state.value = data.state;
+    if (data.publisher) publisher.value = data.publisher;
+    if (data.publisherOther !== undefined)
+      publisherOther.value = data.publisherOther;
+    if (data.grade) grade.value = data.grade;
+    if (data.subject) subject.value = data.subject;
+    if (data.standard !== undefined) standard.value = data.standard;
+    if (data.unit !== undefined) unit.value = data.unit;
+    if (data.lesson !== undefined) lesson.value = data.lesson;
+
+    if (skillFocus && data.skillFocus !== undefined)
+      skillFocus.value = data.skillFocus;
+    if (subNotes && data.subNotes !== undefined) subNotes.value = data.subNotes;
+    if (lessonCycleTemplate && data.lessonCycleTemplate !== undefined)
+      lessonCycleTemplate.value = data.lessonCycleTemplate;
+    if (publisherComponents && data.publisherComponents !== undefined)
+      publisherComponents.value = data.publisherComponents;
+    if (supportingStandards && data.supportingStandards !== undefined)
+      supportingStandards.value = data.supportingStandards;
+    if (lessonLength && data.lessonLength !== undefined)
+      lessonLength.value = data.lessonLength;
+    if (includeStaar && data.includeStaar !== undefined)
+      includeStaar.value = data.includeStaar;
+
+    if (outputStyle && data.outputStyle !== undefined)
+      outputStyle.value = data.outputStyle;
+
+    if (ebSupport && data.ebSupport !== undefined)
+      ebSupport.checked = !!data.ebSupport;
+    if (spedSupport && data.spedSupport !== undefined)
+      spedSupport.checked = !!data.spedSupport;
+    if (vocabularyFocus && data.vocabularyFocus !== undefined)
+      vocabularyFocus.checked = !!data.vocabularyFocus;
+    if (checksForUnderstanding && data.checksForUnderstanding !== undefined)
+      checksForUnderstanding.checked = !!data.checksForUnderstanding;
+    if (writingExtension && data.writingExtension !== undefined)
+      writingExtension.checked = !!data.writingExtension;
+
+    if (practiceToggle && data.practiceToggle !== undefined)
+      practiceToggle.checked = !!data.practiceToggle;
+    if (practiceGenre && data.practiceGenre !== undefined)
+      practiceGenre.value = data.practiceGenre;
+    if (slangLevel && data.slangLevel !== undefined)
+      slangLevel.value = data.slangLevel;
+    if (practiceTopic && data.practiceTopic !== undefined)
+      practiceTopic.value = data.practiceTopic;
+    if (allowTrendy && data.allowTrendy !== undefined)
+      allowTrendy.value = data.allowTrendy;
+
+    // ✅ NEW: worksheets
+    if (worksheetToggle && data.worksheetToggle !== undefined)
+      worksheetToggle.checked = !!data.worksheetToggle;
+    if (worksheetBeginnerCount && data.worksheetBeginnerCount !== undefined)
+      worksheetBeginnerCount.value = String(data.worksheetBeginnerCount || "");
+    if (worksheetIntermediateCount && data.worksheetIntermediateCount !== undefined)
+      worksheetIntermediateCount.value = String(
+        data.worksheetIntermediateCount || "",
+      );
+    if (worksheetAdvancedCount && data.worksheetAdvancedCount !== undefined)
+      worksheetAdvancedCount.value = String(data.worksheetAdvancedCount || "");
+
+    refreshPublisherUI();
+
+    // ✅ re-apply worksheet UI visibility after preset load
+    setupWorksheetPackUI();
+  }
+
+  function refreshPresetDropdown() {
+    if (!presetSelect) return;
+    const presets = loadPresets();
+    presetSelect.innerHTML =
+      `<option value="" selected>Select preset…</option>` +
+      presets
+        .map(
+          (p) =>
+            `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`,
+        )
+        .join("");
+  }
+
+  refreshPresetDropdown();
+
+  if (savePresetBtn && presetName) {
+    savePresetBtn.addEventListener("click", () => {
+      const name = presetName.value.trim();
+      if (!name) return showMessage("Type a preset name first.", false);
+      upsertPreset(name, collectFormState());
+      presetName.value = "";
+      refreshPresetDropdown();
+      showMessage("Preset saved ✅", true);
+    });
+  }
+
+  if (loadPresetBtn && presetSelect) {
+    loadPresetBtn.addEventListener("click", () => {
+      const name = presetSelect.value.trim();
+      if (!name) return showMessage("Choose a preset first.", false);
+      const p = loadPresets().find((x) => x.name === name);
+      if (!p) return showMessage("Preset not found.", false);
+      applyFormState(p.data || {});
+      showMessage(`Preset loaded ✅ (${esc(name)})`, true);
+    });
+  }
+
+  if (deletePresetBtn && presetSelect) {
+    deletePresetBtn.addEventListener("click", () => {
+      const name = presetSelect.value.trim();
+      if (!name) return showMessage("Choose a preset first.", false);
+      if (!confirm(`Delete preset "${name}"?`)) return;
+      deletePreset(name);
+      refreshPresetDropdown();
+      showMessage("Preset deleted ✅", true);
+    });
+  }
+
+  // Show checkout success banner (optional)
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("paid") === "1") {
+      showMessage("Payment successful ✅ Your subscription is active.", true);
+      url.searchParams.delete("paid");
+      window.history.replaceState({}, "", url.toString());
+    }
+  } catch {}
+
   // -------------------------
   // ✅ CHECKOUT LOGIC
-  // - Calls your Supabase Edge Function to create a Stripe Checkout Session
-  // - Redirects to the returned Stripe-hosted URL
   // -------------------------
+  async function ensureLoggedInForBilling() {
+    const s = getSavedSession();
+    if (s?.access_token) return s;
+
+    const email = authEmail.value.trim();
+    const pw = authPassword.value.trim();
+
+    if (!email || !pw) {
+      throw new Error("Enter email + password first, then click Start Free Trial.");
+    }
+
+    try {
+      return await logIn(email, pw);
+    } catch {
+      return await signUp(email, pw);
+    }
+  }
+
   async function beginCheckout() {
     clearMessage();
 
     const anon = getAnonKey();
-    if (!anon) throw new Error("Paste your Supabase anon/public key first.");
-    const session = requireSession();
+    if (!anon)
+      throw new Error(
+        "Missing Supabase anon key. Paste it into SUPABASE_ANON_KEY in main.ts.",
+      );
 
+    const session = await ensureLoggedInForBilling();
+
+    const stripe = getStripe();
     if (!stripe) {
-      // Not required for redirecting to a URL, but helps you detect Stripe.js missing
-      console.warn("⚠️ Stripe not initialized. (Check you loaded v3 script tag.)");
+      console.warn(
+        "⚠️ Stripe.js not found. Ensure <script src='https://js.stripe.com/v3/'></script> is in index.html",
+      );
     }
 
     showMessage("💳 Opening secure checkout…", true);
@@ -859,8 +1252,8 @@ try {
         Authorization: `Bearer ${session.access_token}`,
       },
       body: JSON.stringify({
-        // your edge function can use these (optional)
-        success_url: window.location.origin + window.location.pathname + "?paid=1",
+        success_url:
+          window.location.origin + window.location.pathname + "?paid=1",
         cancel_url: window.location.href,
       }),
     });
@@ -880,9 +1273,20 @@ try {
     const url = data?.url;
     if (!url) throw new Error("Checkout URL missing from server response.");
 
-    // ✅ Redirect to Stripe-hosted Checkout page
     window.location.href = url;
   }
+
+  signUpBtn.addEventListener("click", async () => {
+    try {
+      signUpBtn.disabled = true;
+      await beginCheckout();
+    } catch (e: any) {
+      showMessage(`Trial: ${esc(e?.message || e)}`, false);
+      signUpBtn.disabled = false;
+    } finally {
+      refreshAuthUI();
+    }
+  });
 
   if (billingBtn) {
     billingBtn.addEventListener("click", async () => {
@@ -898,21 +1302,23 @@ try {
     });
   }
 
-  // Auth actions
-  signUpBtn.addEventListener("click", async () => {
-    try {
-      clearMessage();
-      const email = authEmail.value.trim();
-      const pw = authPassword.value.trim();
-      if (!email || !pw) return showMessage("Enter email + password.", false);
-      await signUp(email, pw);
-      showMessage("Signed up + logged in ✅", true);
-      refreshAuthUI();
-    } catch (e: any) {
-      showMessage(`Sign up failed: ${esc(e?.message || e)}`, false);
-    }
-  });
+  if (billingBtnApp) {
+    billingBtnApp.addEventListener("click", async () => {
+      try {
+        billingBtnApp.disabled = true;
+        await beginCheckout();
+      } catch (e: any) {
+        showMessage(`Billing: ${esc(e?.message || e)}`, false);
+        billingBtnApp.disabled = false;
+      } finally {
+        refreshAuthUI();
+      }
+    });
+  }
 
+  // -------------------------
+  // Auth actions
+  // -------------------------
   logInBtn.addEventListener("click", async () => {
     try {
       clearMessage();
@@ -926,6 +1332,20 @@ try {
       showMessage(`Login failed: ${esc(e?.message || e)}`, false);
     }
   });
+
+  if (forgotPwBtn) {
+    forgotPwBtn.addEventListener("click", async () => {
+      try {
+        clearMessage();
+        const email = authEmail.value.trim();
+        if (!email) return showMessage("Enter your email first.", false);
+        await supabaseAuthPOST("recover", { email });
+        showMessage("Password reset email sent ✅ Check your inbox.", true);
+      } catch (e: any) {
+        showMessage(`Reset failed: ${esc(e?.message || e)}`, false);
+      }
+    });
+  }
 
   async function doLogout() {
     await logOut();
@@ -955,7 +1375,43 @@ try {
     }
   });
 
-  // Download PDF (current output)
+  if (copyDocsBtn) {
+    copyDocsBtn.addEventListener("click", async () => {
+      const text = htmlToPlainText(output.innerHTML || "").trim();
+      if (!text || text === "(nothing yet)") {
+        showMessage("Nothing to copy yet. Generate a lesson first.", false);
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        showMessage("Copied for Google Docs ✅", true);
+      } catch {
+        showMessage("Copy failed. Select text and copy manually.", false);
+      }
+    });
+  }
+
+  if (printBtn) {
+    printBtn.addEventListener("click", () => {
+      const html = (output.innerHTML || "").trim();
+      if (!html || html === "(nothing yet)") {
+        showMessage("Generate a lesson first, then print.", false);
+        return;
+      }
+      try {
+        openPrintWindow(
+          "Lessons-Ready Lesson Plan",
+          metaLineEl.textContent || "",
+          html,
+        );
+        showMessage("Print window opened ✅", true);
+      } catch (e: any) {
+        showMessage(`Print error: ${esc(e?.message || e)}`, false);
+      }
+    });
+  }
+
+  // Download PDF
   downloadPdfBtn.addEventListener("click", async () => {
     const text = (lastLessonPlainText || "").trim();
     if (!text)
@@ -988,8 +1444,8 @@ try {
       clearMessage();
       if (!lastLessonId)
         return showMessage("Generate or open a saved lesson first.", false);
-      requireSession();
 
+      requireSession();
       const next = !lastLessonFavorite;
 
       await postgrest("PATCH", "lessons", {
@@ -1189,7 +1645,87 @@ try {
     }
   });
 
-  // ✅ Generate: uses USER token + stream-first + fallback + timeout
+  // -------------------------
+  // ✅ Streaming merge helper (fixes duplication)
+  // -------------------------
+  function applyStreamChunk(
+    current: string,
+    chunk: string,
+    lastChunk?: string,
+  ): { text: string; lastChunk?: string } {
+    const c = (chunk || "").toString();
+    if (!c) return { text: current, lastChunk };
+
+    if (lastChunk && c === lastChunk) return { text: current, lastChunk };
+
+    if (c.includes(current) && c.length >= current.length) {
+      return { text: c, lastChunk: c };
+    }
+
+    if (current.includes(c) && c.length > 20) {
+      return { text: current, lastChunk: c };
+    }
+
+    const maxOverlap = Math.min(1200, current.length, c.length);
+    for (let k = maxOverlap; k >= 10; k--) {
+      if (current.endsWith(c.slice(0, k))) {
+        return { text: current + c.slice(k), lastChunk: c };
+      }
+    }
+
+    return { text: current + c, lastChunk: c };
+  }
+
+  // -------------------------
+  // ✅ Guardrails for Skill Focus
+  // -------------------------
+  function validateSkillFocus(): { ok: boolean; message?: string } {
+    if (!skillFocus) return { ok: true };
+    const sf = skillFocus.value.trim();
+    if (!sf)
+      return {
+        ok: false,
+        message:
+          "Skill Focus is required. Add 1–2 sentences in plain English.",
+      };
+    if (sf.length > 420) {
+      return {
+        ok: false,
+        message:
+          "Skill Focus is too long. Keep it to 1–2 sentences (roughly < 420 characters).",
+      };
+    }
+    return { ok: true };
+  }
+
+  // -------------------------
+  // ✅ Worksheet Pack helper (optional UI)
+  // -------------------------
+  function getWorksheetPackFromUI() {
+    // If you don't have the UI elements yet, this safely returns null.
+    const enabled = worksheetToggle ? !!worksheetToggle.checked : false;
+    if (!enabled) return null;
+
+    const b = worksheetBeginnerCount ? Number(worksheetBeginnerCount.value) : NaN;
+    const i = worksheetIntermediateCount
+      ? Number(worksheetIntermediateCount.value)
+      : NaN;
+    const a = worksheetAdvancedCount ? Number(worksheetAdvancedCount.value) : NaN;
+
+    return {
+      enabled: true,
+      levels: ["beginner", "intermediate", "advanced"],
+      questionCount: {
+        beginner: Number.isFinite(b) && b > 0 ? b : 6,
+        intermediate: Number.isFinite(i) && i > 0 ? i : 6,
+        advanced: Number.isFinite(a) && a > 0 ? a : 4,
+      },
+    };
+  }
+
+  // -------------------------
+  // Generate (stream-first + fallback + timeout)
+  // -------------------------
   btn.addEventListener("click", async () => {
     if (activeStreamAbort) activeStreamAbort.abort();
     activeStreamAbort = new AbortController();
@@ -1210,7 +1746,10 @@ try {
 
     try {
       const anon = getAnonKey();
-      if (!anon) throw new Error("Paste your Supabase anon/public key first.");
+      if (!anon)
+        throw new Error(
+          "Missing Supabase anon key. Paste it into SUPABASE_ANON_KEY in main.ts.",
+        );
 
       const session = requireSession();
 
@@ -1219,9 +1758,22 @@ try {
 
       const wantsStream = !testMode.checked;
 
+      const check = validateSkillFocus();
+      if (!check.ok) {
+        showMessage(esc(check.message), false);
+        setStatus("Idle");
+        return;
+      }
+
+      const lessonLengthNum = lessonLength ? Number(lessonLength.value) : 45;
+      const includeStaarBool = includeStaar ? includeStaar.value === "yes" : false;
+
+      const style = outputStyle ? outputStyle.value : "default";
+      const chosenMode = normalizeMode(mode.value);
+
       const payload: any = {
         model: "gpt-4o-mini",
-        mode: mode.value,
+        mode: chosenMode,
         testMode: testMode.checked,
         stream: wantsStream,
 
@@ -1234,12 +1786,75 @@ try {
         standard: standard.value.trim(),
         curriculumUnit: unit.value.trim(),
         curriculumLesson: lesson.value.trim(),
+
+        outputStyle: style,
+
+        lessonLengthMinutes: Number.isFinite(lessonLengthNum) ? lessonLengthNum : 45,
+        includeStaarStyleQuestions: includeStaarBool,
       };
+
+      // Back-compat fields (safe)
+      if (lessonLength)
+        payload.lessonLength = Number.isFinite(lessonLengthNum) ? lessonLengthNum : null;
+      if (includeStaar) payload.includeStaar = includeStaar.value || "no";
+
+      if (skillFocus) payload.skillFocus = skillFocus.value.trim();
+      if (subNotes) payload.subNotes = subNotes.value.trim(); // ✅ NEW
+      if (lessonCycleTemplate)
+        payload.districtLessonCycleName = lessonCycleTemplate.value || "";
+      if (publisherComponents)
+        payload.publisherComponents = publisherComponents.value.trim();
+      if (supportingStandards)
+        payload.supportingStandards = supportingStandards.value.trim();
+
+      const supportsObj = {
+        eb: ebSupport ? !!ebSupport.checked : null,
+        sped: spedSupport ? !!spedSupport.checked : null,
+        vocabulary: vocabularyFocus ? !!vocabularyFocus.checked : null,
+        cfus: checksForUnderstanding ? !!checksForUnderstanding.checked : null,
+        writingExtension: writingExtension ? !!writingExtension.checked : null,
+      };
+      payload.supports = supportsObj;
+
+      payload.options = {
+        ebSupport: ebSupport ? !!ebSupport.checked : true,
+        spedSupport: spedSupport ? !!spedSupport.checked : true,
+        vocabularyFocus: vocabularyFocus ? !!vocabularyFocus.checked : true,
+        checksForUnderstanding: checksForUnderstanding
+          ? !!checksForUnderstanding.checked
+          : true,
+        writingExtension: writingExtension ? !!writingExtension.checked : false,
+        subNotes: subNotes ? subNotes.value.trim() : "", // ✅ NEW (duplicate place = easy server access)
+      };
+
+      const wantsPractice = practiceToggle ? !!practiceToggle.checked : false;
+      payload.practice = {
+        enabled: wantsPractice,
+        genre: practiceGenre ? practiceGenre.value : "informational",
+        slangLevel: slangLevel ? slangLevel.value : "none",
+        topic: practiceTopic ? practiceTopic.value.trim() : "",
+        allowTrendy: allowTrendy ? allowTrendy.value : "yes",
+      };
+
+      payload.generatePracticePassageAndMCQs = wantsPractice;
+      payload.practiceGenre = practiceGenre ? practiceGenre.value : "informational";
+      payload.practiceTopic = practiceTopic ? practiceTopic.value.trim() : "";
+      payload.allowTrendyReferences = allowTrendy ? allowTrendy.value === "yes" : true;
+      payload.slangLevel = slangLevel ? (slangLevel.value as any) : "light";
+
+      // ✅ NEW: Worksheets -> backend worksheetPack
+      const worksheetPack = getWorksheetPackFromUI();
+      if (worksheetPack) {
+        payload.worksheetPack = worksheetPack;
+        payload.options.worksheetPack = worksheetPack;
+      }
 
       setMeta(
         `${pub}${pub === "Other" ? ` (${pubOther || ""})` : ""} • ${
-          st || "State: n/a"
-        } • Mode: ${mode.value}${testMode.checked ? " • Test Mode" : " • Live"}`,
+          st || "State/Framework: n/a"
+        } • Output: ${style} • Mode: ${chosenMode}${
+          testMode.checked ? " • Test Mode" : " • Live"
+        }`,
       );
 
       showMessage("🧠 Generating lesson…", true);
@@ -1266,11 +1881,13 @@ try {
       }
 
       const contentType = (res.headers.get("content-type") || "").toLowerCase();
-
       let lessonText = "";
 
       if (wantsStream && contentType.includes("text/event-stream")) {
         let liveText = "";
+        let lastChunk = "";
+        let lastRendered = "";
+
         output.classList.add("typing");
         output.textContent = " ";
 
@@ -1278,8 +1895,14 @@ try {
           res,
           {
             onDelta: (chunk) => {
-              liveText += chunk;
-              output.innerHTML = formatLessonToHtml(liveText);
+              const merged = applyStreamChunk(liveText, chunk, lastChunk);
+              liveText = merged.text;
+              lastChunk = merged.lastChunk || lastChunk;
+
+              if (liveText !== lastRendered) {
+                lastRendered = liveText;
+                output.innerHTML = formatLessonToHtml(liveText);
+              }
             },
           },
           activeStreamAbort.signal,
@@ -1298,6 +1921,8 @@ try {
         if (!data.ok) throw new Error(data.error || "Unknown error");
         lessonText = (data.lesson_plan || data.prompt_preview || "") as string;
       }
+
+      lessonText = dedupeWholeTextIfRepeated(lessonText);
 
       output.innerHTML = formatLessonToHtml(lessonText);
       lastLessonPlainText = htmlToPlainText(output.innerHTML);
@@ -1359,3 +1984,5 @@ try {
 } catch (err) {
   showFatal(err);
 }
+
+

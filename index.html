@@ -1,10 +1,11 @@
 <!-- ✅ FILE: index.html (COPY/PASTE THIS WHOLE FILE)
-     This version is GUARANTEED to align with your current main.ts:
-     - Adds ALL required IDs (authEmail/authPassword/signUpBtn/logInBtn/logOutBtn/authStatusPill)
-     - Adds Library + Favorite UI (favoriteBtn/openLibraryBtn/closeLibraryBtn/outputView/libraryView/librarySearch/libraryList)
-     - Adds landingView + appView + anonKey_app + logOutBtn_app + message_app (optional wrappers your TS supports)
-     - Fixes grade/subject to be <select> (your main.ts expects HTMLSelectElement for grade + subject)
-     - Keeps your existing styling + output formatting + billing button + pdf-lib
+     ✅ UPDATED to include the NEW Worksheet Pack UI your main.ts supports:
+     - worksheetToggle
+     - worksheetBeginnerCount
+     - worksheetIntermediateCount
+     - worksheetAdvancedCount
+
+     ✅ Keeps EVERY existing id so your CURRENT src/main.ts will NOT crash
 -->
 
 <!doctype html>
@@ -14,7 +15,7 @@
     <title>Lessons-Ready</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- ✅ Stripe.js (REQUIRED for Checkout) -->
+    <!-- ✅ Stripe.js -->
     <script src="https://js.stripe.com/v3/"></script>
 
     <!-- Font -->
@@ -40,9 +41,7 @@
         --okBorder: rgba(56, 255, 143, 0.28);
       }
 
-      * {
-        box-sizing: border-box;
-      }
+      * { box-sizing: border-box; }
 
       body {
         margin: 0;
@@ -67,48 +66,33 @@
           var(--bg);
       }
 
-      .shell {
-        max-width: 1100px;
-        margin: 0 auto;
-        padding: 24px;
-      }
+      .shell { max-width: 1150px; margin: 0 auto; padding: 24px; }
 
       .topbar {
         display: flex;
+        flex-direction: column;
         align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        padding: 16px 18px;
+        justify-content: center;
+        gap: 10px;
+        padding: 20px 18px 16px;
         border: 1px solid var(--border);
         background: linear-gradient(180deg, var(--panel), transparent);
         border-radius: 16px;
         backdrop-filter: blur(10px);
+        text-align: center;
       }
 
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 12px;
+      .logoImg {
+        height: 120px;
+        max-width: min(720px, 92vw);
+        width: auto;
+        border-radius: 16px;
+        object-fit: contain;
+        filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.38));
       }
 
-      .logo {
-        width: 40px;
-        height: 40px;
-        border-radius: 12px;
-        background: linear-gradient(135deg, var(--accent), var(--accent2));
-        box-shadow: 0 10px 30px rgba(124, 92, 255, 0.25);
-      }
-
-      h1 {
-        font-size: 18px;
-        margin: 0;
-        letter-spacing: 0.2px;
-      }
-      .tagline {
-        margin: 2px 0 0;
-        font-size: 13px;
-        color: var(--muted);
-      }
+      .tagline { margin: 0; font-size: 14px; color: var(--muted); line-height: 1.4; }
+      .pricingLine { margin: 0; font-size: 13px; color: rgba(255, 255, 255, 0.78); }
 
       .pill {
         display: inline-flex;
@@ -123,9 +107,30 @@
         white-space: nowrap;
       }
 
+      .policyJump {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 6px;
+        justify-content: center;
+      }
+      .policyJump a {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.04);
+        color: rgba(255, 255, 255, 0.88);
+        font-size: 12px;
+        text-decoration: none;
+      }
+      .policyJump a:hover { border-color: rgba(124, 92, 255, 0.55); }
+
       .grid {
         display: grid;
-        grid-template-columns: 420px 1fr;
+        grid-template-columns: 470px 1fr;
         gap: 16px;
         margin-top: 16px;
       }
@@ -154,33 +159,30 @@
         margin-bottom: 14px;
       }
 
-      .heroHeadline {
-        font-size: 16px;
-        font-weight: 800;
-        margin: 0 0 6px;
+      .heroHeadline { font-size: 16px; font-weight: 800; margin: 0 0 6px; }
+      .heroSub { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+
+      .aboutBlurb {
+        margin-top: 10px;
+        color: rgba(255, 255, 255, 0.78);
+        font-size: 12.5px;
+        line-height: 1.5;
+        border-top: 1px solid var(--border);
+        padding-top: 10px;
       }
-      .heroSub {
-        margin: 0;
+
+      .note {
+        margin-top: 10px;
         color: var(--muted);
-        font-size: 13px;
+        font-size: 12px;
         line-height: 1.45;
+        border-top: 1px solid var(--border);
+        padding-top: 10px;
       }
 
-      .formGrid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
-      }
+      label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
 
-      label {
-        display: grid;
-        gap: 6px;
-        font-size: 13px;
-        color: var(--muted);
-      }
-
-      input,
-      select {
+      input, select, textarea {
         width: 100%;
         padding: 11px 12px;
         border-radius: 12px;
@@ -191,45 +193,39 @@
         font-family: inherit;
       }
 
-      input::placeholder {
-        color: rgba(255, 255, 255, 0.45);
-      }
+      textarea { min-height: 90px; resize: vertical; }
 
-      input:focus,
-      select:focus {
+      input::placeholder, textarea::placeholder { color: rgba(255, 255, 255, 0.45); }
+
+      input:focus, select:focus, textarea:focus {
         border-color: rgba(124, 92, 255, 0.55);
         box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.15);
       }
 
-      option {
-        color: #111;
-      }
+      option { color: #111; }
+      .full { grid-column: 1 / -1; }
 
-      .full {
-        grid-column: 1 / -1;
-      }
+      .formGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-      .rowInline {
-        display: flex;
-        gap: 12px;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px;
+      .authBox {
         border: 1px solid var(--border);
-        border-radius: 14px;
         background: rgba(255, 255, 255, 0.03);
+        border-radius: 16px;
+        padding: 12px;
+        margin-bottom: 12px;
       }
 
-      .toggle {
-        display: flex;
-        align-items: center;
+      .authRow {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
         gap: 10px;
-        color: var(--muted);
-        font-size: 13px;
+        margin-top: 10px;
       }
-      .toggle input {
-        width: 18px;
-        height: 18px;
+      .authActions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 10px;
       }
 
       .btnRow {
@@ -237,6 +233,7 @@
         gap: 10px;
         flex-wrap: wrap;
         justify-content: flex-end;
+        margin-top: 10px;
       }
 
       button {
@@ -273,14 +270,9 @@
         border: 1px solid rgba(255, 90, 90, 0.35);
       }
 
-      button:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
 
-      .msg {
-        margin-top: 12px;
-      }
+      .msg { margin-top: 12px; }
       .ok {
         background: var(--ok);
         border: 1px solid var(--okBorder);
@@ -294,6 +286,32 @@
         padding: 12px;
       }
 
+      .miniHelp {
+        margin-top: 6px;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.68);
+        line-height: 1.4;
+      }
+
+      .toggleRow {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+
+      .toggleRow label {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin: 0;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .toggleRow input[type="checkbox"] { width: 18px; height: 18px; }
+
       .outputHeader {
         display: flex;
         align-items: center;
@@ -302,14 +320,8 @@
         margin-bottom: 10px;
       }
 
-      .outputHeader h2 {
-        margin: 0;
-        font-size: 16px;
-      }
-      .outputMeta {
-        color: var(--muted);
-        font-size: 12px;
-      }
+      .outputHeader h2 { margin: 0; font-size: 16px; }
+      .outputMeta { color: var(--muted); font-size: 12px; }
 
       #output {
         margin: 0;
@@ -324,64 +336,42 @@
         overflow: auto;
       }
 
-      #output.typing {
-        white-space: pre-wrap;
-      }
-
-      #output p {
-        margin: 8px 0;
-      }
-      #output ul,
-      #output ol {
-        margin: 8px 0 8px 18px;
-      }
-      #output li {
-        margin: 6px 0;
-      }
-      #output b {
-        color: rgba(255, 255, 255, 0.98);
-      }
+      #output.typing { white-space: pre-wrap; }
+      #output p { margin: 8px 0; }
+      #output ul, #output ol { margin: 8px 0 8px 18px; }
+      #output li { margin: 6px 0; }
+      #output b { color: rgba(255, 255, 255, 0.98); }
 
       .secHead {
         display: flex;
-        align-items: center;
         gap: 10px;
+        align-items: center;
+        margin: 14px 0 8px;
         padding: 10px 12px;
-        margin: 14px 0 10px;
-        border: 1px solid var(--border);
+        border: 1px solid rgba(255, 255, 255, 0.10);
         border-radius: 14px;
         background: rgba(255, 255, 255, 0.04);
       }
-      .secIcon {
-        font-size: 18px;
-      }
-      .secTitle {
-        font-weight: 800;
-        letter-spacing: -0.01em;
-      }
+      .secIcon { font-size: 18px; }
+      .secTitle { font-weight: 800; letter-spacing: 0.2px; }
 
       table {
         width: 100%;
         border-collapse: collapse;
-        margin: 10px 0 14px;
+        margin: 10px 0;
         overflow: hidden;
-        border-radius: 14px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.03);
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.10);
       }
-      th,
-      td {
+      th, td {
         padding: 10px 10px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         vertical-align: top;
+        font-size: 13px;
       }
-      th {
-        text-align: left;
-        font-weight: 800;
-        background: rgba(255, 255, 255, 0.04);
-      }
+      th { text-align: left; color: rgba(255,255,255,0.92); background: rgba(255,255,255,0.06); }
+      td { color: rgba(255,255,255,0.86); }
 
-      /* ✅ Library */
       .libraryTopRow {
         display: flex;
         align-items: center;
@@ -402,66 +392,32 @@
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
-        gap: 12px;
+        gap: 10px;
       }
 
-      .libraryTitle {
-        font-weight: 800;
-        margin-bottom: 4px;
-      }
-
-      .libraryMeta {
-        color: var(--muted);
-        font-size: 12px;
-      }
+      .libraryTitle { font-weight: 800; margin-bottom: 4px; }
+      .libraryMeta { color: rgba(255,255,255,0.70); font-size: 12px; }
 
       .libraryBtns {
         display: flex;
-        flex-wrap: wrap;
         gap: 8px;
+        flex-wrap: wrap;
         justify-content: flex-end;
       }
 
       .smallBtn {
-        padding: 9px 10px;
+        padding: 8px 10px;
         border-radius: 12px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.12);
+        color: rgba(255,255,255,0.92);
         font-size: 12px;
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid var(--border);
-        color: var(--text);
+        font-weight: 700;
       }
-
+      .smallBtn:hover { border-color: rgba(124,92,255,0.55); }
       .smallBtn.danger {
         background: rgba(255, 90, 90, 0.18);
         border: 1px solid rgba(255, 90, 90, 0.35);
-      }
-
-      .smallBtn.star {
-        background: rgba(124, 92, 255, 0.18);
-        border: 1px solid rgba(124, 92, 255, 0.35);
-      }
-
-      /* ✅ Auth cards */
-      .authBox {
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.03);
-        border-radius: 16px;
-        padding: 12px;
-        margin-bottom: 12px;
-      }
-
-      .authRow {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-top: 10px;
-      }
-
-      .authActions {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-        margin-top: 10px;
       }
 
       .monoPill {
@@ -470,16 +426,89 @@
         font-size: 12px;
       }
 
+      /* ✅ NEW: tiny “chip” buttons for export/presets */
+      .chipRow {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 10px;
+      }
+      .chipGroup {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .chipLabel {
+        font-size: 12px;
+        color: rgba(255,255,255,0.70);
+      }
+      .chipSelect {
+        max-width: 260px;
+        padding: 9px 10px;
+        border-radius: 12px;
+      }
+      .chipInput {
+        max-width: 220px;
+        padding: 9px 10px;
+        border-radius: 12px;
+      }
+      .chipBtn {
+        padding: 9px 10px;
+        border-radius: 12px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.12);
+        color: rgba(255,255,255,0.92);
+        font-size: 12px;
+        font-weight: 800;
+      }
+      .chipBtn:hover { border-color: rgba(124,92,255,0.55); }
+
+      .site-footer {
+        margin-top: 18px;
+        padding: 18px 16px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 12.5px;
+      }
+
+      .footer-inner {
+        max-width: 1100px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .footer-links a { color: rgba(255, 255, 255, 0.88); text-decoration: none; }
+      .footer-links a:hover { text-decoration: underline; }
+
+      .policies { max-width: 1100px; margin: 16px auto 40px; padding: 0 24px; }
+
+      .policyCard {
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 16px;
+        padding: 16px;
+        margin: 12px 0;
+        backdrop-filter: blur(10px);
+      }
+
+      .policyCard h3 { margin: 0 0 6px; font-size: 16px; letter-spacing: 0.2px; }
+      .policyMeta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+      .policyCard p, .policyCard li { color: rgba(255, 255, 255, 0.8); line-height: 1.55; }
+      .policyCard ul { margin: 8px 0 0 18px; }
+
       @media (max-width: 980px) {
-        .grid {
-          grid-template-columns: 1fr;
-        }
-        #output {
-          min-height: 340px;
-        }
-        .pill {
-          display: none;
-        }
+        .grid { grid-template-columns: 1fr; }
+        #output { min-height: 340px; }
+        .logoImg { height: 98px; }
+      }
+      @media (max-width: 520px) {
+        .logoImg { height: 86px; }
       }
     </style>
   </head>
@@ -487,34 +516,48 @@
   <body>
     <div class="shell">
       <div class="topbar">
-        <div class="brand">
-          <div class="logo"></div>
-          <div>
-            <h1>Lessons-Ready</h1>
-            <div class="tagline">
-              Lessons that are standards-aligned, admin-safe, and ready to teach—fast.
-            </div>
-          </div>
+        <img src="/lessons-ready-logo.png" alt="Lessons-Ready logo" class="logoImg" />
+        <p class="tagline">Standards-aligned lesson cycles, admin-safe, ready to teach—fast.</p>
+        <p class="pricingLine">
+          <b>Pricing:</b> 7-day free trial • <b>$6.99/month</b> after trial • Cancel anytime
+        </p>
+        <div class="pill">⚡ 7-day free trial • Cancel anytime</div>
+        <div class="policyJump" aria-label="Policy shortcuts">
+          <a href="#privacy">Privacy Policy</a>
+          <a href="#terms">Terms</a>
+          <a href="#refunds">Refund & Cancellation</a>
+          <a href="#contact">Contact</a>
         </div>
-        <div class="pill">⚡ Fast output • 🛡️ Admin-safe by design • ✍️ Original examples</div>
       </div>
 
       <div class="grid">
-        <!-- LEFT: Inputs + Auth -->
+        <!-- LEFT -->
         <div class="panel">
           <div class="heroBox">
-            <div class="heroHeadline">Turn standards into a complete, teachable lesson in seconds.</div>
+            <div class="heroHeadline">Turn standards into a complete lesson in minutes.</div>
             <p class="heroSub">
-              Generates a full lesson cycle with checks for understanding and misconception support—without copying proprietary passages.
+              Generates a full lesson cycle with checks for understanding and scaffolds—without copying
+              proprietary passages. All examples are original and admin-safe.
             </p>
+            <div class="aboutBlurb">
+              <b>About:</b> Lessons-Ready is an educator-built tool for generating standards-aligned
+              lesson cycles quickly. Review and adjust outputs to match your campus/district expectations.
+            </div>
+            <div class="note">
+              <b>Free trial:</b> 7 days.<br />
+              <b>After trial:</b> $6.99/month to continue. Cancel anytime.
+            </div>
           </div>
 
-          <!-- ✅ LANDING VIEW (shows when logged OUT) -->
+          <!-- ✅ LANDING VIEW -->
           <div id="landingView" style="display:block;">
             <div class="sectionTitle">Account</div>
 
             <div class="authBox">
               <div class="pill monoPill" id="authStatusPill">Not logged in</div>
+
+              <!-- ✅ Compatibility hidden keys (safe to keep) -->
+              <input id="anonKey" type="hidden" value="" />
 
               <div class="authRow">
                 <label class="full">
@@ -529,95 +572,65 @@
               </div>
 
               <div class="authActions">
-                <button class="secondary" id="signUpBtn" type="button">Sign Up</button>
+                <button class="primary" id="signUpBtn" type="button">Start Free Trial</button>
                 <button class="secondary" id="logInBtn" type="button">Log In</button>
+                <button class="secondary" id="forgotPwBtn" type="button">Forgot Password</button>
                 <button class="dangerBtn" id="logOutBtn" type="button" style="display:none;">Log Out</button>
               </div>
 
               <div class="msg" id="message"></div>
+
+              <div class="note">
+                By continuing, you agree that payments (if you choose to subscribe after trial) are processed securely by Stripe.
+                You can cancel anytime.
+              </div>
             </div>
+          </div>
 
-            <div class="sectionTitle">Setup</div>
+          <!-- ✅ APP VIEW -->
+          <div id="appView" style="display:none;">
+            <input id="anonKey_app" type="hidden" value="" />
+
+            <div class="sectionTitle">Lesson setup</div>
+
             <div class="formGrid">
-              <label class="full">
-                Supabase anon key (public)
-                <input
-                  id="anonKey"
-                  placeholder="Paste anon/public key here (Supabase → Settings → API)"
-                />
-              </label>
-
               <label>
                 Mode
                 <select id="mode">
-                  <option value="lite" selected>Fast (Lite)</option>
-                  <option value="full">Detailed (Full)</option>
+                  <option value="full_lesson" selected>Full Lesson (Teacher + Student)</option>
+                  <option value="internalization">Lesson Planning / Internalization</option>
+                  <option value="one_pager">Teacher One-Pager (Teach-From-This)</option>
+                  <option value="sub_plan">Sub Plans</option>
                 </select>
               </label>
 
               <label>
-                State
+                State / Jurisdiction
                 <select id="state">
                   <option value="" selected>Select state</option>
-                  <option value="AL">Alabama</option>
-                  <option value="AK">Alaska</option>
-                  <option value="AZ">Arizona</option>
-                  <option value="AR">Arkansas</option>
-                  <option value="CA">California</option>
-                  <option value="CO">Colorado</option>
-                  <option value="CT">Connecticut</option>
-                  <option value="DE">Delaware</option>
+                  <option value="AL">Alabama</option><option value="AK">Alaska</option><option value="AZ">Arizona</option>
+                  <option value="AR">Arkansas</option><option value="CA">California</option><option value="CO">Colorado</option>
+                  <option value="CT">Connecticut</option><option value="DE">Delaware</option><option value="FL">Florida</option>
+                  <option value="GA">Georgia</option><option value="HI">Hawaii</option><option value="ID">Idaho</option>
+                  <option value="IL">Illinois</option><option value="IN">Indiana</option><option value="IA">Iowa</option>
+                  <option value="KS">Kansas</option><option value="KY">Kentucky</option><option value="LA">Louisiana</option>
+                  <option value="ME">Maine</option><option value="MD">Maryland</option><option value="MA">Massachusetts</option>
+                  <option value="MI">Michigan</option><option value="MN">Minnesota</option><option value="MS">Mississippi</option>
+                  <option value="MO">Missouri</option><option value="MT">Montana</option><option value="NE">Nebraska</option>
+                  <option value="NV">Nevada</option><option value="NH">New Hampshire</option><option value="NJ">New Jersey</option>
+                  <option value="NM">New Mexico</option><option value="NY">New York</option><option value="NC">North Carolina</option>
+                  <option value="ND">North Dakota</option><option value="OH">Ohio</option><option value="OK">Oklahoma</option>
+                  <option value="OR">Oregon</option><option value="PA">Pennsylvania</option><option value="RI">Rhode Island</option>
+                  <option value="SC">South Carolina</option><option value="SD">South Dakota</option><option value="TN">Tennessee</option>
+                  <option value="TX">Texas</option><option value="UT">Utah</option><option value="VT">Vermont</option>
+                  <option value="VA">Virginia</option><option value="WA">Washington</option><option value="WV">West Virginia</option>
+                  <option value="WI">Wisconsin</option><option value="WY">Wyoming</option>
                   <option value="DC">District of Columbia</option>
-                  <option value="FL">Florida</option>
-                  <option value="GA">Georgia</option>
-                  <option value="HI">Hawaii</option>
-                  <option value="ID">Idaho</option>
-                  <option value="IL">Illinois</option>
-                  <option value="IN">Indiana</option>
-                  <option value="IA">Iowa</option>
-                  <option value="KS">Kansas</option>
-                  <option value="KY">Kentucky</option>
-                  <option value="LA">Louisiana</option>
-                  <option value="ME">Maine</option>
-                  <option value="MD">Maryland</option>
-                  <option value="MA">Massachusetts</option>
-                  <option value="MI">Michigan</option>
-                  <option value="MN">Minnesota</option>
-                  <option value="MS">Mississippi</option>
-                  <option value="MO">Missouri</option>
-                  <option value="MT">Montana</option>
-                  <option value="NE">Nebraska</option>
-                  <option value="NV">Nevada</option>
-                  <option value="NH">New Hampshire</option>
-                  <option value="NJ">New Jersey</option>
-                  <option value="NM">New Mexico</option>
-                  <option value="NY">New York</option>
-                  <option value="NC">North Carolina</option>
-                  <option value="ND">North Dakota</option>
-                  <option value="OH">Ohio</option>
-                  <option value="OK">Oklahoma</option>
-                  <option value="OR">Oregon</option>
-                  <option value="PA">Pennsylvania</option>
-                  <option value="RI">Rhode Island</option>
-                  <option value="SC">South Carolina</option>
-                  <option value="SD">South Dakota</option>
-                  <option value="TN">Tennessee</option>
-                  <option value="TX">Texas</option>
-                  <option value="UT">Utah</option>
-                  <option value="VT">Vermont</option>
-                  <option value="VA">Virginia</option>
-                  <option value="WA">Washington</option>
-                  <option value="WV">West Virginia</option>
-                  <option value="WI">Wisconsin</option>
-                  <option value="WY">Wyoming</option>
                 </select>
               </label>
-            </div>
 
-            <div class="sectionTitle">Curriculum context</div>
-            <div class="formGrid">
               <label class="full">
-                Select Curriculum Publisher
+                Curriculum Publisher
                 <select id="publisher">
                   <option value="Bluebonnet Learning (TX OER)" selected>Bluebonnet Learning (TX OER)</option>
                   <option value="Houghton Mifflin Harcourt (HMH)">Houghton Mifflin Harcourt (HMH)</option>
@@ -630,15 +643,6 @@
                   <option value="OpenSciEd">OpenSciEd</option>
                   <option value="CKLA / Core Knowledge">CKLA / Core Knowledge</option>
                   <option value="Open Up Resources">Open Up Resources</option>
-                  <option value="Imagine Learning">Imagine Learning</option>
-                  <option value="Lexia">Lexia</option>
-                  <option value="Achieve3000">Achieve3000</option>
-                  <option value="Edmentum">Edmentum</option>
-                  <option value="Discovery Education">Discovery Education</option>
-                  <option value="TCI (Social Studies)">TCI (Social Studies)</option>
-                  <option value="District-Created Curriculum">District-Created Curriculum</option>
-                  <option value="Teacher-Created / PLC">Teacher-Created / PLC</option>
-                  <option value="Hybrid / Multiple Curricula">Hybrid / Multiple Curricula</option>
                   <option value="Other">Other</option>
                 </select>
               </label>
@@ -648,23 +652,13 @@
                 <input id="publisherOther" placeholder="Type publisher/curriculum name" />
               </label>
 
-              <!-- ✅ FIXED: main.ts expects <select> -->
               <label>
                 Grade
                 <select id="grade">
-                  <option value="0">K</option>
-                  <option value="1">1</option>
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                  <option value="4" selected>4</option>
-                  <option value="5">5</option>
-                  <option value="6">6</option>
-                  <option value="7">7</option>
-                  <option value="8">8</option>
-                  <option value="9">9</option>
-                  <option value="10">10</option>
-                  <option value="11">11</option>
-                  <option value="12">12</option>
+                  <option value="0">K</option><option value="1">1</option><option value="2">2</option>
+                  <option value="3">3</option><option value="4" selected>4</option><option value="5">5</option>
+                  <option value="6">6</option><option value="7">7</option><option value="8">8</option>
+                  <option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option>
                 </select>
               </label>
 
@@ -679,30 +673,216 @@
               </label>
 
               <label class="full">
-                Standard
-                <input id="standard" value="TEKS 4.8B" />
+                Standard (label)
+                <input id="standard" value="TEKS 4.8B" placeholder="e.g., TEKS 4.8B" />
               </label>
 
               <label>
                 Unit
-                <input id="unit" value="Unit 1" />
+                <input id="unit" value="Unit 1" placeholder="e.g., Unit 1" />
               </label>
 
               <label>
                 Lesson
-                <input id="lesson" value="Lesson 2" />
+                <input id="lesson" value="Lesson 4" placeholder="e.g., Lesson 4" />
+              </label>
+
+              <label class="full">
+                Skill Focus (required — plain English)
+                <textarea
+                  id="skillFocus"
+                  placeholder="Example: Determine the main idea and support it with evidence from the text."
+                ></textarea>
+                <div class="miniHelp">
+                  This is how we align to ANY curriculum without copying curriculum text. Keep it 1–2 sentences.
+                </div>
+              </label>
+
+              <label class="full">
+                Sub Notes (optional)
+                <textarea
+                  id="subNotes"
+                  placeholder="Example: No group work today. Students sit in assigned seats. The roster is on my desk."
+                ></textarea>
+                <div class="miniHelp">
+                  Use this for special procedures, classroom routines, behavior notes, tech login info, etc. (No student IDs.)
+                </div>
+              </label>
+
+              <label class="full">
+                Lesson Cycle Template (optional)
+                <select id="lessonCycleTemplate">
+                  <option value="" selected>Choose a template (optional)</option>
+                  <option value="Gradual Release (I Do / We Do / You Do)">Gradual Release (I Do / We Do / You Do)</option>
+                  <option value="Workshop Model">Workshop Model</option>
+                  <option value="Stations / Rotations">Stations / Rotations</option>
+                  <option value="5E Model (Engage, Explore, Explain, Elaborate, Evaluate)">
+                    5E Model (Engage, Explore, Explain, Elaborate, Evaluate)
+                  </option>
+                  <option value="CPA/CRA (Concrete → Pictorial → Abstract)">CPA/CRA (Concrete → Pictorial → Abstract)</option>
+                </select>
+                <div class="miniHelp">
+                  If your campus has a specific routine, pick it so the output matches your expectations.
+                </div>
+              </label>
+
+              <label class="full">
+                Publisher / Curriculum Components (optional)
+                <textarea
+                  id="publisherComponents"
+                  placeholder="Example: anchor chart, guided practice problems, independent practice set, exit ticket."
+                ></textarea>
+                <div class="miniHelp">
+                  List materials/routines your curriculum expects. No copying text — just components.
+                </div>
+              </label>
+
+              <label class="full">
+                Supporting Standards (optional)
+                <input
+                  id="supportingStandards"
+                  placeholder="Example: TEKS 4.2A, TEKS 4.4A (comma-separated)"
+                />
+              </label>
+
+              <label>
+                Lesson Length (minutes)
+                <input id="lessonLength" type="number" min="20" max="120" value="45" />
+              </label>
+
+              <label>
+                Include STAAR-style Questions
+                <select id="includeStaar">
+                  <option value="no" selected>No</option>
+                  <option value="yes">Yes</option>
+                </select>
               </label>
             </div>
 
-            <div class="sectionTitle">Controls</div>
-            <div class="rowInline">
-              <div class="toggle">
-                <input type="checkbox" id="testMode" />
-                <span>Test Mode (skip OpenAI)</span>
+            <div class="sectionTitle">Supports & controls</div>
+
+            <div class="authBox">
+              <div class="toggleRow">
+                <label><input type="checkbox" id="ebSupport" checked /> EB Supports</label>
+                <label><input type="checkbox" id="spedSupport" checked /> SPED Supports</label>
+                <label><input type="checkbox" id="vocabularyFocus" checked /> Vocabulary Focus</label>
+                <label><input type="checkbox" id="checksForUnderstanding" checked /> CFUs</label>
+                <label><input type="checkbox" id="writingExtension" /> Writing Extension</label>
               </div>
 
-              <div class="btnRow">
-                <button class="billing" id="billingBtn" type="button">Start Free Trial</button>
+              <div class="toggleRow" style="margin-top:12px;">
+                <label><input type="checkbox" id="practiceToggle" /> Generate Original Practice Passage + MCQs</label>
+              </div>
+
+              <!-- ✅ NEW: Worksheet Pack -->
+              <div class="toggleRow" style="margin-top:12px;">
+                <label>
+                  <input type="checkbox" id="worksheetToggle" />
+                  Worksheet Pack (Beginner / Intermediate / Advanced)
+                </label>
+              </div>
+
+              <div class="formGrid" style="margin-top:12px;">
+                <label>
+                  Practice Genre
+                  <select id="practiceGenre">
+                    <option value="informational" selected>Informational</option>
+                    <option value="fiction">Fiction</option>
+                    <option value="poem">Poem</option>
+                    <option value="scenario">Scenario</option>
+                  </select>
+                </label>
+
+                <label>
+                  Slang Level
+                  <select id="slangLevel">
+                    <option value="none">None</option>
+                    <option value="light" selected>Light</option>
+                    <option value="moderate">Moderate</option>
+                  </select>
+                </label>
+
+                <!-- ✅ NEW: Worksheet counts (these will auto-hide unless worksheetToggle is checked) -->
+                <label>
+                  Worksheet Qs (Beginner)
+                  <input id="worksheetBeginnerCount" type="number" min="1" max="25" value="6" />
+                  <div class="miniHelp">Default: 6</div>
+                </label>
+
+                <label>
+                  Worksheet Qs (Intermediate)
+                  <input id="worksheetIntermediateCount" type="number" min="1" max="25" value="6" />
+                  <div class="miniHelp">Default: 6</div>
+                </label>
+
+                <label class="full">
+                  Worksheet Qs (Advanced)
+                  <input id="worksheetAdvancedCount" type="number" min="1" max="25" value="4" />
+                  <div class="miniHelp">Default: 4</div>
+                </label>
+
+                <label class="full">
+                  Practice Topic (optional)
+                  <input id="practiceTopic" placeholder="Example: school store, video game points, sports stats..." />
+                </label>
+
+                <label class="full">
+                  Allow trendy references (safe + generic)
+                  <select id="allowTrendy">
+                    <option value="yes" selected>Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </label>
+              </div>
+
+              <label style="display:flex; gap:10px; align-items:center; margin-top:12px;">
+                <input type="checkbox" id="testMode" style="width:18px;height:18px;" />
+                <span style="color:var(--muted); font-size:13px;">Test Mode (skip OpenAI)</span>
+              </label>
+
+              <!-- ✅ “toggles” / controls your main.ts can use -->
+              <div class="sectionTitle" style="margin-top:14px;">Exports & presets</div>
+
+              <div class="chipRow">
+                <div class="chipGroup">
+                  <span class="chipLabel">Output style</span>
+                  <select id="outputStyle" class="chipSelect">
+                    <option value="default" selected>Default</option>
+                    <option value="simple">Simple / clean</option>
+                    <option value="detailed">More detailed</option>
+                    <option value="admin">Admin-facing</option>
+                  </select>
+
+                  <button class="chipBtn" id="copyDocsBtn" type="button">Copy for Google Docs</button>
+                  <button class="chipBtn" id="printBtn" type="button">Print</button>
+                </div>
+              </div>
+
+              <div class="chipRow" style="margin-top:10px;">
+                <div class="chipGroup">
+                  <span class="chipLabel">Preset</span>
+                  <input id="presetName" class="chipInput" placeholder="Preset name…" />
+                  <button class="chipBtn" id="savePresetBtn" type="button">Save</button>
+
+                  <select id="presetSelect" class="chipSelect">
+                    <option value="" selected>Select preset…</option>
+                  </select>
+                  <button class="chipBtn" id="loadPresetBtn" type="button">Load</button>
+                  <button class="chipBtn" id="deletePresetBtn" type="button">Delete</button>
+                </div>
+              </div>
+
+              <div class="btnRow" style="margin-top:14px;">
+                <button class="billing" id="billingBtn" type="button" style="display:none;">
+                  Continue subscription ($6.99/mo)
+                </button>
+
+                <button class="billing" id="billingBtn_app" type="button" style="display:none;">
+                  Manage subscription
+                </button>
+                <button class="billing" id="billingBtn_app2" type="button" style="display:none;">
+                  Manage subscription
+                </button>
 
                 <button class="secondary" id="openLibraryBtn" type="button">Library</button>
                 <button class="secondary" id="closeLibraryBtn" type="button" style="display:none;">Close</button>
@@ -710,26 +890,7 @@
                 <button class="secondary" id="copyBtn" type="button">Copy</button>
                 <button class="secondary" id="downloadPdfBtn" type="button" disabled>Download PDF</button>
                 <button class="primary" id="generateBtn" type="button">Generate</button>
-              </div>
-            </div>
-          </div>
 
-          <!-- ✅ APP VIEW (shows when logged IN) -->
-          <div id="appView" style="display:none; margin-top: 14px;">
-            <div class="sectionTitle">Logged in</div>
-
-            <div class="authBox">
-              <div class="pill monoPill" id="authStatusPill_app" style="display:none;"></div>
-
-              <label class="full">
-                Supabase anon key (public)
-                <input
-                  id="anonKey_app"
-                  placeholder="Anon key (synced from above)"
-                />
-              </label>
-
-              <div class="authActions">
                 <button class="dangerBtn" id="logOutBtn_app" type="button">Log Out</button>
               </div>
 
@@ -738,7 +899,7 @@
           </div>
         </div>
 
-        <!-- RIGHT: Output + Library Views -->
+        <!-- RIGHT -->
         <div class="panel">
           <div class="outputHeader">
             <div>
@@ -748,16 +909,13 @@
             <div class="pill" id="statusPill">Idle</div>
           </div>
 
-          <!-- ✅ Output view wrapper (required by main.ts) -->
           <div id="outputView">
             <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
               <button class="secondary" id="favoriteBtn" type="button" disabled>☆ Favorite</button>
             </div>
-
             <div id="output">(nothing yet)</div>
           </div>
 
-          <!-- ✅ Library view wrapper (required by main.ts) -->
           <div id="libraryView" style="display:none;">
             <div class="libraryTopRow">
               <div class="pill">📚 Your saved lessons</div>
@@ -767,18 +925,182 @@
                 style="max-width: 420px;"
               />
             </div>
-
             <div id="libraryList"></div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ✅ PDF library -->
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div>
+          <strong>Lessons-Ready</strong><br />
+          <span>Garland, TX, USA</span><br />
+          <span>
+            Support:
+            <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
+              support@lessons-ready.com
+            </a>
+          </span>
+        </div>
+        <div class="footer-links">
+          <a href="#privacy">Privacy Policy</a>
+          <span> • </span>
+          <a href="#terms">Terms of Service</a>
+          <span> • </span>
+          <a href="#refunds">Refund & Cancellation</a>
+          <span> • </span>
+          <a href="#contact">Contact</a>
+        </div>
+      </div>
+    </footer>
+
+    <div class="policies">
+      <div class="policyCard" id="privacy">
+        <h3>Privacy Policy</h3>
+        <div class="policyMeta">Effective date: February 1, 2026</div>
+        <p>
+          Lessons-Ready (“we,” “us,” “our”) provides an AI-assisted lesson planning tool for educators.
+          This Privacy Policy explains what information we collect, how we use it, and the choices you have.
+        </p>
+        <p><b>Important note about student data</b></p>
+        <p>
+          Please do <b>not</b> enter sensitive student personal information into Lessons-Ready (for example:
+          student IDs, medical information, or other protected data). Use anonymized notes when needed.
+        </p>
+        <p><b>Information we collect</b></p>
+        <ul>
+          <li><b>Account information:</b> email address and authentication data needed to sign in.</li>
+          <li><b>Usage inputs:</b> lesson setup fields and any optional notes you enter.</li>
+          <li><b>Generated content:</b> lesson outputs you generate and any lessons you save to your library.</li>
+          <li><b>Payment status:</b> subscription state (trial, active, canceled). Payments processed by Stripe.</li>
+          <li><b>Technical data:</b> basic logs for reliability and security.</li>
+        </ul>
+        <p><b>How we use information</b></p>
+        <ul>
+          <li>To create/manage your account and provide the service.</li>
+          <li>To generate lesson plans based on the information you provide.</li>
+          <li>To save/retrieve/display your lesson library.</li>
+          <li>To maintain security, prevent abuse, and troubleshoot issues.</li>
+          <li>To communicate service-related messages (password resets, billing status).</li>
+        </ul>
+        <p><b>How we share information</b></p>
+        <ul>
+          <li><b>Service providers:</b> vendors to operate the service and Stripe to process payments.</li>
+          <li><b>Legal/safety:</b> if required by law or to protect users/rights/service.</li>
+          <li><b>No sale of personal data:</b> we do not sell your personal information.</li>
+        </ul>
+        <p><b>Data retention</b></p>
+        <p>
+          We retain your account and saved lesson data while active, and for a reasonable period afterward
+          for reactivation, legal compliance, and security. You can request deletion (see below).
+        </p>
+        <p><b>Your choices</b></p>
+        <ul>
+          <li>Request deletion: contact support@lessons-ready.com.</li>
+          <li>Cancel anytime (see Refund & Cancellation Policy).</li>
+        </ul>
+        <p><b>Children’s privacy</b></p>
+        <p>Lessons-Ready is intended for educators/adult users. Not directed to children under 13.</p>
+        <p><b>Contact</b></p>
+        <p>
+          Questions:
+          <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
+            support@lessons-ready.com
+          </a>
+        </p>
+      </div>
+
+      <div class="policyCard" id="terms">
+        <h3>Terms of Service</h3>
+        <div class="policyMeta">Effective date: February 1, 2026</div>
+        <p>
+          By accessing or using Lessons-Ready, you agree to these Terms. If you do not agree, do not use the service.
+        </p>
+        <p><b>1) The service</b></p>
+        <p>
+          Lessons-Ready generates lesson-planning materials based on user inputs. Outputs may require review/editing.
+          You are responsible for ensuring content is appropriate and compliant with your policies.
+        </p>
+        <p><b>2) Accounts</b></p>
+        <ul>
+          <li>Provide a valid email and keep credentials secure.</li>
+          <li>You are responsible for activity under your account.</li>
+        </ul>
+        <p><b>3) Acceptable use</b></p>
+        <ul>
+          <li>No unlawful activity, harassment, or harmful content.</li>
+          <li>No reverse engineering/scraping/bypassing security.</li>
+          <li>No sensitive student personal info (IDs, medical info).</li>
+        </ul>
+        <p><b>4) Intellectual property</b></p>
+        <p>
+          The service/design/software are owned by Lessons-Ready/licensors. You retain rights to your inputs.
+          Generated outputs may be used for your classroom/professional use.
+        </p>
+        <p><b>5) Subscription, trial, and billing</b></p>
+        <ul>
+          <li>Free trial: 7 days.</li>
+          <li>After trial: $6.99/month unless changed and communicated.</li>
+          <li>Billing processed by Stripe. Cancel anytime.</li>
+        </ul>
+        <p><b>6) Disclaimers</b></p>
+        <p>The service is provided “as is.” Verify outputs before classroom use.</p>
+        <p><b>7) Limitation of liability</b></p>
+        <p>To the maximum extent permitted by law, Lessons-Ready is not liable for indirect/consequential damages.</p>
+        <p><b>8) Changes</b></p>
+        <p>We may update these Terms. Continued use means you accept updates.</p>
+        <p><b>Contact</b></p>
+        <p>
+          Questions:
+          <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
+            support@lessons-ready.com
+          </a>
+        </p>
+      </div>
+
+      <div class="policyCard" id="refunds">
+        <h3>Refund & Cancellation Policy</h3>
+        <div class="policyMeta">Effective date: February 1, 2026</div>
+        <p><b>Cancel anytime</b></p>
+        <p>After cancellation, access continues through the end of the billing period.</p>
+        <p><b>Refunds</b></p>
+        <p>Unless required by law, no refunds for partial periods/unused time/previous charges.</p>
+        <p><b>Trial</b></p>
+        <p>The free trial lasts 7 days as displayed on the site.</p>
+        <p><b>Billing disputes</b></p>
+        <p>
+          If you believe you were billed in error, contact
+          <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
+            support@lessons-ready.com
+          </a>.
+        </p>
+      </div>
+
+      <div class="policyCard" id="contact">
+        <h3>Contact</h3>
+        <div class="policyMeta">Support and business inquiries</div>
+        <p>
+          <b>Business:</b> Lessons-Ready<br />
+          <b>Email:</b>
+          <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
+            support@lessons-ready.com
+          </a><br />
+          <b>Location:</b> Garland, TX, USA
+        </p>
+        <p>For fastest support, include:</p>
+        <ul>
+          <li>the email on your account</li>
+          <li>what you clicked + what you expected to happen</li>
+          <li>any error message shown on screen</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ✅ pdf-lib (needed for Download PDF) -->
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 
-    <!-- ✅ Your app -->
+    <!-- ✅ Your app (Vite / StackBlitz) -->
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
-
