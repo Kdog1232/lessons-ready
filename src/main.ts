@@ -7,7 +7,7 @@ console.log("✅ src/main.ts loaded");
 const SUPABASE_FN_URL =
   "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/generate-lesson";
 
-// ✅ Dynamic billing endpoint (checkout + portal)
+// ✅ Dynamic billing endpoint (checkout + portal + status)
 const SUPABASE_BILLING_FN_URL =
   "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/dynamic-api";
 
@@ -83,7 +83,7 @@ function getStripe() {
 }
 
 function getPortalReturnUrl() {
-  // Stable return url for Stripe Portal
+  // Stable return url for Stripe Portal + checkout success
   return window.location.origin + window.location.pathname;
 }
 
@@ -200,7 +200,9 @@ async function postgrest(
 
   const session = requireSession();
 
-  const url = `${SUPABASE_URL}/rest/v1/${table}${opts.query ? `?${opts.query}` : ""}`;
+  const url = `${SUPABASE_URL}/rest/v1/${table}${
+    opts.query ? `?${opts.query}` : ""
+  }`;
 
   const res = await fetch(url, {
     method,
@@ -242,7 +244,11 @@ async function postgrest(
 // -------------------------
 type StreamHooks = { onDelta?: (text: string) => void };
 
-async function readSSEStream(res: Response, hooks: StreamHooks, signal?: AbortSignal) {
+async function readSSEStream(
+  res: Response,
+  hooks: StreamHooks,
+  signal?: AbortSignal,
+) {
   if (!res.body) throw new Error("No response body to stream.");
 
   const reader = res.body.getReader();
@@ -280,7 +286,9 @@ async function readSSEStream(res: Response, hooks: StreamHooks, signal?: AbortSi
 
   while (true) {
     if (signal?.aborted) {
-      try { await reader.cancel(); } catch {}
+      try {
+        await reader.cancel();
+      } catch {}
       break;
     }
 
@@ -332,7 +340,10 @@ function parseTabTable(lines: string[], startIndex: number) {
 
   const th = header.map((h) => `<th>${escapeHtml(h)}</th>`).join("");
   const trs = body
-    .map((row) => `<tr>${row.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`)
+    .map(
+      (row) =>
+        `<tr>${row.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`,
+    )
     .join("");
 
   const html = `<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
@@ -364,14 +375,20 @@ function parsePipeTable(lines: string[], startIndex: number) {
   if (cleaned.length < 2) return { html: "", nextIndex: i };
 
   const cells = cleaned.map((r) =>
-    r.split("|").slice(1, -1).map((c) => c.trim()),
+    r
+      .split("|")
+      .slice(1, -1)
+      .map((c) => c.trim()),
   );
   const header = cells[0];
   const body = cells.slice(1);
 
   const th = header.map((h) => `<th>${escapeHtml(h)}</th>`).join("");
   const trs = body
-    .map((row) => `<tr>${row.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`)
+    .map(
+      (row) =>
+        `<tr>${row.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`,
+    )
     .join("");
 
   const html = `<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
@@ -510,7 +527,8 @@ async function downloadTextAsPdf(opts: {
   filename: string;
 }) {
   const PDFLib = (window as any).PDFLib;
-  if (!PDFLib) throw new Error("pdf-lib not found. (index.html must include it)");
+  if (!PDFLib)
+    throw new Error("pdf-lib not found. (index.html must include it)");
 
   const { PDFDocument, StandardFonts, rgb } = PDFLib;
 
@@ -618,7 +636,9 @@ async function downloadTextAsPdf(opts: {
 
   const a = document.createElement("a");
   a.href = url;
-  a.download = opts.filename.endsWith(".pdf") ? opts.filename : `${opts.filename}.pdf`;
+  a.download = opts.filename.endsWith(".pdf")
+    ? opts.filename
+    : `${opts.filename}.pdf`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -659,7 +679,10 @@ function normalizeMode(v: string) {
 // -------------------------
 // Stripe Checkout + Portal ✅ dynamic-api actions
 // -------------------------
-async function ensureLoggedInForBilling(authEmail: HTMLInputElement, authPassword: HTMLInputElement) {
+async function ensureLoggedInForBilling(
+  authEmail: HTMLInputElement,
+  authPassword: HTMLInputElement,
+) {
   const s = getSavedSession();
   if (s?.access_token) return s;
 
@@ -674,13 +697,113 @@ async function ensureLoggedInForBilling(authEmail: HTMLInputElement, authPasswor
   }
 }
 
-async function beginCheckout(authEmail: HTMLInputElement, authPassword: HTMLInputElement) {
+type SubscriptionState = "unknown" | "active" | "inactive";
+
+const LS_SUB_STATUS_KEY = "lr_subscription_status_v1";
+const LS_SUB_STATUS_TS_KEY = "lr_subscription_status_ts_v1";
+
+function getCachedSubStatus(): { status: SubscriptionState; ts: number } {
+  try {
+    const status = (localStorage.getItem(LS_SUB_STATUS_KEY) ||
+      "unknown") as SubscriptionState;
+    const ts = Number(localStorage.getItem(LS_SUB_STATUS_TS_KEY) || "0");
+    return { status, ts: Number.isFinite(ts) ? ts : 0 };
+  } catch {
+    return { status: "unknown", ts: 0 };
+  }
+}
+
+function setCachedSubStatus(status: SubscriptionState) {
+  try {
+    localStorage.setItem(LS_SUB_STATUS_KEY, status);
+    localStorage.setItem(LS_SUB_STATUS_TS_KEY, String(Date.now()));
+  } catch {}
+}
+
+let subscriptionStatus: SubscriptionState = getCachedSubStatus().status;
+let subscriptionStatusLoading = false;
+
+function isSubscribed(): boolean {
+  return subscriptionStatus === "active";
+}
+
+async function fetchSubscriptionStatus(force = false) {
+  const s = getSavedSession();
+  if (!s?.access_token) {
+    subscriptionStatus = "unknown";
+    setCachedSubStatus("unknown");
+    return;
+  }
+
+  const cache = getCachedSubStatus();
+  const ageMs = Date.now() - (cache.ts || 0);
+
+  // refresh at most every ~60 seconds unless forced
+  if (!force && cache.status !== "unknown" && ageMs < 60_000) {
+    subscriptionStatus = cache.status;
+    return;
+  }
+
+  if (subscriptionStatusLoading) return;
+  subscriptionStatusLoading = true;
+
+  try {
+    const anon = getAnonKey();
+    const session = requireSession();
+
+    const res = await fetch(SUPABASE_BILLING_FN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: anon,
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ action: "status" }),
+    });
+
+    const raw = await res.text();
+    let data: any = {};
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      data = { raw };
+    }
+
+    if (res.status === 401 || String(data?.error || "").includes("INVALID_SESSION")) {
+      setSavedSession(null);
+      subscriptionStatus = "unknown";
+      setCachedSubStatus("unknown");
+      return;
+    }
+
+    // Accept a few possible shapes from the edge function
+    const active =
+      Boolean(data?.active) ||
+      data?.status === "active" ||
+      data?.subscriptionStatus === "active" ||
+      data?.subscription?.status === "active" ||
+      data?.customer?.subscription?.status === "active";
+
+    subscriptionStatus = active ? "active" : "inactive";
+    setCachedSubStatus(subscriptionStatus);
+  } catch {
+    // if status call fails, don't break the UI — keep last known
+  } finally {
+    subscriptionStatusLoading = false;
+  }
+}
+
+async function beginCheckout(
+  authEmail: HTMLInputElement,
+  authPassword: HTMLInputElement,
+) {
   const anon = getAnonKey();
   if (!anon) throw new Error("Missing Supabase anon key in main.ts.");
 
   const session = await ensureLoggedInForBilling(authEmail, authPassword);
   const stripe = getStripe();
-  if (!stripe) console.warn("⚠️ Stripe.js not found (index.html should include it).");
+  if (!stripe)
+    console.warn("⚠️ Stripe.js not found (index.html should include it).");
 
   const res = await fetch(SUPABASE_BILLING_FN_URL, {
     method: "POST",
@@ -693,12 +816,20 @@ async function beginCheckout(authEmail: HTMLInputElement, authPassword: HTMLInpu
       action: "checkout",
       success_url: getPortalReturnUrl() + "?paid=1",
       cancel_url: window.location.href,
+
+      // compatibility if your function expects camelCase
+      successUrl: getPortalReturnUrl() + "?paid=1",
+      cancelUrl: window.location.href,
     }),
   });
 
   const raw = await res.text();
   let data: any = null;
-  try { data = raw ? JSON.parse(raw) : {}; } catch { throw new Error(raw || "Checkout error."); }
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    throw new Error(raw || "Checkout error.");
+  }
 
   if (res.status === 401 || String(data?.error || "").includes("INVALID_SESSION")) {
     setSavedSession(null);
@@ -714,7 +845,10 @@ async function beginCheckout(authEmail: HTMLInputElement, authPassword: HTMLInpu
   window.location.href = url;
 }
 
-async function openPortal(authEmail: HTMLInputElement, authPassword: HTMLInputElement) {
+async function openPortal(
+  authEmail: HTMLInputElement,
+  authPassword: HTMLInputElement,
+) {
   const anon = getAnonKey();
   if (!anon) throw new Error("Missing Supabase anon key in main.ts.");
 
@@ -729,13 +863,20 @@ async function openPortal(authEmail: HTMLInputElement, authPassword: HTMLInputEl
     },
     body: JSON.stringify({
       action: "portal",
+      return_url: getPortalReturnUrl(),
+
+      // compatibility if your function expects camelCase
       returnUrl: getPortalReturnUrl(),
     }),
   });
 
   const raw = await res.text();
   let data: any = null;
-  try { data = raw ? JSON.parse(raw) : {}; } catch { throw new Error(raw || "Portal error."); }
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    throw new Error(raw || "Portal error.");
+  }
 
   if (res.status === 401 || String(data?.error || "").includes("INVALID_SESSION")) {
     setSavedSession(null);
@@ -767,10 +908,10 @@ try {
   const message = getEl<HTMLElement>("message");
   const messageApp = getElOpt<HTMLElement>("message_app");
 
-  // Billing + top buttons
-  const billingBtn = getElOpt<HTMLButtonElement>("billingBtn");
-  const billingBtnApp = getElOpt<HTMLButtonElement>("billingBtn_app");
-  const billingBtnApp2 = getElOpt<HTMLButtonElement>("billingBtn_app2");
+  // Billing + top buttons (HTML already has these)
+  const billingBtn = getElOpt<HTMLButtonElement>("billingBtn"); // landing (subscribe/continue)
+  const billingBtnApp = getElOpt<HTMLButtonElement>("billingBtn_app"); // app top right
+  const billingBtnApp2 = getElOpt<HTMLButtonElement>("billingBtn_app2"); // app secondary
   const logOutBtnApp = getElOpt<HTMLButtonElement>("logOutBtn_app");
 
   // Form / app UI
@@ -797,10 +938,17 @@ try {
   const lessonCycleTemplate = getElOpt<HTMLSelectElement>("lessonCycleTemplate");
   const publisherComponents = getElOpt<HTMLTextAreaElement>("publisherComponents");
 
+  // ✅ Campus / Program (DB-powered accuracy) — optional inputs/hidden fields
+  const campusId = getElOpt<HTMLInputElement>("campusId"); // hidden or input
+  const programName = getElOpt<HTMLInputElement>("programName"); // hidden or input
+  const curriculumLessonCode =
+    getElOpt<HTMLInputElement>("curriculumLessonCode"); // optional
+
   const ebSupport = getElOpt<HTMLInputElement>("ebSupport");
   const spedSupport = getElOpt<HTMLInputElement>("spedSupport");
   const vocabularyFocus = getElOpt<HTMLInputElement>("vocabularyFocus");
-  const checksForUnderstanding = getElOpt<HTMLInputElement>("checksForUnderstanding");
+  const checksForUnderstanding =
+    getElOpt<HTMLInputElement>("checksForUnderstanding");
   const writingExtension = getElOpt<HTMLInputElement>("writingExtension");
 
   const practiceToggle = getElOpt<HTMLInputElement>("practiceToggle");
@@ -810,9 +958,13 @@ try {
   const allowTrendy = getElOpt<HTMLSelectElement>("allowTrendy");
 
   const worksheetToggle = getElOpt<HTMLInputElement>("worksheetToggle");
-  const worksheetBeginnerCount = getElOpt<HTMLInputElement>("worksheetBeginnerCount");
-  const worksheetIntermediateCount = getElOpt<HTMLInputElement>("worksheetIntermediateCount");
-  const worksheetAdvancedCount = getElOpt<HTMLInputElement>("worksheetAdvancedCount");
+  const worksheetBeginnerCount =
+    getElOpt<HTMLInputElement>("worksheetBeginnerCount");
+  const worksheetIntermediateCount = getElOpt<HTMLInputElement>(
+    "worksheetIntermediateCount",
+  );
+  const worksheetAdvancedCount =
+    getElOpt<HTMLInputElement>("worksheetAdvancedCount");
 
   const presetName = getElOpt<HTMLInputElement>("presetName");
   const savePresetBtn = getElOpt<HTMLButtonElement>("savePresetBtn");
@@ -889,6 +1041,39 @@ try {
     closeLibraryBtn.style.display = show ? "inline-block" : "none";
   }
 
+  async function refreshBillingUI(forceStatus = false) {
+    const s = getSavedSession();
+    const loggedIn = Boolean(s?.access_token);
+
+    if (!loggedIn) {
+      subscriptionStatus = "unknown";
+      setCachedSubStatus("unknown");
+    } else {
+      await fetchSubscriptionStatus(forceStatus);
+    }
+
+    // Landing view: show only when logged out (your design)
+    // If you want landing subscribe even when logged in, change this.
+    if (billingBtn) {
+      billingBtn.style.display = loggedIn ? "none" : "inline-block";
+      billingBtn.textContent = "Start Subscription";
+    }
+
+    // App view buttons: ALWAYS show when logged in
+    const showAppBillingBtns = loggedIn;
+
+    if (billingBtnApp) billingBtnApp.style.display = showAppBillingBtns ? "inline-block" : "none";
+    if (billingBtnApp2) billingBtnApp2.style.display = showAppBillingBtns ? "inline-block" : "none";
+
+    // Label them based on subscription
+    if (showAppBillingBtns) {
+      const active = isSubscribed();
+      const label = active ? "Manage Subscription" : "Subscribe";
+      if (billingBtnApp) billingBtnApp.textContent = label;
+      if (billingBtnApp2) billingBtnApp2.textContent = label;
+    }
+  }
+
   function refreshAuthUI() {
     const s = getSavedSession();
     const loggedIn = Boolean(s?.access_token);
@@ -902,22 +1087,18 @@ try {
     if (forgotPwBtn) forgotPwBtn.style.display = loggedIn ? "none" : "inline-block";
     logOutBtn.style.display = loggedIn ? "inline-block" : "none";
 
-    // Landing "Continue Subscription" should only show when logged out
-    if (billingBtn) billingBtn.style.display = loggedIn ? "none" : "inline-block";
-
-    // App "Manage Subscription" buttons should show when logged in
-    if (billingBtnApp) billingBtnApp.style.display = loggedIn ? "inline-block" : "none";
-    if (billingBtnApp2) billingBtnApp2.style.display = loggedIn ? "inline-block" : "none";
-
     setView(loggedIn);
     favoriteBtn.disabled = !loggedIn || !lastLessonId;
+
+    // billing UI is async (status call)
+    refreshBillingUI(false).catch(() => {});
   }
 
   refreshPublisherUI();
   publisher.addEventListener("change", refreshPublisherUI);
 
   // -------------------------
-  // ✅ BUTTON WIRING (FIXED)
+  // ✅ BUTTON WIRING
   // -------------------------
   addOnce(signUpBtn, "signup", async () => {
     try {
@@ -928,6 +1109,7 @@ try {
 
       await signUp(email, pw);
       showMessage("Account created ✅ Logged in.", true);
+      await refreshBillingUI(true);
       refreshAuthUI();
     } catch (e: any) {
       showMessage(`Sign up failed: ${esc(e?.message || e)}`, false);
@@ -943,6 +1125,7 @@ try {
 
       await logIn(email, pw);
       showMessage("Logged in ✅", true);
+      await refreshBillingUI(true);
       refreshAuthUI();
     } catch (e: any) {
       showMessage(`Login failed: ${esc(e?.message || e)}`, false);
@@ -970,13 +1153,17 @@ try {
     lastLessonFavorite = false;
     favoriteBtn.textContent = "☆ Favorite";
     favoriteBtn.disabled = true;
+
+    subscriptionStatus = "unknown";
+    setCachedSubStatus("unknown");
+
     refreshAuthUI();
   }
 
   addOnce(logOutBtn, "logout", doLogout);
   if (logOutBtnApp) addOnce(logOutBtnApp, "logout_app", doLogout);
 
-  // ✅ Landing billing -> checkout
+  // ✅ Landing billing -> checkout (requires email+password entered; will sign up/login automatically)
   if (billingBtn) {
     addOnce(billingBtn, "checkout", async () => {
       try {
@@ -989,42 +1176,54 @@ try {
     });
   }
 
-  // ✅ App manage subscription -> portal
-  if (billingBtnApp) {
-    addOnce(billingBtnApp, "portal1", async () => {
-      try {
-        clearMessage();
-        showMessage("🔐 Opening Stripe Customer Portal…", true);
-        await openPortal(authEmail, authPassword);
-      } catch (e: any) {
-        showMessage(`Portal: ${esc(e?.message || e)}`, false);
+  // ✅ App billing buttons -> either Subscribe (checkout) OR Manage (portal) based on subscription
+  async function handleAppBillingClick() {
+    try {
+      clearMessage();
+
+      // Ensure logged in; if not, the app view shouldn't show these buttons anyway
+      requireSession();
+
+      // Always refresh status right before deciding
+      await refreshBillingUI(true);
+
+      if (!isSubscribed()) {
+        showMessage("💳 Starting subscription…", true);
+        await beginCheckout(authEmail, authPassword);
+        return;
       }
-    });
-  }
-  if (billingBtnApp2) {
-    addOnce(billingBtnApp2, "portal2", async () => {
-      try {
-        clearMessage();
-        showMessage("🔐 Opening Stripe Customer Portal…", true);
-        await openPortal(authEmail, authPassword);
-      } catch (e: any) {
-        showMessage(`Portal: ${esc(e?.message || e)}`, false);
-      }
-    });
+
+      showMessage("🔐 Opening Stripe Customer Portal…", true);
+      await openPortal(authEmail, authPassword);
+    } catch (e: any) {
+      showMessage(`${isSubscribed() ? "Portal" : "Subscribe"}: ${esc(e?.message || e)}`, false);
+    }
   }
 
-  // Paid banner
+  if (billingBtnApp) addOnce(billingBtnApp, "app_billing", handleAppBillingClick);
+  if (billingBtnApp2) addOnce(billingBtnApp2, "app_billing2", handleAppBillingClick);
+
+  // Paid banner -> also refresh subscription status
   try {
     const url = new URL(window.location.href);
     if (url.searchParams.get("paid") === "1") {
-      showMessage("Payment successful ✅ Your subscription is active.", true);
+      showMessage("Payment successful ✅ Checking subscription status…", true);
       url.searchParams.delete("paid");
       window.history.replaceState({}, "", url.toString());
+      refreshBillingUI(true).then(() => {
+        showMessage(
+          isSubscribed()
+            ? "Subscription active ✅"
+            : "Payment completed ✅ (If you still see Subscribe, refresh once or open Manage Subscription)",
+          true,
+        );
+        refreshAuthUI();
+      });
     }
   } catch {}
 
   // -------------------------
-  // Presets (unchanged)
+  // Presets
   // -------------------------
   const LS_PRESETS_KEY = "lr_presets_v1";
 
@@ -1082,6 +1281,12 @@ try {
       subNotes: subNotes?.value ?? "",
       lessonCycleTemplate: lessonCycleTemplate?.value ?? "",
       publisherComponents: publisherComponents?.value ?? "",
+
+      // ✅ NEW: (optional) campus/program IDs for presets
+      campusId: campusId?.value ?? "",
+      programName: programName?.value ?? "",
+      curriculumLessonCode: curriculumLessonCode?.value ?? "",
+
       ebSupport: ebSupport?.checked ?? true,
       spedSupport: spedSupport?.checked ?? true,
       vocabularyFocus: vocabularyFocus?.checked ?? true,
@@ -1115,7 +1320,8 @@ try {
     if (skillFocus && data.skillFocus !== undefined) skillFocus.value = data.skillFocus;
     if (supportingStandards && data.supportingStandards !== undefined)
       supportingStandards.value = data.supportingStandards;
-    if (lessonLength && data.lessonLength !== undefined) lessonLength.value = String(data.lessonLength);
+    if (lessonLength && data.lessonLength !== undefined)
+      lessonLength.value = String(data.lessonLength);
     if (includeStaar && data.includeStaar !== undefined) includeStaar.value = data.includeStaar;
 
     if (subNotes && data.subNotes !== undefined) subNotes.value = data.subNotes;
@@ -1124,21 +1330,31 @@ try {
     if (publisherComponents && data.publisherComponents !== undefined)
       publisherComponents.value = data.publisherComponents;
 
+    // ✅ NEW: (optional) campus/program IDs for presets
+    if (campusId && data.campusId !== undefined) campusId.value = String(data.campusId || "");
+    if (programName && data.programName !== undefined)
+      programName.value = String(data.programName || "");
+    if (curriculumLessonCode && data.curriculumLessonCode !== undefined)
+      curriculumLessonCode.value = String(data.curriculumLessonCode || "");
+
     if (ebSupport && data.ebSupport !== undefined) ebSupport.checked = !!data.ebSupport;
     if (spedSupport && data.spedSupport !== undefined) spedSupport.checked = !!data.spedSupport;
-    if (vocabularyFocus && data.vocabularyFocus !== undefined) vocabularyFocus.checked = !!data.vocabularyFocus;
+    if (vocabularyFocus && data.vocabularyFocus !== undefined)
+      vocabularyFocus.checked = !!data.vocabularyFocus;
     if (checksForUnderstanding && data.checksForUnderstanding !== undefined)
       checksForUnderstanding.checked = !!data.checksForUnderstanding;
     if (writingExtension && data.writingExtension !== undefined)
-      writingExtension.checked = !!data.writingExtension;
+      writingExtension.checked = !!writingExtension.checked;
 
-    if (practiceToggle && data.practiceToggle !== undefined) practiceToggle.checked = !!data.practiceToggle;
+    if (practiceToggle && data.practiceToggle !== undefined)
+      practiceToggle.checked = !!data.practiceToggle;
     if (practiceGenre && data.practiceGenre !== undefined) practiceGenre.value = data.practiceGenre;
     if (slangLevel && data.slangLevel !== undefined) slangLevel.value = data.slangLevel;
     if (practiceTopic && data.practiceTopic !== undefined) practiceTopic.value = data.practiceTopic;
     if (allowTrendy && data.allowTrendy !== undefined) allowTrendy.value = data.allowTrendy;
 
-    if (worksheetToggle && data.worksheetToggle !== undefined) worksheetToggle.checked = !!data.worksheetToggle;
+    if (worksheetToggle && data.worksheetToggle !== undefined)
+      worksheetToggle.checked = !!data.worksheetToggle;
     if (worksheetBeginnerCount && data.worksheetBeginnerCount !== undefined)
       worksheetBeginnerCount.value = String(data.worksheetBeginnerCount);
     if (worksheetIntermediateCount && data.worksheetIntermediateCount !== undefined)
@@ -1156,7 +1372,12 @@ try {
     const presets = loadPresets();
     presetSelect.innerHTML =
       `<option value="" selected>Select preset…</option>` +
-      presets.map((p) => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`).join("");
+      presets
+        .map(
+          (p) =>
+            `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`,
+        )
+        .join("");
   }
 
   refreshPresetDropdown();
@@ -1196,10 +1417,7 @@ try {
 
   // -------------------------
   // Library + Output actions + Generate
-  // (This section is your existing logic; kept the same, with one key fix:
-  // grade "K" no longer becomes NaN)
   // -------------------------
-
   async function loadLibrary() {
     clearMessage();
     requireSession();
@@ -1415,7 +1633,8 @@ try {
 
   downloadPdfBtn.addEventListener("click", async () => {
     const text = (lastLessonPlainText || "").trim();
-    if (!text) return showMessage("Generate a lesson first, then download the PDF.", false);
+    if (!text)
+      return showMessage("Generate a lesson first, then download the PDF.", false);
 
     const filename = safeName(
       `${grade.value}-${subject.value}-${standard.value}-${unit.value}-${lesson.value}`,
@@ -1438,7 +1657,8 @@ try {
   favoriteBtn.addEventListener("click", async () => {
     try {
       clearMessage();
-      if (!lastLessonId) return showMessage("Generate or open a saved lesson first.", false);
+      if (!lastLessonId)
+        return showMessage("Generate or open a saved lesson first.", false);
 
       requireSession();
       const next = !lastLessonFavorite;
@@ -1498,12 +1718,15 @@ try {
     if (!c) return { text: current, lastChunk };
     if (lastChunk && c === lastChunk) return { text: current, lastChunk };
 
-    if (c.includes(current) && c.length >= current.length) return { text: c, lastChunk: c };
-    if (current.includes(c) && c.length > 20) return { text: current, lastChunk: c };
+    if (c.includes(current) && c.length >= current.length)
+      return { text: c, lastChunk: c };
+    if (current.includes(c) && c.length > 20)
+      return { text: current, lastChunk: c };
 
     const maxOverlap = Math.min(1200, current.length, c.length);
     for (let k = maxOverlap; k >= 10; k--) {
-      if (current.endsWith(c.slice(0, k))) return { text: current + c.slice(k), lastChunk: c };
+      if (current.endsWith(c.slice(0, k)))
+        return { text: current + c.slice(k), lastChunk: c };
     }
     return { text: current + c, lastChunk: c };
   }
@@ -1521,7 +1744,9 @@ try {
     setStatus("Working…");
 
     const timeoutId = setTimeout(() => {
-      try { activeStreamAbort?.abort(); } catch {}
+      try {
+        activeStreamAbort?.abort();
+      } catch {}
     }, HARD_TIMEOUT_MS);
 
     try {
@@ -1560,12 +1785,17 @@ try {
         publisherOther: pubOther,
         state: st,
 
-        grade: gradeValue,              // numeric for backend
-        gradeLabel: grade.value,        // also send label (K, 1, 2...)
+        grade: gradeValue, // numeric for backend
+        gradeLabel: grade.value, // also send label (K, 1, 2...)
         subject: subject.value.trim(),
         standard: standard.value.trim(),
         curriculumUnit: unit.value.trim(),
         curriculumLesson: lesson.value.trim(),
+
+        // ✅ DB-powered identifiers (optional but recommended)
+        campusId: campusId?.value?.trim() || null,
+        programName: programName?.value?.trim() || null,
+        curriculumLessonCode: curriculumLessonCode?.value?.trim() || null,
 
         outputStyle: style,
 
@@ -1575,7 +1805,8 @@ try {
 
       if (skillFocus) payload.skillFocus = skillFocus.value.trim();
       if (subNotes) payload.subNotes = subNotes.value.trim();
-      if (lessonCycleTemplate) payload.districtLessonCycleName = lessonCycleTemplate.value || "";
+      if (lessonCycleTemplate)
+        payload.districtLessonCycleName = lessonCycleTemplate.value || "";
       if (publisherComponents) payload.publisherComponents = publisherComponents.value.trim();
       if (supportingStandards) payload.supportingStandards = supportingStandards.value.trim();
 
@@ -1732,5 +1963,4 @@ try {
   console.error("❌ main.ts crashed:", err);
   alert(String(err?.message || err));
 }
-
 
