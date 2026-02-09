@@ -1,11 +1,11 @@
 <!-- ✅ FILE: index.html (COPY/PASTE THIS WHOLE FILE)
-     ✅ UPDATED to include the NEW Worksheet Pack UI your main.ts supports:
-     - worksheetToggle
-     - worksheetBeginnerCount
-     - worksheetIntermediateCount
-     - worksheetAdvancedCount
-
-     ✅ Keeps EVERY existing id so your CURRENT src/main.ts will NOT crash
+     ✅ COMBINED VERSION (your two files merged into ONE)
+     ✅ Includes:
+        - Sticky nav + marketing sections + pricing checklist + demo output loader + “Open the App” scroll
+        - FULL appView (all the IDs you pasted)
+        - Collapsible Policies accordions + auto-open on hash links
+     ✅ Price shown as $7.99/month everywhere (matches Stripe)
+     ✅ Keeps/contains all IDs from your pasted appView so main.ts won’t crash
 -->
 
 <!doctype html>
@@ -22,90 +22,184 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
       rel="stylesheet"
     />
 
     <style>
       :root {
-        --bg: #0b1020;
+        --bg: #071225;
         --panel: rgba(255, 255, 255, 0.06);
+        --panel2: rgba(255, 255, 255, 0.045);
         --border: rgba(255, 255, 255, 0.12);
         --text: rgba(255, 255, 255, 0.92);
-        --muted: rgba(255, 255, 255, 0.65);
-        --accent: #7c5cff;
+        --muted: rgba(255, 255, 255, 0.68);
+
+        /* ✅ Bold EdTech palette */
+        --accent: #ff4d6d;
         --accent2: #2be7ff;
+        --accent3: #36ff8f;
+
         --danger: rgba(255, 90, 90, 0.18);
         --dangerBorder: rgba(255, 90, 90, 0.35);
         --ok: rgba(56, 255, 143, 0.12);
         --okBorder: rgba(56, 255, 143, 0.28);
+
+        --shadow: 0 18px 45px rgba(0, 0, 0, 0.35);
       }
 
       * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      a { color: inherit; }
 
       body {
         margin: 0;
         font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
           Roboto, Helvetica, Arial, sans-serif;
         color: var(--text);
-        background: radial-gradient(
-            900px 600px at 20% 20%,
-            rgba(124, 92, 255, 0.3),
-            transparent 60%
-          ),
-          radial-gradient(
-            900px 600px at 80% 20%,
-            rgba(43, 231, 255, 0.18),
-            transparent 60%
-          ),
-          radial-gradient(
-            900px 700px at 50% 100%,
-            rgba(56, 255, 143, 0.1),
-            transparent 55%
-          ),
-          var(--bg);
+        background:
+          radial-gradient(900px 600px at 15% 12%, rgba(255, 77, 109, 0.26), transparent 62%),
+          radial-gradient(900px 600px at 80% 12%, rgba(43, 231, 255, 0.18), transparent 62%),
+          radial-gradient(900px 700px at 45% 100%, rgba(54, 255, 143, 0.10), transparent 60%),
+          linear-gradient(180deg, #071225, #050b17 62%, #050814);
       }
 
-      .shell { max-width: 1150px; margin: 0 auto; padding: 24px; }
+      .shell { max-width: 1150px; margin: 0 auto; padding: 18px 24px 24px; }
 
-      .topbar {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        padding: 20px 18px 16px;
-        border: 1px solid var(--border);
-        background: linear-gradient(180deg, var(--panel), transparent);
+      /* ✅ Sticky nav */
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        margin: 10px auto 14px;
+        padding: 10px 12px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(5, 10, 24, 0.72);
+        backdrop-filter: blur(12px);
         border-radius: 16px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+      }
+      .brandDot {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--accent), var(--accent2));
+        box-shadow: 0 0 0 3px rgba(255,77,109,0.18);
+      }
+      .brandName { font-weight: 900; letter-spacing: 0.2px; font-size: 14px; }
+
+      .navLinks {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .navLinks a {
+        text-decoration: none;
+        font-size: 12.5px;
+        color: rgba(255,255,255,0.84);
+        padding: 8px 10px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+      }
+      .navLinks a:hover {
+        border-color: rgba(255, 77, 109, 0.40);
+        background: rgba(255,255,255,0.04);
+      }
+
+      .navCTA {
+        text-decoration: none;
+        font-size: 12.5px;
+        font-weight: 900;
+        color: #061019;
+        padding: 9px 12px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--accent), var(--accent2));
+        box-shadow: 0 14px 30px rgba(255, 77, 109, 0.18);
+        border: 0;
+        cursor: pointer;
+      }
+
+      /* ✅ Hero */
+      .topbar {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+        padding: 18px 18px 16px;
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
+        border-radius: 18px;
         backdrop-filter: blur(10px);
         text-align: center;
+        box-shadow: var(--shadow);
       }
 
       .logoImg {
-        height: 120px;
-        max-width: min(720px, 92vw);
+        height: 110px;
+        max-width: min(760px, 94vw);
         width: auto;
         border-radius: 16px;
         object-fit: contain;
-        filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.38));
+        filter: drop-shadow(0 14px 34px rgba(0, 0, 0, 0.40));
+        margin: 0 auto;
       }
 
-      .tagline { margin: 0; font-size: 14px; color: var(--muted); line-height: 1.4; }
-      .pricingLine { margin: 0; font-size: 13px; color: rgba(255, 255, 255, 0.78); }
+      .heroHeadline {
+        margin: 0;
+        font-size: 28px;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+        line-height: 1.08;
+      }
+      .heroHeadline .grad {
+        background: linear-gradient(135deg, var(--accent), var(--accent2), var(--accent3));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .tagline {
+        margin: 0;
+        font-size: 14px;
+        color: rgba(255,255,255,0.82);
+        line-height: 1.45;
+      }
+
+      .heroCTARow {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-top: 2px;
+      }
 
       .pill {
         display: inline-flex;
         align-items: center;
         gap: 8px;
         padding: 8px 10px;
-        border: 1px solid var(--border);
+        border: 1px solid rgba(255,255,255,0.12);
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.04);
-        color: var(--muted);
+        color: rgba(255,255,255,0.80);
         font-size: 12px;
         white-space: nowrap;
       }
+
+      .pricingLine { margin: 0; font-size: 13px; color: rgba(255, 255, 255, 0.82); }
 
       .policyJump {
         display: flex;
@@ -119,15 +213,81 @@
         align-items: center;
         gap: 8px;
         padding: 8px 10px;
-        border: 1px solid var(--border);
+        border: 1px solid rgba(255,255,255,0.12);
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.04);
-        color: rgba(255, 255, 255, 0.88);
+        color: rgba(255, 255, 255, 0.90);
         font-size: 12px;
         text-decoration: none;
       }
-      .policyJump a:hover { border-color: rgba(124, 92, 255, 0.55); }
+      .policyJump a:hover { border-color: rgba(255, 77, 109, 0.55); }
 
+      /* ✅ Value badges */
+      .badgeRow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+        margin-top: 6px;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 16px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        font-size: 12px;
+        color: rgba(255,255,255,0.86);
+      }
+      .badge b { color: rgba(255,255,255,0.95); }
+      .badge .dot {
+        width: 10px; height: 10px; border-radius: 999px;
+        background: linear-gradient(135deg, var(--accent), var(--accent2));
+      }
+
+      /* ✅ Buttons */
+      button {
+        border: 0;
+        border-radius: 14px;
+        padding: 12px 14px;
+        cursor: pointer;
+        font-weight: 800;
+        font-family: inherit;
+      }
+
+      .primary {
+        flex: 1;
+        color: #061019;
+        background: linear-gradient(135deg, var(--accent), var(--accent2));
+        box-shadow: 0 14px 34px rgba(255, 77, 109, 0.18);
+      }
+
+      .secondary {
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255,255,255,0.14);
+      }
+
+      .billing {
+        color: rgba(255,255,255,0.95);
+        background: rgba(255, 77, 109, 0.18);
+        border: 1px solid rgba(255, 77, 109, 0.30);
+      }
+
+      .chipBtn {
+        padding: 9px 10px;
+        border-radius: 12px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.12);
+        color: rgba(255,255,255,0.92);
+        font-size: 12px;
+        font-weight: 900;
+      }
+      .chipBtn:hover { border-color: rgba(255, 77, 109, 0.55); }
+
+      /* ✅ Panels / layout */
       .grid {
         display: grid;
         grid-template-columns: 470px 1fr;
@@ -137,30 +297,193 @@
 
       .panel {
         border: 1px solid var(--border);
-        background: linear-gradient(180deg, var(--panel), rgba(255, 255, 255, 0.03));
-        border-radius: 16px;
+        background: linear-gradient(180deg, var(--panel), var(--panel2));
+        border-radius: 18px;
         padding: 16px;
         backdrop-filter: blur(10px);
+        box-shadow: 0 14px 34px rgba(0,0,0,0.22);
       }
 
       .sectionTitle {
-        font-size: 13px;
-        color: var(--muted);
+        font-size: 12.5px;
+        color: rgba(255,255,255,0.72);
         text-transform: uppercase;
-        letter-spacing: 0.12em;
+        letter-spacing: 0.14em;
         margin: 10px 0 10px;
       }
+
+      .marketing { margin-top: 16px; }
+
+      .mGrid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 14px;
+        margin-top: 10px;
+      }
+
+      .mCard {
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        border-radius: 18px;
+        padding: 14px;
+      }
+
+      .mTitle { font-weight: 900; letter-spacing: 0.2px; margin: 0 0 6px; }
+
+      .mText {
+        margin: 0;
+        color: rgba(255,255,255,0.78);
+        font-size: 12.5px;
+        line-height: 1.5;
+      }
+
+      .mList {
+        margin: 10px 0 0 18px;
+        color: rgba(255,255,255,0.78);
+        font-size: 12.5px;
+        line-height: 1.5;
+      }
+
+      .pricingWrap {
+        display: grid;
+        grid-template-columns: 1fr 360px;
+        gap: 14px;
+        margin-top: 14px;
+      }
+
+      .priceCard {
+        border: 1px solid rgba(255,255,255,0.12);
+        background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+        border-radius: 18px;
+        padding: 14px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .priceCard::before {
+        content: "";
+        position: absolute;
+        inset: -2px;
+        background:
+          radial-gradient(500px 220px at 20% 0%, rgba(255,77,109,0.22), transparent 60%),
+          radial-gradient(500px 220px at 90% 0%, rgba(43,231,255,0.16), transparent 60%);
+        pointer-events: none;
+      }
+
+      .priceCardInner { position: relative; z-index: 1; }
+
+      .priceTop {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+      }
+
+      .planName { font-weight: 900; font-size: 14px; }
+      .planTag {
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+      }
+
+      .price {
+        font-size: 30px;
+        font-weight: 900;
+        margin: 6px 0 6px;
+      }
+      .price small { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.70); }
+
+      .checkList {
+        margin: 10px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 8px;
+        color: rgba(255,255,255,0.84);
+        font-size: 12.5px;
+      }
+      .checkList li {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+      .check {
+        width: 18px;
+        height: 18px;
+        border-radius: 6px;
+        background: rgba(54,255,143,0.14);
+        border: 1px solid rgba(54,255,143,0.26);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 900;
+        color: rgba(255,255,255,0.95);
+        flex: 0 0 auto;
+        margin-top: 1px;
+      }
+
+      .dividerCTA {
+        margin-top: 16px;
+        padding: 14px;
+        border-radius: 18px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .dividerCTA .left {
+        display: grid;
+        gap: 4px;
+      }
+      .dividerCTA .big {
+        font-size: 14px;
+        font-weight: 900;
+        margin: 0;
+      }
+      .dividerCTA .small {
+        font-size: 12.5px;
+        color: rgba(255,255,255,0.76);
+        margin: 0;
+      }
+
+      /* Form styles */
+      label { display: grid; gap: 6px; font-size: 13px; color: rgba(255,255,255,0.72); }
+      input, select, textarea {
+        width: 100%;
+        padding: 11px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.14);
+        background: rgba(255, 255, 255, 0.045);
+        color: var(--text);
+        outline: none;
+        font-family: inherit;
+      }
+      textarea { min-height: 90px; resize: vertical; }
+      input::placeholder, textarea::placeholder { color: rgba(255, 255, 255, 0.45); }
+      input:focus, select:focus, textarea:focus {
+        border-color: rgba(255, 77, 109, 0.55);
+        box-shadow: 0 0 0 3px rgba(255, 77, 109, 0.14);
+      }
+      option { color: #111; }
+      .full { grid-column: 1 / -1; }
+      .formGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
       .heroBox {
         border: 1px solid var(--border);
         background: rgba(255, 255, 255, 0.03);
-        border-radius: 16px;
+        border-radius: 18px;
         padding: 14px;
         margin-bottom: 14px;
       }
-
-      .heroHeadline { font-size: 16px; font-weight: 800; margin: 0 0 6px; }
-      .heroSub { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+      .heroSub { margin: 0; color: rgba(255,255,255,0.78); font-size: 13px; line-height: 1.45; }
 
       .aboutBlurb {
         margin-top: 10px;
@@ -173,44 +496,17 @@
 
       .note {
         margin-top: 10px;
-        color: var(--muted);
+        color: rgba(255,255,255,0.74);
         font-size: 12px;
         line-height: 1.45;
-        border-top: 1px solid var(--border);
+        border-top: 1px solid rgba(255,255,255,0.12);
         padding-top: 10px;
       }
 
-      label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
-
-      input, select, textarea {
-        width: 100%;
-        padding: 11px 12px;
-        border-radius: 12px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.04);
-        color: var(--text);
-        outline: none;
-        font-family: inherit;
-      }
-
-      textarea { min-height: 90px; resize: vertical; }
-
-      input::placeholder, textarea::placeholder { color: rgba(255, 255, 255, 0.45); }
-
-      input:focus, select:focus, textarea:focus {
-        border-color: rgba(124, 92, 255, 0.55);
-        box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.15);
-      }
-
-      option { color: #111; }
-      .full { grid-column: 1 / -1; }
-
-      .formGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-
       .authBox {
-        border: 1px solid var(--border);
+        border: 1px solid rgba(255,255,255,0.14);
         background: rgba(255, 255, 255, 0.03);
-        border-radius: 16px;
+        border-radius: 18px;
         padding: 12px;
         margin-bottom: 12px;
       }
@@ -221,6 +517,7 @@
         gap: 10px;
         margin-top: 10px;
       }
+
       .authActions {
         display: flex;
         gap: 10px;
@@ -236,36 +533,8 @@
         margin-top: 10px;
       }
 
-      button {
-        border: 0;
-        border-radius: 14px;
-        padding: 12px 14px;
-        cursor: pointer;
-        font-weight: 600;
-        font-family: inherit;
-      }
-
-      .primary {
-        flex: 1;
-        color: white;
-        background: linear-gradient(135deg, var(--accent), var(--accent2));
-        box-shadow: 0 12px 30px rgba(124, 92, 255, 0.22);
-      }
-
-      .secondary {
-        color: var(--text);
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid var(--border);
-      }
-
-      .billing {
-        color: white;
-        background: rgba(124, 92, 255, 0.25);
-        border: 1px solid rgba(124, 92, 255, 0.45);
-      }
-
       .dangerBtn {
-        color: rgba(255, 255, 255, 0.9);
+        color: rgba(255, 255, 255, 0.92);
         background: rgba(255, 90, 90, 0.18);
         border: 1px solid rgba(255, 90, 90, 0.35);
       }
@@ -273,18 +542,8 @@
       button:disabled { opacity: 0.6; cursor: not-allowed; }
 
       .msg { margin-top: 12px; }
-      .ok {
-        background: var(--ok);
-        border: 1px solid var(--okBorder);
-        border-radius: 14px;
-        padding: 12px;
-      }
-      .error {
-        background: var(--danger);
-        border: 1px solid var(--dangerBorder);
-        border-radius: 14px;
-        padding: 12px;
-      }
+      .ok { background: var(--ok); border: 1px solid var(--okBorder); border-radius: 14px; padding: 12px; }
+      .error { background: var(--danger); border: 1px solid var(--dangerBorder); border-radius: 14px; padding: 12px; }
 
       .miniHelp {
         margin-top: 6px;
@@ -300,16 +559,14 @@
         flex-wrap: wrap;
         margin-top: 8px;
       }
-
       .toggleRow label {
         display: flex;
         gap: 10px;
         align-items: center;
         margin: 0;
         font-size: 13px;
-        color: var(--muted);
+        color: rgba(255,255,255,0.72);
       }
-
       .toggleRow input[type="checkbox"] { width: 18px; height: 18px; }
 
       .outputHeader {
@@ -319,15 +576,14 @@
         gap: 12px;
         margin-bottom: 10px;
       }
-
-      .outputHeader h2 { margin: 0; font-size: 16px; }
-      .outputMeta { color: var(--muted); font-size: 12px; }
+      .outputHeader h2 { margin: 0; font-size: 16px; font-weight: 900; }
+      .outputMeta { color: rgba(255,255,255,0.70); font-size: 12px; }
 
       #output {
         margin: 0;
         padding: 14px;
         border-radius: 16px;
-        border: 1px solid var(--border);
+        border: 1px solid rgba(255,255,255,0.12);
         background: rgba(0, 0, 0, 0.35);
         color: rgba(255, 255, 255, 0.92);
         line-height: 1.5;
@@ -341,19 +597,6 @@
       #output ul, #output ol { margin: 8px 0 8px 18px; }
       #output li { margin: 6px 0; }
       #output b { color: rgba(255, 255, 255, 0.98); }
-
-      .secHead {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        margin: 14px 0 8px;
-        padding: 10px 12px;
-        border: 1px solid rgba(255, 255, 255, 0.10);
-        border-radius: 14px;
-        background: rgba(255, 255, 255, 0.04);
-      }
-      .secIcon { font-size: 18px; }
-      .secTitle { font-weight: 800; letter-spacing: 0.2px; }
 
       table {
         width: 100%;
@@ -381,7 +624,7 @@
       }
 
       .libraryCard {
-        border: 1px solid var(--border);
+        border: 1px solid rgba(255,255,255,0.12);
         background: rgba(255, 255, 255, 0.03);
         border-radius: 14px;
         padding: 12px;
@@ -414,7 +657,7 @@
         font-size: 12px;
         font-weight: 700;
       }
-      .smallBtn:hover { border-color: rgba(124,92,255,0.55); }
+      .smallBtn:hover { border-color: rgba(255, 77, 109, 0.55); }
       .smallBtn.danger {
         background: rgba(255, 90, 90, 0.18);
         border: 1px solid rgba(255, 90, 90, 0.35);
@@ -426,7 +669,6 @@
         font-size: 12px;
       }
 
-      /* ✅ NEW: tiny “chip” buttons for export/presets */
       .chipRow {
         display: flex;
         gap: 10px;
@@ -455,16 +697,6 @@
         padding: 9px 10px;
         border-radius: 12px;
       }
-      .chipBtn {
-        padding: 9px 10px;
-        border-radius: 12px;
-        background: rgba(255,255,255,0.06);
-        border: 1px solid rgba(255,255,255,0.12);
-        color: rgba(255,255,255,0.92);
-        font-size: 12px;
-        font-weight: 800;
-      }
-      .chipBtn:hover { border-color: rgba(124,92,255,0.55); }
 
       .site-footer {
         margin-top: 18px;
@@ -489,39 +721,117 @@
       .policies { max-width: 1100px; margin: 16px auto 40px; padding: 0 24px; }
 
       .policyCard {
-        border: 1px solid var(--border);
+        border: 1px solid rgba(255,255,255,0.12);
         background: rgba(255, 255, 255, 0.03);
-        border-radius: 16px;
+        border-radius: 18px;
         padding: 16px;
         margin: 12px 0;
         backdrop-filter: blur(10px);
       }
 
-      .policyCard h3 { margin: 0 0 6px; font-size: 16px; letter-spacing: 0.2px; }
-      .policyMeta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+      .policyMeta { color: rgba(255,255,255,0.70); font-size: 12px; }
+
       .policyCard p, .policyCard li { color: rgba(255, 255, 255, 0.8); line-height: 1.55; }
       .policyCard ul { margin: 8px 0 0 18px; }
+
+      /* ✅ Collapsible accordions */
+      details { border-radius: 14px; }
+      summary {
+        cursor: pointer;
+        list-style: none;
+        padding: 8px 6px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      summary::-webkit-details-marker { display: none; }
+      summary .sumLeft {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      summary strong { font-size: 16px; letter-spacing: 0.2px; }
+      summary::after {
+        content: "＋";
+        font-weight: 900;
+        opacity: 0.85;
+        flex: 0 0 auto;
+      }
+      details[open] summary::after { content: "−"; }
+      .policyBody {
+        padding-top: 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.10);
+        margin-top: 10px;
+      }
 
       @media (max-width: 980px) {
         .grid { grid-template-columns: 1fr; }
         #output { min-height: 340px; }
-        .logoImg { height: 98px; }
+        .logoImg { height: 96px; }
+        .mGrid { grid-template-columns: 1fr; }
+        .pricingWrap { grid-template-columns: 1fr; }
       }
       @media (max-width: 520px) {
-        .logoImg { height: 86px; }
+        .logoImg { height: 84px; }
+        .heroHeadline { font-size: 24px; }
       }
     </style>
   </head>
 
   <body>
     <div class="shell">
-      <div class="topbar">
+      <!-- ✅ NAV -->
+      <div class="nav">
+        <a class="brand" href="#top">
+          <span class="brandDot" aria-hidden="true"></span>
+          <span class="brandName">Lessons-Ready</span>
+        </a>
+
+        <div class="navLinks" aria-label="Site navigation">
+          <a href="#features">Features</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#faq">FAQ</a>
+          <a href="#privacy">Policies</a>
+          <button class="navCTA" id="openAppTopBtn" type="button">Open the App</button>
+        </div>
+      </div>
+
+      <!-- ✅ HERO -->
+      <div class="topbar" id="top">
         <img src="/lessons-ready-logo.png" alt="Lessons-Ready logo" class="logoImg" />
-        <p class="tagline">Standards-aligned lesson cycles, admin-safe, ready to teach—fast.</p>
-        <p class="pricingLine">
-          <b>Pricing:</b> 7-day free trial • <b>$6.99/month</b> after trial • Cancel anytime
+
+        <h1 class="heroHeadline">
+          Build <span class="grad">standards-aligned</span> lesson cycles — fast.
+        </h1>
+
+        <p class="tagline">
+          Teacher + student-ready lessons with EB/SPED scaffolds, CFUs, and optional STAAR-style practice — original and admin-safe.
         </p>
-        <div class="pill">⚡ 7-day free trial • Cancel anytime</div>
+
+        <div class="heroCTARow">
+          <button class="primary" id="heroOpenAppBtn" type="button">Open the App</button>
+          <button class="secondary" id="demoBtn" type="button">See Example Output</button>
+        </div>
+
+        <div class="heroCTARow" style="margin-top:8px;">
+          <span class="pill">⚡ 7-day free trial</span>
+          <span class="pill">🔒 Stripe-secured billing</span>
+          <span class="pill">🧠 Original content (no proprietary passages)</span>
+        </div>
+
+        <p class="pricingLine">
+          <b>Pricing:</b> 7-day free trial • <b>$7.99/month</b> after trial • Cancel anytime
+        </p>
+
+        <div class="badgeRow" aria-label="Trust badges">
+          <div class="badge"><span class="dot" aria-hidden="true"></span> <b>EB + SPED</b> supports built in</div>
+          <div class="badge"><span class="dot" aria-hidden="true"></span> <b>TEKS/Standards</b> aligned inputs</div>
+          <div class="badge"><span class="dot" aria-hidden="true"></span> <b>Copy + Print</b> exports</div>
+          <div class="badge"><span class="dot" aria-hidden="true"></span> <b>Library</b> saves lessons</div>
+        </div>
+
         <div class="policyJump" aria-label="Policy shortcuts">
           <a href="#privacy">Privacy Policy</a>
           <a href="#terms">Terms</a>
@@ -530,22 +840,156 @@
         </div>
       </div>
 
+      <!-- ✅ MARKETING -->
+      <div class="panel marketing" id="features">
+        <div class="sectionTitle">Features</div>
+
+        <div class="mGrid">
+          <div class="mCard">
+            <p class="mTitle">🚀 Full lesson cycle — teacher + student</p>
+            <p class="mText">
+              Generate a complete lesson flow with modeling, guided practice, independent practice, and CFUs.
+            </p>
+            <ul class="mList">
+              <li>Clear “I can” objectives + success criteria</li>
+              <li>Built-in checks for understanding</li>
+              <li>Ready to copy into Google Docs</li>
+            </ul>
+          </div>
+
+          <div class="mCard">
+            <p class="mTitle">🧩 EB + SPED scaffolds that don’t feel generic</p>
+            <p class="mText">
+              Supports are integrated into the lesson so it reads like real instruction, not an add-on list.
+            </p>
+            <ul class="mList">
+              <li>Sentence stems + vocabulary routines</li>
+              <li>Chunking, visuals, and quick re-teach</li>
+              <li>Accommodation-friendly steps</li>
+            </ul>
+          </div>
+
+          <div class="mCard">
+            <p class="mTitle">📝 Practice + Worksheet Pack (optional)</p>
+            <p class="mText">
+              Add original passages, MCQs, and a 3-level worksheet pack for differentiation.
+            </p>
+            <ul class="mList">
+              <li>Beginner / Intermediate / Advanced questions</li>
+              <li>Genre control (informational/fiction/poem)</li>
+              <li>Optional STAAR-style format</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel marketing" id="pricing">
+        <div class="sectionTitle">Pricing</div>
+
+        <div class="pricingWrap">
+          <div class="mCard">
+            <p class="mTitle">Made for busy teachers (and admin expectations).</p>
+            <p class="mText">
+              Lessons-Ready is designed to get you from standard → teachable lesson faster, while keeping outputs original and admin-safe.
+              Start free, cancel anytime.
+            </p>
+            <ul class="mList">
+              <li>No proprietary curriculum passages copied</li>
+              <li>Library saving + search</li>
+              <li>Exports: Copy, Print, PDF</li>
+            </ul>
+          </div>
+
+          <div class="priceCard">
+            <div class="priceCardInner">
+              <div class="priceTop">
+                <div class="planName">Starter</div>
+                <div class="planTag">7-day free trial</div>
+              </div>
+
+              <div class="price">$7.99 <small>/ month after trial</small></div>
+
+              <ul class="checkList" aria-label="Plan includes">
+                <li><span class="check">✓</span> Unlimited lesson generation</li>
+                <li><span class="check">✓</span> Saved library + search</li>
+                <li><span class="check">✓</span> Exports: Copy / Print / PDF</li>
+                <li><span class="check">✓</span> Worksheet Pack + STAAR-style options</li>
+              </ul>
+
+              <div class="note" style="border-top: 1px solid rgba(255,255,255,0.10);">
+                <b>Cancel anytime.</b> Keep access through the end of your billing period.
+              </div>
+
+              <div style="margin-top: 10px; display:flex; gap:10px; flex-wrap:wrap;">
+                <button class="primary" id="pricingOpenAppBtn" type="button">Open the App</button>
+                <button class="secondary" id="pricingDemoBtn" type="button">See Example Output</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel marketing" id="faq">
+        <div class="sectionTitle">FAQ</div>
+
+        <div class="mGrid" style="grid-template-columns: 1fr 1fr;">
+          <div class="mCard">
+            <p class="mTitle">Does this replace my curriculum?</p>
+            <p class="mText">
+              No — it helps you plan faster. You give the standard + skill focus, and you can list the components your curriculum expects.
+            </p>
+          </div>
+
+          <div class="mCard">
+            <p class="mTitle">Are passages original?</p>
+            <p class="mText">
+              Yes. The tool generates original practice passages and avoids copying proprietary curriculum text.
+            </p>
+          </div>
+
+          <div class="mCard">
+            <p class="mTitle">What should I avoid entering?</p>
+            <p class="mText">
+              <b>Do not</b> enter student IDs, medical info, or sensitive student personal data. Use anonymized notes.
+            </p>
+          </div>
+
+          <div class="mCard">
+            <p class="mTitle">Can I cancel anytime?</p>
+            <p class="mText">
+              Yes. Cancel anytime, and you keep access through the end of your billing period.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ✅ Divider: Marketing → App -->
+      <div class="dividerCTA" id="openapp">
+        <div class="left">
+          <p class="big">Ready to build your lesson?</p>
+          <p class="small">Open the app below to start your free trial or log in.</p>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="primary" id="dividerOpenAppBtn" type="button">Open the App</button>
+          <button class="secondary" id="dividerDemoBtn" type="button">See Example Output</button>
+        </div>
+      </div>
+
+      <!-- ✅ APP GRID -->
       <div class="grid">
         <!-- LEFT -->
         <div class="panel">
           <div class="heroBox">
-            <div class="heroHeadline">Turn standards into a complete lesson in minutes.</div>
             <p class="heroSub">
-              Generates a full lesson cycle with checks for understanding and scaffolds—without copying
-              proprietary passages. All examples are original and admin-safe.
+              <b>Tip:</b> If you want the output to match your campus routine, choose a lesson-cycle template and list the components your curriculum expects.
             </p>
             <div class="aboutBlurb">
-              <b>About:</b> Lessons-Ready is an educator-built tool for generating standards-aligned
-              lesson cycles quickly. Review and adjust outputs to match your campus/district expectations.
+              <b>About:</b> Lessons-Ready is an educator-built tool for generating standards-aligned lesson cycles quickly.
+              Review and adjust outputs to match your campus/district expectations.
             </div>
             <div class="note">
               <b>Free trial:</b> 7 days.<br />
-              <b>After trial:</b> $6.99/month to continue. Cancel anytime.
+              <b>After trial:</b> $7.99/month to continue. Cancel anytime.
             </div>
           </div>
 
@@ -580,14 +1024,14 @@
 
               <div class="msg" id="message"></div>
 
-              <div class="note">
-                By continuing, you agree that payments (if you choose to subscribe after trial) are processed securely by Stripe.
-                You can cancel anytime.
+              <div class="note" style="margin-top: 10px;">
+                <b>Privacy:</b> Please don’t enter student IDs or sensitive student info.<br />
+                <b>Billing:</b> Payments are processed securely by Stripe.
               </div>
             </div>
           </div>
 
-          <!-- ✅ APP VIEW -->
+          <!-- ✅ APP VIEW (FULL) -->
           <div id="appView" style="display:none;">
             <input id="anonKey_app" type="hidden" value="" />
 
@@ -774,7 +1218,6 @@
                 <label><input type="checkbox" id="practiceToggle" /> Generate Original Practice Passage + MCQs</label>
               </div>
 
-              <!-- ✅ NEW: Worksheet Pack -->
               <div class="toggleRow" style="margin-top:12px;">
                 <label>
                   <input type="checkbox" id="worksheetToggle" />
@@ -802,7 +1245,6 @@
                   </select>
                 </label>
 
-                <!-- ✅ NEW: Worksheet counts (these will auto-hide unless worksheetToggle is checked) -->
                 <label>
                   Worksheet Qs (Beginner)
                   <input id="worksheetBeginnerCount" type="number" min="1" max="25" value="6" />
@@ -837,10 +1279,9 @@
 
               <label style="display:flex; gap:10px; align-items:center; margin-top:12px;">
                 <input type="checkbox" id="testMode" style="width:18px;height:18px;" />
-                <span style="color:var(--muted); font-size:13px;">Test Mode (skip OpenAI)</span>
+                <span style="color:rgba(255,255,255,0.72); font-size:13px;">Test Mode (skip OpenAI)</span>
               </label>
 
-              <!-- ✅ “toggles” / controls your main.ts can use -->
               <div class="sectionTitle" style="margin-top:14px;">Exports & presets</div>
 
               <div class="chipRow">
@@ -874,7 +1315,7 @@
 
               <div class="btnRow" style="margin-top:14px;">
                 <button class="billing" id="billingBtn" type="button" style="display:none;">
-                  Continue subscription ($6.99/mo)
+                  Continue subscription ($7.99/mo)
                 </button>
 
                 <button class="billing" id="billingBtn_app" type="button" style="display:none;">
@@ -929,176 +1370,336 @@
           </div>
         </div>
       </div>
-    </div>
 
-    <footer class="site-footer">
-      <div class="footer-inner">
-        <div>
-          <strong>Lessons-Ready</strong><br />
-          <span>Garland, TX, USA</span><br />
-          <span>
-            Support:
-            <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
-              support@lessons-ready.com
-            </a>
-          </span>
+      <footer class="site-footer">
+        <div class="footer-inner">
+          <div>
+            <strong>Lessons-Ready</strong><br />
+            <span>Garland, TX, USA</span><br />
+            <span>
+              Support:
+              <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
+                support@lessons-ready.com
+              </a>
+            </span>
+          </div>
+          <div class="footer-links">
+            <a href="#privacy">Privacy Policy</a>
+            <span> • </span>
+            <a href="#terms">Terms of Service</a>
+            <span> • </span>
+            <a href="#refunds">Refund & Cancellation</a>
+            <span> • </span>
+            <a href="#contact">Contact</a>
+          </div>
         </div>
-        <div class="footer-links">
-          <a href="#privacy">Privacy Policy</a>
-          <span> • </span>
-          <a href="#terms">Terms of Service</a>
-          <span> • </span>
-          <a href="#refunds">Refund & Cancellation</a>
-          <span> • </span>
-          <a href="#contact">Contact</a>
+      </footer>
+
+      <!-- ✅ POLICIES (collapsible accordions) -->
+      <div class="policies">
+        <div class="policyCard" id="privacy">
+          <details id="privacyDetails">
+            <summary>
+              <span class="sumLeft">
+                <strong>Privacy Policy</strong>
+                <span class="policyMeta">Effective date: February 1, 2026</span>
+              </span>
+            </summary>
+            <div class="policyBody">
+              <p>
+                Lessons-Ready (“we,” “us,” “our”) provides an AI-assisted lesson planning tool for educators.
+                This Privacy Policy explains what information we collect, how we use it, and the choices you have.
+              </p>
+              <p><b>Important note about student data</b></p>
+              <p>
+                Please do <b>not</b> enter sensitive student personal information into Lessons-Ready (for example:
+                student IDs, medical information, or other protected data). Use anonymized notes when needed.
+              </p>
+              <p><b>Information we collect</b></p>
+              <ul>
+                <li><b>Account information:</b> email address and authentication data needed to sign in.</li>
+                <li><b>Usage inputs:</b> lesson setup fields and any optional notes you enter.</li>
+                <li><b>Generated content:</b> lesson outputs you generate and any lessons you save to your library.</li>
+                <li><b>Payment status:</b> subscription state (trial, active, canceled). Payments processed by Stripe.</li>
+                <li><b>Technical data:</b> basic logs for reliability and security.</li>
+              </ul>
+              <p><b>How we use information</b></p>
+              <ul>
+                <li>To create/manage your account and provide the service.</li>
+                <li>To generate lesson plans based on the information you provide.</li>
+                <li>To save/retrieve/display your lesson library.</li>
+                <li>To maintain security, prevent abuse, and troubleshoot issues.</li>
+                <li>To communicate service-related messages (password resets, billing status).</li>
+              </ul>
+              <p><b>How we share information</b></p>
+              <ul>
+                <li><b>Service providers:</b> vendors to operate the service and Stripe to process payments.</li>
+                <li><b>Legal/safety:</b> if required by law or to protect users/rights/service.</li>
+                <li><b>No sale of personal data:</b> we do not sell your personal information.</li>
+              </ul>
+              <p><b>Data retention</b></p>
+              <p>
+                We retain your account and saved lesson data while active, and for a reasonable period afterward
+                for reactivation, legal compliance, and security. You can request deletion (see below).
+              </p>
+              <p><b>Your choices</b></p>
+              <ul>
+                <li>Request deletion: contact support@lessons-ready.com.</li>
+                <li>Cancel anytime (see Refund & Cancellation Policy).</li>
+              </ul>
+              <p><b>Children’s privacy</b></p>
+              <p>Lessons-Ready is intended for educators/adult users. Not directed to children under 13.</p>
+              <p><b>Contact</b></p>
+              <p>
+                Questions:
+                <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
+                  support@lessons-ready.com
+                </a>
+              </p>
+            </div>
+          </details>
         </div>
-      </div>
-    </footer>
 
-    <div class="policies">
-      <div class="policyCard" id="privacy">
-        <h3>Privacy Policy</h3>
-        <div class="policyMeta">Effective date: February 1, 2026</div>
-        <p>
-          Lessons-Ready (“we,” “us,” “our”) provides an AI-assisted lesson planning tool for educators.
-          This Privacy Policy explains what information we collect, how we use it, and the choices you have.
-        </p>
-        <p><b>Important note about student data</b></p>
-        <p>
-          Please do <b>not</b> enter sensitive student personal information into Lessons-Ready (for example:
-          student IDs, medical information, or other protected data). Use anonymized notes when needed.
-        </p>
-        <p><b>Information we collect</b></p>
-        <ul>
-          <li><b>Account information:</b> email address and authentication data needed to sign in.</li>
-          <li><b>Usage inputs:</b> lesson setup fields and any optional notes you enter.</li>
-          <li><b>Generated content:</b> lesson outputs you generate and any lessons you save to your library.</li>
-          <li><b>Payment status:</b> subscription state (trial, active, canceled). Payments processed by Stripe.</li>
-          <li><b>Technical data:</b> basic logs for reliability and security.</li>
-        </ul>
-        <p><b>How we use information</b></p>
-        <ul>
-          <li>To create/manage your account and provide the service.</li>
-          <li>To generate lesson plans based on the information you provide.</li>
-          <li>To save/retrieve/display your lesson library.</li>
-          <li>To maintain security, prevent abuse, and troubleshoot issues.</li>
-          <li>To communicate service-related messages (password resets, billing status).</li>
-        </ul>
-        <p><b>How we share information</b></p>
-        <ul>
-          <li><b>Service providers:</b> vendors to operate the service and Stripe to process payments.</li>
-          <li><b>Legal/safety:</b> if required by law or to protect users/rights/service.</li>
-          <li><b>No sale of personal data:</b> we do not sell your personal information.</li>
-        </ul>
-        <p><b>Data retention</b></p>
-        <p>
-          We retain your account and saved lesson data while active, and for a reasonable period afterward
-          for reactivation, legal compliance, and security. You can request deletion (see below).
-        </p>
-        <p><b>Your choices</b></p>
-        <ul>
-          <li>Request deletion: contact support@lessons-ready.com.</li>
-          <li>Cancel anytime (see Refund & Cancellation Policy).</li>
-        </ul>
-        <p><b>Children’s privacy</b></p>
-        <p>Lessons-Ready is intended for educators/adult users. Not directed to children under 13.</p>
-        <p><b>Contact</b></p>
-        <p>
-          Questions:
-          <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
-            support@lessons-ready.com
-          </a>
-        </p>
-      </div>
+        <div class="policyCard" id="terms">
+          <details id="termsDetails">
+            <summary>
+              <span class="sumLeft">
+                <strong>Terms of Service</strong>
+                <span class="policyMeta">Effective date: February 1, 2026</span>
+              </span>
+            </summary>
+            <div class="policyBody">
+              <p>
+                By accessing or using Lessons-Ready, you agree to these Terms. If you do not agree, do not use the service.
+              </p>
+              <p><b>1) The service</b></p>
+              <p>
+                Lessons-Ready generates lesson-planning materials based on user inputs. Outputs may require review/editing.
+                You are responsible for ensuring content is appropriate and compliant with your policies.
+              </p>
+              <p><b>2) Accounts</b></p>
+              <ul>
+                <li>Provide a valid email and keep credentials secure.</li>
+                <li>You are responsible for activity under your account.</li>
+              </ul>
+              <p><b>3) Acceptable use</b></p>
+              <ul>
+                <li>No unlawful activity, harassment, or harmful content.</li>
+                <li>No reverse engineering/scraping/bypassing security.</li>
+                <li>No sensitive student personal info (IDs, medical info).</li>
+              </ul>
+              <p><b>4) Intellectual property</b></p>
+              <p>
+                The service/design/software are owned by Lessons-Ready/licensors. You retain rights to your inputs.
+                Generated outputs may be used for your classroom/professional use.
+              </p>
+              <p><b>5) Subscription, trial, and billing</b></p>
+              <ul>
+                <li>Free trial: 7 days.</li>
+                <li>After trial: $7.99/month unless changed and communicated.</li>
+                <li>Billing processed by Stripe. Cancel anytime.</li>
+              </ul>
+              <p><b>6) Disclaimers</b></p>
+              <p>The service is provided “as is.” Verify outputs before classroom use.</p>
+              <p><b>7) Limitation of liability</b></p>
+              <p>To the maximum extent permitted by law, Lessons-Ready is not liable for indirect/consequential damages.</p>
+              <p><b>8) Changes</b></p>
+              <p>We may update these Terms. Continued use means you accept updates.</p>
+              <p><b>Contact</b></p>
+              <p>
+                Questions:
+                <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
+                  support@lessons-ready.com
+                </a>
+              </p>
+            </div>
+          </details>
+        </div>
 
-      <div class="policyCard" id="terms">
-        <h3>Terms of Service</h3>
-        <div class="policyMeta">Effective date: February 1, 2026</div>
-        <p>
-          By accessing or using Lessons-Ready, you agree to these Terms. If you do not agree, do not use the service.
-        </p>
-        <p><b>1) The service</b></p>
-        <p>
-          Lessons-Ready generates lesson-planning materials based on user inputs. Outputs may require review/editing.
-          You are responsible for ensuring content is appropriate and compliant with your policies.
-        </p>
-        <p><b>2) Accounts</b></p>
-        <ul>
-          <li>Provide a valid email and keep credentials secure.</li>
-          <li>You are responsible for activity under your account.</li>
-        </ul>
-        <p><b>3) Acceptable use</b></p>
-        <ul>
-          <li>No unlawful activity, harassment, or harmful content.</li>
-          <li>No reverse engineering/scraping/bypassing security.</li>
-          <li>No sensitive student personal info (IDs, medical info).</li>
-        </ul>
-        <p><b>4) Intellectual property</b></p>
-        <p>
-          The service/design/software are owned by Lessons-Ready/licensors. You retain rights to your inputs.
-          Generated outputs may be used for your classroom/professional use.
-        </p>
-        <p><b>5) Subscription, trial, and billing</b></p>
-        <ul>
-          <li>Free trial: 7 days.</li>
-          <li>After trial: $6.99/month unless changed and communicated.</li>
-          <li>Billing processed by Stripe. Cancel anytime.</li>
-        </ul>
-        <p><b>6) Disclaimers</b></p>
-        <p>The service is provided “as is.” Verify outputs before classroom use.</p>
-        <p><b>7) Limitation of liability</b></p>
-        <p>To the maximum extent permitted by law, Lessons-Ready is not liable for indirect/consequential damages.</p>
-        <p><b>8) Changes</b></p>
-        <p>We may update these Terms. Continued use means you accept updates.</p>
-        <p><b>Contact</b></p>
-        <p>
-          Questions:
-          <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
-            support@lessons-ready.com
-          </a>
-        </p>
-      </div>
+        <div class="policyCard" id="refunds">
+          <details id="refundsDetails">
+            <summary>
+              <span class="sumLeft">
+                <strong>Refund & Cancellation Policy</strong>
+                <span class="policyMeta">Effective date: February 1, 2026</span>
+              </span>
+            </summary>
+            <div class="policyBody">
+              <p><b>Cancel anytime</b></p>
+              <p>After cancellation, access continues through the end of the billing period.</p>
+              <p><b>Refunds</b></p>
+              <p>Unless required by law, no refunds for partial periods/unused time/previous charges.</p>
+              <p><b>Trial</b></p>
+              <p>The free trial lasts 7 days as displayed on the site.</p>
+              <p><b>Billing disputes</b></p>
+              <p>
+                If you believe you were billed in error, contact
+                <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
+                  support@lessons-ready.com
+                </a>.
+              </p>
+            </div>
+          </details>
+        </div>
 
-      <div class="policyCard" id="refunds">
-        <h3>Refund & Cancellation Policy</h3>
-        <div class="policyMeta">Effective date: February 1, 2026</div>
-        <p><b>Cancel anytime</b></p>
-        <p>After cancellation, access continues through the end of the billing period.</p>
-        <p><b>Refunds</b></p>
-        <p>Unless required by law, no refunds for partial periods/unused time/previous charges.</p>
-        <p><b>Trial</b></p>
-        <p>The free trial lasts 7 days as displayed on the site.</p>
-        <p><b>Billing disputes</b></p>
-        <p>
-          If you believe you were billed in error, contact
-          <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
-            support@lessons-ready.com
-          </a>.
-        </p>
-      </div>
-
-      <div class="policyCard" id="contact">
-        <h3>Contact</h3>
-        <div class="policyMeta">Support and business inquiries</div>
-        <p>
-          <b>Business:</b> Lessons-Ready<br />
-          <b>Email:</b>
-          <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
-            support@lessons-ready.com
-          </a><br />
-          <b>Location:</b> Garland, TX, USA
-        </p>
-        <p>For fastest support, include:</p>
-        <ul>
-          <li>the email on your account</li>
-          <li>what you clicked + what you expected to happen</li>
-          <li>any error message shown on screen</li>
-        </ul>
+        <div class="policyCard" id="contact">
+          <details id="contactDetails">
+            <summary>
+              <span class="sumLeft">
+                <strong>Contact</strong>
+                <span class="policyMeta">Support and business inquiries</span>
+              </span>
+            </summary>
+            <div class="policyBody">
+              <p>
+                <b>Business:</b> Lessons-Ready<br />
+                <b>Email:</b>
+                <a href="mailto:support@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
+                  support@lessons-ready.com
+                </a><br />
+                <b>Location:</b> Garland, TX, USA
+              </p>
+              <p>For fastest support, include:</p>
+              <ul>
+                <li>the email on your account</li>
+                <li>what you clicked + what you expected to happen</li>
+                <li>any error message shown on screen</li>
+              </ul>
+            </div>
+          </details>
+        </div>
       </div>
     </div>
 
     <!-- ✅ pdf-lib (needed for Download PDF) -->
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <!-- ✅ Combined UX scripts:
+         - Open App buttons scroll into the app area
+         - Demo loads sample output
+         - Hash links auto-open policy accordions -->
+    <script>
+      console.log("✅ index.html loaded");
+
+      function scrollToEl(el) {
+        if (!el) return;
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+      function setText(id, text) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+      }
+
+      function setOutput(html) {
+        const out = document.getElementById("output");
+        if (!out) return;
+        out.innerHTML = html;
+      }
+
+      function openApp() {
+        const landing = document.getElementById("landingView");
+        const app = document.getElementById("appView");
+        scrollToEl(landing || app);
+      }
+
+      function loadDemo() {
+        setText("statusPill", "Demo loaded");
+        setText("metaLine", "Example output loaded — click Generate when ready.");
+
+        const demoHtml = `
+          <div style="display:grid; gap:10px;">
+            <div style="padding:12px;border:1px solid rgba(255,255,255,0.10);border-radius:14px;background:rgba(255,255,255,0.04);">
+              <b>🧑‍🏫 Lesson Snapshot</b><br/>
+              Grade: 4 • Subject: ELAR • Standard: TEKS 4.8B<br/>
+              Focus: Main idea + supporting evidence (admin-safe, original examples)
+            </div>
+
+            <div style="padding:12px;border:1px solid rgba(255,255,255,0.10);border-radius:14px;background:rgba(255,255,255,0.04);">
+              <b>🎯 I Can</b><br/>
+              I can identify the main idea of a passage and support it with evidence.
+            </div>
+
+            <div style="padding:12px;border:1px solid rgba(255,255,255,0.10);border-radius:14px;background:rgba(255,255,255,0.04);">
+              <b>🧠 Mini-Lesson (I Do)</b>
+              <ul>
+                <li>Define <b>main idea</b> as what the text is mostly about.</li>
+                <li>Model thinking aloud: “What is repeated? What is the author trying to teach me?”</li>
+                <li>Underline 2 details that support the main idea.</li>
+              </ul>
+              <b>✅ CFU:</b> “Which sentence best states the main idea?” (students show 1–4 fingers)
+            </div>
+
+            <div style="padding:12px;border:1px solid rgba(255,255,255,0.10);border-radius:14px;background:rgba(255,255,255,0.04);">
+              <b>🧩 Guided Practice (We Do)</b>
+              <ul>
+                <li>Read a short original paragraph together (teacher reads once, students whisper-read once).</li>
+                <li>Stop-and-jot: “Main idea is…” + “Evidence is…”</li>
+                <li>Share out using sentence stems.</li>
+              </ul>
+              <b>EB Support:</b> Provide sentence stems + visuals (main idea = big message, evidence = proof)
+            </div>
+
+            <div style="padding:12px;border:1px solid rgba(255,255,255,0.10);border-radius:14px;background:rgba(255,255,255,0.04);">
+              <b>📝 Independent Practice (You Do)</b>
+              <ul>
+                <li>Students complete a short organizer: Main Idea + 2 Evidence Details.</li>
+                <li>Fast finishers: write a 1–2 sentence summary using their main idea.</li>
+              </ul>
+              <b>SPED Support:</b> Offer reduced text + highlight two possible evidence sentences.
+            </div>
+
+            <div style="padding:12px;border:1px solid rgba(255,255,255,0.10);border-radius:14px;background:rgba(255,255,255,0.04);">
+              <b>🎟️ Exit Ticket</b><br/>
+              “Write the main idea in one sentence and cite one detail from the text.”
+            </div>
+
+            <div style="padding:12px;border:1px solid rgba(255,77,109,0.10);border:1px solid rgba(255,77,109,0.20);border-radius:14px;background:rgba(255,255,255,0.03);">
+              <b>✨ Want this for your exact unit/lesson?</b><br/>
+              Scroll left, enter your standard + skill focus, and click <b>Generate</b>.
+            </div>
+          </div>
+        `;
+        setOutput(demoHtml);
+        scrollToEl(document.getElementById("output"));
+      }
+
+      function openFromHash() {
+        const map = {
+          privacy: "privacyDetails",
+          terms: "termsDetails",
+          refunds: "refundsDetails",
+          contact: "contactDetails",
+        };
+        const hash = (location.hash || "").replace("#", "");
+        const detailsId = map[hash];
+        if (!detailsId) return;
+
+        const details = document.getElementById(detailsId);
+        if (details && details.tagName.toLowerCase() === "details") {
+          details.open = true;
+          setTimeout(() => {
+            const anchor = document.getElementById(hash);
+            (anchor || details).scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 0);
+        }
+      }
+
+      window.addEventListener("DOMContentLoaded", () => {
+        ["openAppTopBtn","heroOpenAppBtn","pricingOpenAppBtn","dividerOpenAppBtn"].forEach((id) => {
+          const btn = document.getElementById(id);
+          if (btn) btn.addEventListener("click", openApp);
+        });
+
+        ["demoBtn","pricingDemoBtn","dividerDemoBtn"].forEach((id) => {
+          const btn = document.getElementById(id);
+          if (btn) btn.addEventListener("click", loadDemo);
+        });
+
+        window.addEventListener("hashchange", openFromHash);
+        openFromHash();
+      });
+    </script>
 
     <!-- ✅ Your app (Vite / StackBlitz) -->
     <script type="module" src="/src/main.ts"></script>
