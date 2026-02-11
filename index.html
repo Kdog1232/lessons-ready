@@ -199,8 +199,6 @@
         white-space: nowrap;
       }
 
-      .pricingLine { margin: 0; font-size: 13px; color: rgba(255, 255, 255, 0.82); }
-
       .policyJump {
         display: flex;
         gap: 10px;
@@ -247,6 +245,24 @@
         background: linear-gradient(135deg, var(--accent), var(--accent2));
       }
 
+      /* ✅ Founding banner (NEW) */
+      .founding-banner {
+        margin: 6px auto 0;
+        width: fit-content;
+        max-width: 100%;
+        padding: 10px 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 77, 109, 0.28);
+        background:
+          radial-gradient(460px 140px at 15% 0%, rgba(255,77,109,0.18), transparent 60%),
+          radial-gradient(460px 140px at 85% 0%, rgba(43,231,255,0.12), transparent 60%),
+          rgba(255,255,255,0.03);
+        color: rgba(255,255,255,0.90);
+        font-size: 13px;
+        line-height: 1.4;
+        box-shadow: 0 12px 28px rgba(0,0,0,0.18);
+      }
+
       /* ✅ Buttons */
       button {
         border: 0;
@@ -256,7 +272,6 @@
         font-weight: 800;
         font-family: inherit;
       }
-      
 
       .primary {
         flex: 1;
@@ -822,12 +837,10 @@
           <span class="pill">🧠 Original content (no proprietary passages)</span>
         </div>
 
-       <p>
- 
-<div class="founding-banner">
-  🎓 <strong>Founding Educator Rate Locked In </strong> — Limited to first 200 members.
-</div>
-
+        <!-- ✅ FIXED: banner is now valid HTML + styled -->
+        <div class="founding-banner">
+          🎓 <strong>Founding Educator Rate Locked In</strong> — Limited to first 200 members.
+        </div>
 
         <div class="badgeRow" aria-label="Trust badges">
           <div class="badge"><span class="dot" aria-hidden="true"></span> <b>EB + SPED</b> supports built in</div>
@@ -1025,7 +1038,6 @@
                 <button class="secondary" id="forgotPwBtn" type="button">Forgot Password</button>
                 <button class="dangerBtn" id="logOutBtn" type="button" style="display:none;">Log Out</button>
                 <button id="billingBtn_subscribe" type="button">Subscribe / Start Trial</button>
-
               </div>
 
               <div class="msg" id="message"></div>
@@ -1327,7 +1339,6 @@
                 <button class="billing" id="billingBtn_app" type="button" style="display:none;">
                   Manage subscription
                 </button>
-                
 
                 <button class="secondary" id="openLibraryBtn" type="button">Library</button>
                 <button class="secondary" id="closeLibraryBtn" type="button" style="display:none;">Close</button>
@@ -1401,6 +1412,8 @@
 
       <!-- ✅ POLICIES (collapsible accordions) -->
       <div class="policies">
+        <!-- (policies unchanged — keep your existing blocks here exactly as you had them) -->
+
         <div class="policyCard" id="privacy">
           <details id="privacyDetails">
             <summary>
@@ -1709,3 +1722,4 @@
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
+
