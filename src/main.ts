@@ -947,6 +947,30 @@ try {
   const billingBtnApp = getElOpt<HTMLButtonElement>("billingBtn_app"); // app top right
   const billingBtnApp2 = getElOpt<HTMLButtonElement>("billingBtn_app2"); // app secondary
   const logOutBtnApp = getElOpt<HTMLButtonElement>("logOutBtn_app");
+ 
+  // App view billing buttons: show only ONE
+const showApp = loggedIn;
+
+if (showApp) {
+  const active = isSubscribed();
+
+  // Hide the "continue subscription" button when active
+  if (billingBtn) billingBtn.style.display = active ? "none" : "inline-block";
+
+  // Use ONE primary billing button for both states (Subscribe/Manage)
+  if (billingBtnApp) {
+    billingBtnApp.style.display = "inline-block";
+    billingBtnApp.textContent = active ? "Manage subscription" : "Subscribe";
+  }
+
+  // If you have a second billing button, hide it
+  if (billingBtnApp2) billingBtnApp2.style.display = "none";
+} else {
+  if (billingBtn) billingBtn.style.display = "none";
+  if (billingBtnApp) billingBtnApp.style.display = "none";
+  if (billingBtnApp2) billingBtnApp2.style.display = "none";
+}
+
 
   // Form / app UI
   const statusPill = getEl<HTMLElement>("statusPill");
@@ -1204,17 +1228,28 @@ if (billingBtn) {
   if (logOutBtnApp) addOnce(logOutBtnApp, "logout_app", doLogout);
 
   // ✅ Landing billing -> checkout (requires email+password entered; will sign up/login automatically)
-  if (billingBtn) {
-    addOnce(billingBtn, "checkout", async () => {
-      try {
-        clearMessage();
-        showMessage("💳 Opening secure checkout…", true);
+if (billingBtn) {
+  addOnce(billingBtn, "billing_action", async () => {
+    try {
+      clearMessage();
+
+      requireSession(); // ensure logged in
+      await refreshBillingUI(true); // refresh subscription status
+
+      if (!isSubscribed()) {
+        showMessage("💳 Starting subscription…", true);
         await beginCheckout(authEmail, authPassword);
-      } catch (e: any) {
-        showMessage(`Billing: ${esc(e?.message || e)}`, false);
+      } else {
+        showMessage("🔐 Opening Stripe Customer Portal…", true);
+        await openPortal(authEmail, authPassword);
       }
-    });
-  }
+
+    } catch (e: any) {
+      showMessage(`Billing: ${esc(e?.message || e)}`, false);
+    }
+  });
+}
+
 // ✅ Landing subscribe button (billingBtn_subscribe)
 if (billingBtnSubscribe) {
   addOnce(billingBtnSubscribe, "checkout_subscribe", async () => {
