@@ -942,7 +942,8 @@ try {
   const messageApp = getElOpt<HTMLElement>("message_app");
 
   // Billing + top buttons (HTML already has these)
-  const billingBtn = getElOpt<HTMLButtonElement>("billingBtn"); // landing (subscribe/continue)
+  const billingBtnSubscribe = getElOpt<HTMLButtonElement>("billingBtn_subscribe"); // landing subscribe
+  const billingBtn = getElOpt<HTMLButtonElement>("billingBtn"); // app continue subscription
   const billingBtnApp = getElOpt<HTMLButtonElement>("billingBtn_app"); // app top right
   const billingBtnApp2 = getElOpt<HTMLButtonElement>("billingBtn_app2"); // app secondary
   const logOutBtnApp = getElOpt<HTMLButtonElement>("logOutBtn_app");
@@ -1087,10 +1088,16 @@ try {
 
     // Landing view: show only when logged out (your design)
     // If you want landing subscribe even when logged in, change this.
-    if (billingBtn) {
-      billingBtn.style.display = loggedIn ? "none" : "inline-block";
-      billingBtn.textContent = "Start Subscription";
-    }
+   // Landing view subscribe button (only when logged OUT)
+if (billingBtnSubscribe) {
+  billingBtnSubscribe.style.display = loggedIn ? "none" : "inline-block";
+}
+
+// App view continue button (only when logged IN and NOT subscribed)
+if (billingBtn) {
+  billingBtn.style.display = loggedIn && !isSubscribed() ? "inline-block" : "none";
+  billingBtn.textContent = "Continue subscription ($7.99/mo)";
+}
 
     // App view buttons: ALWAYS show when logged in
     const showAppBillingBtns = loggedIn;
@@ -1208,6 +1215,18 @@ try {
       }
     });
   }
+// ✅ Landing subscribe button (billingBtn_subscribe)
+if (billingBtnSubscribe) {
+  addOnce(billingBtnSubscribe, "checkout_subscribe", async () => {
+    try {
+      clearMessage();
+      showMessage("💳 Opening secure checkout…", true);
+      await beginCheckout(authEmail, authPassword);
+    } catch (e: any) {
+      showMessage(`Billing: ${esc(e?.message || e)}`, false);
+    }
+  });
+}
 
   // ✅ App billing buttons -> either Subscribe (checkout) OR Manage (portal) based on subscription
   async function handleAppBillingClick() {
