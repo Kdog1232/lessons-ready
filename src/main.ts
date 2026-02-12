@@ -240,9 +240,13 @@ async function postgrest(
 }
 
 // -------------------------
-// Streaming (SSE) Reader
+// Streaming (SSE) Reader ✅ UPDATED (captures final)
 // -------------------------
-type StreamHooks = { onDelta?: (text: string) => void };
+type StreamHooks = {
+  onDelta?: (text: string) => void;
+  onFinal?: (obj: any) => void;
+  onError?: (obj: any) => void;
+};
 
 async function readSSEStream(
   res: Response,
@@ -257,6 +261,11 @@ async function readSSEStream(
 
   const emitEvent = (eventBlock: string) => {
     const lines = eventBlock.split("\n").map((l) => l.trimEnd());
+
+    // event: <name>
+    const eventLine = lines.find((l) => l.startsWith("event:"));
+    const eventName = eventLine ? eventLine.slice(6).trim() : "";
+
     const dataLines = lines
       .filter((l) => l.startsWith("data:"))
       .map((l) => l.slice(5).trim());
@@ -272,6 +281,30 @@ async function readSSEStream(
         obj = { type: "text", text: d };
       }
 
+      // If backend uses explicit event names
+      if (eventName === "final") {
+        hooks.onFinal?.(obj);
+        continue;
+      }
+      if (eventName === "error") {
+        hooks.onError?.(obj);
+        continue;
+      }
+
+      // If backend encodes event/type inside JSON
+      const inferredType =
+        String(obj?.type || obj?.event || obj?.kind || "").toLowerCase();
+
+      if (inferredType === "final") {
+        hooks.onFinal?.(obj);
+        continue;
+      }
+      if (inferredType === "error") {
+        hooks.onError?.(obj);
+        continue;
+      }
+
+      // Otherwise treat as delta text
       const delta =
         obj?.delta ??
         obj?.text ??
@@ -1867,6 +1900,7 @@ try {
         let liveText = "";
         let lastChunk = "";
         let lastRendered = "";
+        let finalLessonText = ""; // ✅ final cleaned lesson if provided
 
         output.classList.add("typing");
         output.textContent = " ";
@@ -1884,12 +1918,38 @@ try {
                 output.innerHTML = formatLessonToHtml(liveText);
               }
             },
+
+            onFinal: (obj) => {
+              const candidate =
+                obj?.lesson_plan ??
+                obj?.lessonPlan ??
+                obj?.data?.lesson_plan ??
+                obj?.data?.lessonPlan ??
+                obj?.result?.lesson_plan ??
+                obj?.result?.lessonPlan ??
+                "";
+
+              if (typeof candidate === "string" && candidate.trim()) {
+                finalLessonText = candidate;
+              }
+            },
+
+            onError: (obj) => {
+              const msg =
+                obj?.error || obj?.message || obj?.detail || JSON.stringify(obj || {});
+              throw new Error(String(msg));
+            },
           },
           activeStreamAbort.signal,
         );
 
         output.classList.remove("typing");
-        lessonText = liveText;
+
+        // ✅ Final overrides draft
+        lessonText = (finalLessonText || liveText) as string;
+
+        // ✅ Ensure UI shows FINAL (not draft)
+        output.innerHTML = formatLessonToHtml(lessonText);
       } else {
         const raw = await res.text();
         let data: any = null;
@@ -1963,4 +2023,5 @@ try {
   console.error("❌ main.ts crashed:", err);
   alert(String(err?.message || err));
 }
+
 
