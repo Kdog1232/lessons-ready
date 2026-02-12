@@ -800,20 +800,22 @@
     box-shadow: none !important;
     text-shadow: none !important;
     filter: none !important;
-  }
+}
 
-  /* ✅ Show only the output panel content */
-  #outputView, #outputView * {
-    visibility: visible !important;
-  }
+  #output, #output * {
+  visibility: visible !important;
+}
 
-  /* Put output at top-left and full width */
-  #outputView {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 100% !important;
-  }
+#output {
+  position: absolute !important;
+  left: 0 !important;
+  top: 0 !important;
+  width: 100% !important;
+}
+     @media print {
+  button { display: none !important; }
+}
+
 
   /* Make the output look like a normal document */
   #output {
