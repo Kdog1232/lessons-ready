@@ -200,9 +200,7 @@ async function postgrest(
 
   const session = requireSession();
 
-  const url = `${SUPABASE_URL}/rest/v1/${table}${
-    opts.query ? `?${opts.query}` : ""
-  }`;
+  const url = `${SUPABASE_URL}/rest/v1/${table}${opts.query ? `?${opts.query}` : ""}`;
 
   const res = await fetch(url, {
     method,
@@ -802,7 +800,10 @@ async function fetchSubscriptionStatus(force = false) {
       data = { raw };
     }
 
-    if (res.status === 401 || String(data?.error || "").includes("INVALID_SESSION")) {
+    if (
+      res.status === 401 ||
+      String(data?.error || "").includes("INVALID_SESSION")
+    ) {
       setSavedSession(null);
       subscriptionStatus = "unknown";
       setCachedSubStatus("unknown");
@@ -864,7 +865,10 @@ async function beginCheckout(
     throw new Error(raw || "Checkout error.");
   }
 
-  if (res.status === 401 || String(data?.error || "").includes("INVALID_SESSION")) {
+  if (
+    res.status === 401 ||
+    String(data?.error || "").includes("INVALID_SESSION")
+  ) {
     setSavedSession(null);
     throw new Error("Session expired. Log in again, then retry.");
   }
@@ -872,7 +876,8 @@ async function beginCheckout(
   const url = data?.url;
   const ok = data?.ok ?? true;
 
-  if (!res.ok || !ok) throw new Error(data?.error || `Checkout failed (${res.status})`);
+  if (!res.ok || !ok)
+    throw new Error(data?.error || `Checkout failed (${res.status})`);
   if (!url) throw new Error("Checkout URL missing from server response.");
 
   window.location.href = url;
@@ -911,13 +916,17 @@ async function openPortal(
     throw new Error(raw || "Portal error.");
   }
 
-  if (res.status === 401 || String(data?.error || "").includes("INVALID_SESSION")) {
+  if (
+    res.status === 401 ||
+    String(data?.error || "").includes("INVALID_SESSION")
+  ) {
     setSavedSession(null);
     throw new Error("Session expired. Log in again, then retry.");
   }
 
   const url = data?.url;
-  if (!res.ok || !url) throw new Error(data?.error || `Portal failed (${res.status})`);
+  if (!res.ok || !url)
+    throw new Error(data?.error || `Portal failed (${res.status})`);
 
   window.location.href = url;
 }
@@ -945,32 +954,8 @@ try {
   const billingBtnSubscribe = getElOpt<HTMLButtonElement>("billingBtn_subscribe"); // landing subscribe
   const billingBtn = getElOpt<HTMLButtonElement>("billingBtn"); // app continue subscription
   const billingBtnApp = getElOpt<HTMLButtonElement>("billingBtn_app"); // app top right
-  const billingBtnApp2 = getElOpt<HTMLButtonElement>("billingBtn_app2"); // app secondary
+  const billingBtnApp2 = getElOpt<HTMLButtonElement>("billingBtn_app2"); // app secondary (duplicate)
   const logOutBtnApp = getElOpt<HTMLButtonElement>("logOutBtn_app");
- 
-  // App view billing buttons: show only ONE
-const showApp = loggedIn;
-
-if (showApp) {
-  const active = isSubscribed();
-
-  // Hide the "continue subscription" button when active
-  if (billingBtn) billingBtn.style.display = active ? "none" : "inline-block";
-
-  // Use ONE primary billing button for both states (Subscribe/Manage)
-  if (billingBtnApp) {
-    billingBtnApp.style.display = "inline-block";
-    billingBtnApp.textContent = active ? "Manage subscription" : "Subscribe";
-  }
-
-  // If you have a second billing button, hide it
-  if (billingBtnApp2) billingBtnApp2.style.display = "none";
-} else {
-  if (billingBtn) billingBtn.style.display = "none";
-  if (billingBtnApp) billingBtnApp.style.display = "none";
-  if (billingBtnApp2) billingBtnApp2.style.display = "none";
-}
-
 
   // Form / app UI
   const statusPill = getEl<HTMLElement>("statusPill");
@@ -1089,7 +1074,8 @@ if (showApp) {
   }
 
   function refreshPublisherUI() {
-    publisherOtherWrap.style.display = publisher.value === "Other" ? "block" : "none";
+    publisherOtherWrap.style.display =
+      publisher.value === "Other" ? "block" : "none";
   }
 
   function showLibrary(show: boolean) {
@@ -1110,31 +1096,29 @@ if (showApp) {
       await fetchSubscriptionStatus(forceStatus);
     }
 
-    // Landing view: show only when logged out (your design)
-    // If you want landing subscribe even when logged in, change this.
-   // Landing view subscribe button (only when logged OUT)
-if (billingBtnSubscribe) {
-  billingBtnSubscribe.style.display = loggedIn ? "none" : "inline-block";
-}
+    // Landing view subscribe button (only when logged OUT)
+    if (billingBtnSubscribe) {
+      billingBtnSubscribe.style.display = loggedIn ? "none" : "inline-block";
+    }
 
-// App view continue button (only when logged IN and NOT subscribed)
-if (billingBtn) {
-  billingBtn.style.display = loggedIn && !isSubscribed() ? "inline-block" : "none";
-  billingBtn.textContent = "Continue subscription ($7.99/mo)";
-}
+    // App view continue button (only when logged IN and NOT subscribed)
+    if (billingBtn) {
+      billingBtn.style.display =
+        loggedIn && !isSubscribed() ? "inline-block" : "none";
+      billingBtn.textContent = "Continue subscription ($7.99/mo)";
+    }
 
-    // App view buttons: ALWAYS show when logged in
-    const showAppBillingBtns = loggedIn;
+    // ✅ FIX: App view should show only ONE billing button (billingBtn_app)
+    if (billingBtnApp) {
+      billingBtnApp.style.display = loggedIn ? "inline-block" : "none";
+      billingBtnApp.textContent = isSubscribed()
+        ? "Manage Subscription"
+        : "Subscribe";
+    }
 
-    if (billingBtnApp) billingBtnApp.style.display = showAppBillingBtns ? "inline-block" : "none";
-    if (billingBtnApp2) billingBtnApp2.style.display = showAppBillingBtns ? "inline-block" : "none";
-
-    // Label them based on subscription
-    if (showAppBillingBtns) {
-      const active = isSubscribed();
-      const label = active ? "Manage Subscription" : "Subscribe";
-      if (billingBtnApp) billingBtnApp.textContent = label;
-      if (billingBtnApp2) billingBtnApp2.textContent = label;
+    // ✅ FIX: Always hide the duplicate app billing button
+    if (billingBtnApp2) {
+      billingBtnApp2.style.display = "none";
     }
   }
 
@@ -1148,7 +1132,8 @@ if (billingBtn) {
 
     signUpBtn.style.display = loggedIn ? "none" : "inline-block";
     logInBtn.style.display = loggedIn ? "none" : "inline-block";
-    if (forgotPwBtn) forgotPwBtn.style.display = loggedIn ? "none" : "inline-block";
+    if (forgotPwBtn)
+      forgotPwBtn.style.display = loggedIn ? "none" : "inline-block";
     logOutBtn.style.display = loggedIn ? "inline-block" : "none";
 
     setView(loggedIn);
@@ -1227,48 +1212,46 @@ if (billingBtn) {
   addOnce(logOutBtn, "logout", doLogout);
   if (logOutBtnApp) addOnce(logOutBtnApp, "logout_app", doLogout);
 
-  // ✅ Landing billing -> checkout (requires email+password entered; will sign up/login automatically)
-if (billingBtn) {
-  addOnce(billingBtn, "billing_action", async () => {
-    try {
-      clearMessage();
+  // ✅ Continue subscription button (billingBtn) -> checkout if not subscribed, portal if subscribed
+  if (billingBtn) {
+    addOnce(billingBtn, "billing_action", async () => {
+      try {
+        clearMessage();
 
-      requireSession(); // ensure logged in
-      await refreshBillingUI(true); // refresh subscription status
+        requireSession(); // ensure logged in
+        await refreshBillingUI(true); // refresh subscription status
 
-      if (!isSubscribed()) {
-        showMessage("💳 Starting subscription…", true);
-        await beginCheckout(authEmail, authPassword);
-      } else {
-        showMessage("🔐 Opening Stripe Customer Portal…", true);
-        await openPortal(authEmail, authPassword);
+        if (!isSubscribed()) {
+          showMessage("💳 Starting subscription…", true);
+          await beginCheckout(authEmail, authPassword);
+        } else {
+          showMessage("🔐 Opening Stripe Customer Portal…", true);
+          await openPortal(authEmail, authPassword);
+        }
+      } catch (e: any) {
+        showMessage(`Billing: ${esc(e?.message || e)}`, false);
       }
+    });
+  }
 
-    } catch (e: any) {
-      showMessage(`Billing: ${esc(e?.message || e)}`, false);
-    }
-  });
-}
+  // ✅ Landing subscribe button (billingBtn_subscribe)
+  if (billingBtnSubscribe) {
+    addOnce(billingBtnSubscribe, "checkout_subscribe", async () => {
+      try {
+        clearMessage();
+        showMessage("💳 Opening secure checkout…", true);
+        await beginCheckout(authEmail, authPassword);
+      } catch (e: any) {
+        showMessage(`Billing: ${esc(e?.message || e)}`, false);
+      }
+    });
+  }
 
-// ✅ Landing subscribe button (billingBtn_subscribe)
-if (billingBtnSubscribe) {
-  addOnce(billingBtnSubscribe, "checkout_subscribe", async () => {
-    try {
-      clearMessage();
-      showMessage("💳 Opening secure checkout…", true);
-      await beginCheckout(authEmail, authPassword);
-    } catch (e: any) {
-      showMessage(`Billing: ${esc(e?.message || e)}`, false);
-    }
-  });
-}
-
-  // ✅ App billing buttons -> either Subscribe (checkout) OR Manage (portal) based on subscription
+  // ✅ App primary billing button -> Subscribe (checkout) OR Manage (portal)
   async function handleAppBillingClick() {
     try {
       clearMessage();
 
-      // Ensure logged in; if not, the app view shouldn't show these buttons anyway
       requireSession();
 
       // Always refresh status right before deciding
@@ -1283,12 +1266,19 @@ if (billingBtnSubscribe) {
       showMessage("🔐 Opening Stripe Customer Portal…", true);
       await openPortal(authEmail, authPassword);
     } catch (e: any) {
-      showMessage(`${isSubscribed() ? "Portal" : "Subscribe"}: ${esc(e?.message || e)}`, false);
+      showMessage(
+        `${isSubscribed() ? "Portal" : "Subscribe"}: ${esc(e?.message || e)}`,
+        false,
+      );
     }
   }
 
-  if (billingBtnApp) addOnce(billingBtnApp, "app_billing", handleAppBillingClick);
-  if (billingBtnApp2) addOnce(billingBtnApp2, "app_billing2", handleAppBillingClick);
+  if (billingBtnApp)
+    addOnce(billingBtnApp, "app_billing", handleAppBillingClick);
+
+  // NOTE: billingBtnApp2 is intentionally hidden (refreshBillingUI always hides it)
+  if (billingBtnApp2)
+    addOnce(billingBtnApp2, "app_billing2", handleAppBillingClick);
 
   // Paid banner -> also refresh subscription status
   try {
@@ -1337,7 +1327,9 @@ if (billingBtnSubscribe) {
 
   function upsertPreset(name: string, data: Record<string, any>) {
     const presets = loadPresets();
-    const i = presets.findIndex((p) => p.name.toLowerCase() === name.toLowerCase());
+    const i = presets.findIndex(
+      (p) => p.name.toLowerCase() === name.toLowerCase(),
+    );
     const next: Preset = { name, createdAt: Date.now(), data };
     if (i >= 0) presets[i] = next;
     else presets.unshift(next);
@@ -1345,7 +1337,9 @@ if (billingBtnSubscribe) {
   }
 
   function deletePreset(name: string) {
-    const presets = loadPresets().filter((p) => p.name.toLowerCase() !== name.toLowerCase());
+    const presets = loadPresets().filter(
+      (p) => p.name.toLowerCase() !== name.toLowerCase(),
+    );
     savePresets(presets);
   }
 
@@ -2077,5 +2071,4 @@ if (billingBtnSubscribe) {
   console.error("❌ main.ts crashed:", err);
   alert(String(err?.message || err));
 }
-
 
