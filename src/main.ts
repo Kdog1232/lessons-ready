@@ -4,6 +4,8 @@ console.log("✅ src/main.ts loaded");
 // -------------------------
 // ✅ CONFIG
 // -------------------------
+const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
+
 const SUPABASE_FN_URL =
   "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/generate-lesson";
 
