@@ -810,13 +810,21 @@ async function fetchSubscriptionStatus(force = false) {
       return;
     }
 
-    // Accept a few possible shapes from the edge function
+    // ✅ FIX: Treat trialing as subscribed + accept multiple shapes
+    const statusStr = String(
+      data?.status ??
+        data?.subscriptionStatus ??
+        data?.subscription?.status ??
+        data?.customer?.subscription?.status ??
+        data?.data?.status ??
+        data?.data?.subscription?.status ??
+        "",
+    ).toLowerCase();
+
     const active =
       Boolean(data?.active) ||
-      data?.status === "active" ||
-      data?.subscriptionStatus === "active" ||
-      data?.subscription?.status === "active" ||
-      data?.customer?.subscription?.status === "active";
+      Boolean(data?.subscribed) ||
+      ["active", "trialing"].includes(statusStr);
 
     subscriptionStatus = active ? "active" : "inactive";
     setCachedSubStatus(subscriptionStatus);
@@ -952,9 +960,9 @@ try {
 
   // Billing + top buttons (HTML already has these)
   const billingBtnSubscribe = getElOpt<HTMLButtonElement>("billingBtn_subscribe"); // landing subscribe
-  const billingBtn = getElOpt<HTMLButtonElement>("billingBtn"); // app continue subscription
-  const billingBtnApp = getElOpt<HTMLButtonElement>("billingBtn_app"); // app top right
-  const billingBtnApp2 = getElOpt<HTMLButtonElement>("billingBtn_app2"); // app secondary (duplicate)
+  const billingBtn = getElOpt<HTMLButtonElement>("billingBtn"); // legacy / hidden
+  const billingBtnApp = getElOpt<HTMLButtonElement>("billingBtn_app"); // app top right (single source of truth)
+  const billingBtnApp2 = getElOpt<HTMLButtonElement>("billingBtn_app2"); // duplicate (always hidden)
   const logOutBtnApp = getElOpt<HTMLButtonElement>("logOutBtn_app");
 
   // Form / app UI
@@ -1101,14 +1109,12 @@ try {
       billingBtnSubscribe.style.display = loggedIn ? "none" : "inline-block";
     }
 
-    // App view continue button (only when logged IN and NOT subscribed)
+    // ✅ FIX: Hide legacy/duplicate app CTA button
     if (billingBtn) {
-      billingBtn.style.display =
-        loggedIn && !isSubscribed() ? "inline-block" : "none";
-      billingBtn.textContent = "Continue subscription ($7.99/mo)";
+      billingBtn.style.display = "none";
     }
 
-    // ✅ FIX: App view should show only ONE billing button (billingBtn_app)
+    // ✅ Single source of truth: billingBtn_app
     if (billingBtnApp) {
       billingBtnApp.style.display = loggedIn ? "inline-block" : "none";
       billingBtnApp.textContent = isSubscribed()
@@ -1116,7 +1122,7 @@ try {
         : "Subscribe";
     }
 
-    // ✅ FIX: Always hide the duplicate app billing button
+    // ✅ Always hide duplicate button
     if (billingBtnApp2) {
       billingBtnApp2.style.display = "none";
     }
@@ -1212,28 +1218,6 @@ try {
   addOnce(logOutBtn, "logout", doLogout);
   if (logOutBtnApp) addOnce(logOutBtnApp, "logout_app", doLogout);
 
-  // ✅ Continue subscription button (billingBtn) -> checkout if not subscribed, portal if subscribed
-  if (billingBtn) {
-    addOnce(billingBtn, "billing_action", async () => {
-      try {
-        clearMessage();
-
-        requireSession(); // ensure logged in
-        await refreshBillingUI(true); // refresh subscription status
-
-        if (!isSubscribed()) {
-          showMessage("💳 Starting subscription…", true);
-          await beginCheckout(authEmail, authPassword);
-        } else {
-          showMessage("🔐 Opening Stripe Customer Portal…", true);
-          await openPortal(authEmail, authPassword);
-        }
-      } catch (e: any) {
-        showMessage(`Billing: ${esc(e?.message || e)}`, false);
-      }
-    });
-  }
-
   // ✅ Landing subscribe button (billingBtn_subscribe)
   if (billingBtnSubscribe) {
     addOnce(billingBtnSubscribe, "checkout_subscribe", async () => {
@@ -1251,7 +1235,6 @@ try {
   async function handleAppBillingClick() {
     try {
       clearMessage();
-
       requireSession();
 
       // Always refresh status right before deciding
@@ -1276,7 +1259,7 @@ try {
   if (billingBtnApp)
     addOnce(billingBtnApp, "app_billing", handleAppBillingClick);
 
-  // NOTE: billingBtnApp2 is intentionally hidden (refreshBillingUI always hides it)
+  // NOTE: billingBtnApp2 is intentionally hidden, but handler is harmless if present
   if (billingBtnApp2)
     addOnce(billingBtnApp2, "app_billing2", handleAppBillingClick);
 
@@ -1363,7 +1346,6 @@ try {
       lessonCycleTemplate: lessonCycleTemplate?.value ?? "",
       publisherComponents: publisherComponents?.value ?? "",
 
-      // ✅ NEW: (optional) campus/program IDs for presets
       campusId: campusId?.value ?? "",
       programName: programName?.value ?? "",
       curriculumLessonCode: curriculumLessonCode?.value ?? "",
@@ -1391,7 +1373,8 @@ try {
     if (outputStyle && data.outputStyle) outputStyle.value = data.outputStyle;
     if (data.state !== undefined) state.value = data.state;
     if (data.publisher) publisher.value = data.publisher;
-    if (data.publisherOther !== undefined) publisherOther.value = data.publisherOther;
+    if (data.publisherOther !== undefined)
+      publisherOther.value = data.publisherOther;
     if (data.grade) grade.value = data.grade;
     if (data.subject) subject.value = data.subject;
     if (data.standard !== undefined) standard.value = data.standard;
@@ -1403,7 +1386,8 @@ try {
       supportingStandards.value = data.supportingStandards;
     if (lessonLength && data.lessonLength !== undefined)
       lessonLength.value = String(data.lessonLength);
-    if (includeStaar && data.includeStaar !== undefined) includeStaar.value = data.includeStaar;
+    if (includeStaar && data.includeStaar !== undefined)
+      includeStaar.value = data.includeStaar;
 
     if (subNotes && data.subNotes !== undefined) subNotes.value = data.subNotes;
     if (lessonCycleTemplate && data.lessonCycleTemplate !== undefined)
@@ -1411,8 +1395,8 @@ try {
     if (publisherComponents && data.publisherComponents !== undefined)
       publisherComponents.value = data.publisherComponents;
 
-    // ✅ NEW: (optional) campus/program IDs for presets
-    if (campusId && data.campusId !== undefined) campusId.value = String(data.campusId || "");
+    if (campusId && data.campusId !== undefined)
+      campusId.value = String(data.campusId || "");
     if (programName && data.programName !== undefined)
       programName.value = String(data.programName || "");
     if (curriculumLessonCode && data.curriculumLessonCode !== undefined)
@@ -1425,7 +1409,7 @@ try {
     if (checksForUnderstanding && data.checksForUnderstanding !== undefined)
       checksForUnderstanding.checked = !!data.checksForUnderstanding;
     if (writingExtension && data.writingExtension !== undefined)
-      writingExtension.checked = !!writingExtension.checked;
+      writingExtension.checked = !!data.writingExtension;
 
     if (practiceToggle && data.practiceToggle !== undefined)
       practiceToggle.checked = !!data.practiceToggle;
@@ -1866,14 +1850,13 @@ try {
         publisherOther: pubOther,
         state: st,
 
-        grade: gradeValue, // numeric for backend
-        gradeLabel: grade.value, // also send label (K, 1, 2...)
+        grade: gradeValue,
+        gradeLabel: grade.value,
         subject: subject.value.trim(),
         standard: standard.value.trim(),
         curriculumUnit: unit.value.trim(),
         curriculumLesson: lesson.value.trim(),
 
-        // ✅ DB-powered identifiers (optional but recommended)
         campusId: campusId?.value?.trim() || null,
         programName: programName?.value?.trim() || null,
         curriculumLessonCode: curriculumLessonCode?.value?.trim() || null,
@@ -1948,7 +1931,7 @@ try {
         let liveText = "";
         let lastChunk = "";
         let lastRendered = "";
-        let finalLessonText = ""; // ✅ final cleaned lesson if provided
+        let finalLessonText = "";
 
         output.classList.add("typing");
         output.textContent = " ";
@@ -1993,10 +1976,7 @@ try {
 
         output.classList.remove("typing");
 
-        // ✅ Final overrides draft
         lessonText = (finalLessonText || liveText) as string;
-
-        // ✅ Ensure UI shows FINAL (not draft)
         output.innerHTML = formatLessonToHtml(lessonText);
       } else {
         const raw = await res.text();
