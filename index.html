@@ -848,38 +848,6 @@
         .logoImg { height: 96px; }
         .mGrid { grid-template-columns: 1fr; }
         .pricingWrap { grid-template-columns: 1fr; }
-           @media print {
-  body * {
-    visibility: hidden !important;
-  }
-
-  #outputView,
-  #outputView * {
-    visibility: visible !important;
-  }
-
-  #outputView {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-  }
-
-  #landingView,
-  #libraryView,
-  header,
-  nav,
-  footer,
-  button {
-    display: none !important;
-  }
-
-  body {
-    margin: 0;
-    background: white !important;
-  }
-}
-
       }
       @media (max-width: 520px) {
         .logoImg { height: 84px; }
