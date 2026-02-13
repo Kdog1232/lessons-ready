@@ -7,14 +7,14 @@ console.log("✅ src/main.ts loaded");
 const SUPABASE_FN_URL =
   "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/generate-lesson";
 
-// ✅ Dynamic billing endpoint (checkout + portal + status)
+// ✅ Checkout MUST use create-checkout-session (tier pricing + correct Stripe session)
 const SUPABASE_BILLING_FN_URL =
-  "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/dynamic-api";
+  "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/create-checkout-session";
 
+// ✅ Portal + Status use dynamic-api
 const SUPABASE_PORTAL_FN_URL =
   "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/dynamic-api";
 
-const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 
 // ✅ Supabase anon/public key
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
