@@ -6,6 +6,7 @@ console.log("✅ src/main.ts loaded");
 // -------------------------
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 
+// ✅ Lesson generation (keep as-is)
 const SUPABASE_FN_URL =
   "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/generate-lesson";
 
@@ -13,10 +14,13 @@ const SUPABASE_FN_URL =
 const SUPABASE_BILLING_FN_URL =
   "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/create-checkout-session";
 
-// ✅ Portal + Status use dynamic-api
+// ✅ Portal uses dynamic-api
 const SUPABASE_PORTAL_FN_URL =
   "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/dynamic-api";
 
+// ✅ Status uses dynamic-api (separate const so we never accidentally point it at checkout)
+const SUPABASE_STATUS_FN_URL =
+  "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/dynamic-api";
 
 // ✅ Supabase anon/public key
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
@@ -710,7 +714,7 @@ function normalizeMode(v: string) {
 }
 
 // -------------------------
-// Stripe Checkout + Portal ✅ dynamic-api actions
+// Stripe Checkout + Portal
 // -------------------------
 async function ensureLoggedInForBilling(
   authEmail: HTMLInputElement,
@@ -784,7 +788,8 @@ async function fetchSubscriptionStatus(force = false) {
     const anon = getAnonKey();
     const session = requireSession();
 
-    const res = await fetch(SUPABASE_BILLING_FN_URL, {
+    // ✅ IMPORTANT: STATUS must hit dynamic-api (NOT create-checkout-session)
+    const res = await fetch(SUPABASE_STATUS_FN_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -812,7 +817,7 @@ async function fetchSubscriptionStatus(force = false) {
       return;
     }
 
-    // ✅ FIX: Treat trialing as subscribed + accept multiple shapes
+    // ✅ Treat trialing as active + accept multiple shapes
     const statusStr = String(
       data?.status ??
         data?.subscriptionStatus ??
@@ -849,6 +854,7 @@ async function beginCheckout(
   if (!stripe)
     console.warn("⚠️ Stripe.js not found (index.html should include it).");
 
+  // ✅ IMPORTANT: create-checkout-session should NOT receive { action: "checkout" }
   const res = await fetch(SUPABASE_BILLING_FN_URL, {
     method: "POST",
     headers: {
@@ -857,7 +863,6 @@ async function beginCheckout(
       Authorization: `Bearer ${session.access_token}`,
     },
     body: JSON.stringify({
-      action: "checkout",
       success_url: getPortalReturnUrl() + "?paid=1",
       cancel_url: window.location.href,
 
@@ -883,7 +888,7 @@ async function beginCheckout(
     throw new Error("Session expired. Log in again, then retry.");
   }
 
-  const url = data?.url;
+  const url = data?.url || data?.checkout_url || data?.checkoutUrl;
   const ok = data?.ok ?? true;
 
   if (!res.ok || !ok)
@@ -961,10 +966,13 @@ try {
   const messageApp = getElOpt<HTMLElement>("message_app");
 
   // Billing + top buttons (HTML already has these)
-  const billingBtnSubscribe = getElOpt<HTMLButtonElement>("billingBtn_subscribe"); // landing subscribe
+  const billingBtnSubscribe =
+    getElOpt<HTMLButtonElement>("billingBtn_subscribe"); // landing subscribe
   const billingBtn = getElOpt<HTMLButtonElement>("billingBtn"); // legacy / hidden
-  const billingBtnApp = getElOpt<HTMLButtonElement>("billingBtn_app"); // app top right (single source of truth)
-  const billingBtnApp2 = getElOpt<HTMLButtonElement>("billingBtn_app2"); // duplicate (always hidden)
+  const billingBtnApp =
+    getElOpt<HTMLButtonElement>("billingBtn_app"); // app top right (single source of truth)
+  const billingBtnApp2 =
+    getElOpt<HTMLButtonElement>("billingBtn_app2"); // duplicate (always hidden)
   const logOutBtnApp = getElOpt<HTMLButtonElement>("logOutBtn_app");
 
   // Form / app UI
@@ -988,8 +996,10 @@ try {
   const lessonLength = getElOpt<HTMLInputElement>("lessonLength");
   const includeStaar = getElOpt<HTMLSelectElement>("includeStaar");
   const subNotes = getElOpt<HTMLTextAreaElement>("subNotes");
-  const lessonCycleTemplate = getElOpt<HTMLSelectElement>("lessonCycleTemplate");
-  const publisherComponents = getElOpt<HTMLTextAreaElement>("publisherComponents");
+  const lessonCycleTemplate =
+    getElOpt<HTMLSelectElement>("lessonCycleTemplate");
+  const publisherComponents =
+    getElOpt<HTMLTextAreaElement>("publisherComponents");
 
   // ✅ Campus / Program (DB-powered accuracy) — optional inputs/hidden fields
   const campusId = getElOpt<HTMLInputElement>("campusId"); // hidden or input
@@ -1111,7 +1121,7 @@ try {
       billingBtnSubscribe.style.display = loggedIn ? "none" : "inline-block";
     }
 
-    // ✅ FIX: Hide legacy/duplicate app CTA button
+    // ✅ Hide legacy/duplicate app CTA button
     if (billingBtn) {
       billingBtn.style.display = "none";
     }
@@ -1383,7 +1393,8 @@ try {
     if (data.unit !== undefined) unit.value = data.unit;
     if (data.lesson !== undefined) lesson.value = data.lesson;
 
-    if (skillFocus && data.skillFocus !== undefined) skillFocus.value = data.skillFocus;
+    if (skillFocus && data.skillFocus !== undefined)
+      skillFocus.value = data.skillFocus;
     if (supportingStandards && data.supportingStandards !== undefined)
       supportingStandards.value = data.supportingStandards;
     if (lessonLength && data.lessonLength !== undefined)
@@ -1404,8 +1415,10 @@ try {
     if (curriculumLessonCode && data.curriculumLessonCode !== undefined)
       curriculumLessonCode.value = String(data.curriculumLessonCode || "");
 
-    if (ebSupport && data.ebSupport !== undefined) ebSupport.checked = !!data.ebSupport;
-    if (spedSupport && data.spedSupport !== undefined) spedSupport.checked = !!data.spedSupport;
+    if (ebSupport && data.ebSupport !== undefined)
+      ebSupport.checked = !!data.ebSupport;
+    if (spedSupport && data.spedSupport !== undefined)
+      spedSupport.checked = !!data.spedSupport;
     if (vocabularyFocus && data.vocabularyFocus !== undefined)
       vocabularyFocus.checked = !!data.vocabularyFocus;
     if (checksForUnderstanding && data.checksForUnderstanding !== undefined)
@@ -1415,10 +1428,14 @@ try {
 
     if (practiceToggle && data.practiceToggle !== undefined)
       practiceToggle.checked = !!data.practiceToggle;
-    if (practiceGenre && data.practiceGenre !== undefined) practiceGenre.value = data.practiceGenre;
-    if (slangLevel && data.slangLevel !== undefined) slangLevel.value = data.slangLevel;
-    if (practiceTopic && data.practiceTopic !== undefined) practiceTopic.value = data.practiceTopic;
-    if (allowTrendy && data.allowTrendy !== undefined) allowTrendy.value = data.allowTrendy;
+    if (practiceGenre && data.practiceGenre !== undefined)
+      practiceGenre.value = data.practiceGenre;
+    if (slangLevel && data.slangLevel !== undefined)
+      slangLevel.value = data.slangLevel;
+    if (practiceTopic && data.practiceTopic !== undefined)
+      practiceTopic.value = data.practiceTopic;
+    if (allowTrendy && data.allowTrendy !== undefined)
+      allowTrendy.value = data.allowTrendy;
 
     if (worksheetToggle && data.worksheetToggle !== undefined)
       worksheetToggle.checked = !!data.worksheetToggle;
@@ -1524,8 +1541,10 @@ try {
 
     libraryList.innerHTML = data
       .map((r: any) => {
-        const title = `Grade ${r.grade ?? "?"} • ${r.subject ?? ""} • ${r.standard ?? ""}`.trim();
-        const metaTxt = `${r.publisher ?? ""}${r.state ? ` • ${r.state}` : ""} • ${r.curriculum_unit ?? ""} ${r.curriculum_lesson ?? ""}`.trim();
+        const title =
+          `Grade ${r.grade ?? "?"} • ${r.subject ?? ""} • ${r.standard ?? ""}`.trim();
+        const metaTxt =
+          `${r.publisher ?? ""}${r.state ? ` • ${r.state}` : ""} • ${r.curriculum_unit ?? ""} ${r.curriculum_lesson ?? ""}`.trim();
         const star = r.is_favorite ? "★" : "☆";
 
         return `
@@ -1593,9 +1612,12 @@ try {
         lastLessonId = data.id;
         lastLessonFavorite = Boolean(data.is_favorite);
         favoriteBtn.disabled = false;
-        favoriteBtn.textContent = lastLessonFavorite ? "★ Favorited" : "☆ Favorite";
+        favoriteBtn.textContent = lastLessonFavorite
+          ? "★ Favorited"
+          : "☆ Favorite";
 
-        output.innerHTML = data.lesson_html || formatLessonToHtml(data.lesson_text || "");
+        output.innerHTML =
+          data.lesson_html || formatLessonToHtml(data.lesson_text || "");
         lastLessonPlainText = htmlToPlainText(output.innerHTML);
         downloadPdfBtn.disabled = !lastLessonPlainText.trim();
 
@@ -1746,9 +1768,16 @@ try {
   function validateSkillFocus(): { ok: boolean; message?: string } {
     if (!skillFocus) return { ok: true };
     const sf = skillFocus.value.trim();
-    if (!sf) return { ok: false, message: "Skill Focus is required (1–2 sentences)." };
+    if (!sf)
+      return {
+        ok: false,
+        message: "Skill Focus is required (1–2 sentences).",
+      };
     if (sf.length > 420)
-      return { ok: false, message: "Skill Focus is too long. Keep it under ~420 characters." };
+      return {
+        ok: false,
+        message: "Skill Focus is too long. Keep it under ~420 characters.",
+      };
     return { ok: true };
   }
 
@@ -1756,7 +1785,10 @@ try {
     const p = publisher.value;
     if (p === "Other") {
       const other = publisherOther.value.trim();
-      return { publisher: "Other", publisherOther: other || "Other (unspecified)" };
+      return {
+        publisher: "Other",
+        publisherOther: other || "Other (unspecified)",
+      };
     }
     return { publisher: p };
   }
@@ -1766,7 +1798,9 @@ try {
     if (!enabled) return null;
 
     const b = worksheetBeginnerCount ? Number(worksheetBeginnerCount.value) : NaN;
-    const i = worksheetIntermediateCount ? Number(worksheetIntermediateCount.value) : NaN;
+    const i = worksheetIntermediateCount
+      ? Number(worksheetIntermediateCount.value)
+      : NaN;
     const a = worksheetAdvancedCount ? Number(worksheetAdvancedCount.value) : NaN;
 
     return {
@@ -1873,14 +1907,18 @@ try {
       if (subNotes) payload.subNotes = subNotes.value.trim();
       if (lessonCycleTemplate)
         payload.districtLessonCycleName = lessonCycleTemplate.value || "";
-      if (publisherComponents) payload.publisherComponents = publisherComponents.value.trim();
-      if (supportingStandards) payload.supportingStandards = supportingStandards.value.trim();
+      if (publisherComponents)
+        payload.publisherComponents = publisherComponents.value.trim();
+      if (supportingStandards)
+        payload.supportingStandards = supportingStandards.value.trim();
 
       payload.options = {
         ebSupport: ebSupport ? !!ebSupport.checked : true,
         spedSupport: spedSupport ? !!spedSupport.checked : true,
         vocabularyFocus: vocabularyFocus ? !!vocabularyFocus.checked : true,
-        checksForUnderstanding: checksForUnderstanding ? !!checksForUnderstanding.checked : true,
+        checksForUnderstanding: checksForUnderstanding
+          ? !!checksForUnderstanding.checked
+          : true,
         writingExtension: writingExtension ? !!writingExtension.checked : false,
         subNotes: subNotes ? subNotes.value.trim() : "",
       };
