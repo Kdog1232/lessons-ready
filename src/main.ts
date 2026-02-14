@@ -733,9 +733,17 @@ async function ensureLoggedInForBilling(
     return await signUp(email, pw);
   }
 }
- type SubscriptionState = "unknown" | "active" | "inactive";
 
-let subscriptionRawStatus: string = "unknown"; // "trialing", "active", etc.
+// -------------------------
+// ✅ Subscription state (cached) FIXED (no duplicate types, caches raw status)
+// -------------------------
+type SubscriptionState = "unknown" | "active" | "inactive";
+
+let subscriptionStatus: SubscriptionState = "unknown";
+let subscriptionRawStatus = "unknown"; // "trialing", "active", "canceled", etc.
+
+const LS_SUB_STATUS_KEY = "lr_subscription_status_v1";
+const LS_SUB_STATUS_TS_KEY = "lr_subscription_status_ts_v1";
 
 function isTrialing() {
   return subscriptionStatus === "active" && subscriptionRawStatus === "trialing";
@@ -745,51 +753,52 @@ function isPaidActive() {
   return subscriptionStatus === "active" && subscriptionRawStatus === "active";
 }
 
-
-const LS_SUB_STATUS_KEY = "lr_subscription_status_v1";
-const LS_SUB_STATUS_TS_KEY = "lr_subscription_status_ts_v1";
-
-function getCachedSubStatus(): { status: SubscriptionState; ts: number } {
-  try {
-    const status = (localStorage.getItem(LS_SUB_STATUS_KEY) ||
-      "unknown") as SubscriptionState;
-    const ts = Number(localStorage.getItem(LS_SUB_STATUS_TS_KEY) || "0");
-    return { status, ts: Number.isFinite(ts) ? ts : 0 };
-  } catch {
-    return { status: "unknown", ts: 0 };
-  }
-}
-
-function setCachedSubStatus(status: SubscriptionState) {
-  try {
-    localStorage.setItem(LS_SUB_STATUS_KEY, status);
-    localStorage.setItem(LS_SUB_STATUS_TS_KEY, String(Date.now()));
-  } catch {}
-}
-
-let subscriptionStatus: SubscriptionState = getCachedSubStatus().status;
-let subscriptionStatusLoading = false;
-
 function isSubscribed(): boolean {
   return subscriptionStatus === "active";
 }
 
+function loadCachedSubStatus(maxAgeMs = 60_000) {
+  try {
+    const ts = Number(localStorage.getItem(LS_SUB_STATUS_TS_KEY) || "0");
+    if (!ts || Date.now() - ts > maxAgeMs) return false;
+
+    const parsed = JSON.parse(localStorage.getItem(LS_SUB_STATUS_KEY) || "{}");
+    const st = String(parsed?.status || "unknown") as SubscriptionState;
+    const raw = String(parsed?.raw || "unknown").toLowerCase();
+
+    if (st === "active" || st === "inactive" || st === "unknown") {
+      subscriptionStatus = st;
+      subscriptionRawStatus = raw || "unknown";
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+function setCachedSubStatus(status: SubscriptionState, raw?: string) {
+  subscriptionStatus = status;
+  if (raw) subscriptionRawStatus = raw;
+
+  try {
+    localStorage.setItem(
+      LS_SUB_STATUS_KEY,
+      JSON.stringify({ status: subscriptionStatus, raw: subscriptionRawStatus }),
+    );
+    localStorage.setItem(LS_SUB_STATUS_TS_KEY, String(Date.now()));
+  } catch {}
+}
+
+let subscriptionStatusLoading = false;
+
 async function fetchSubscriptionStatus(force = false) {
   const s = getSavedSession();
   if (!s?.access_token) {
-    subscriptionStatus = "unknown";
-    setCachedSubStatus("unknown");
+    setCachedSubStatus("unknown", "unknown");
     return;
   }
 
-  const cache = getCachedSubStatus();
-  const ageMs = Date.now() - (cache.ts || 0);
-
-  // refresh at most every ~60 seconds unless forced
-  if (!force && cache.status !== "unknown" && ageMs < 60_000) {
-    subscriptionStatus = cache.status;
-    return;
-  }
+  // use cache for 60s unless forced
+  if (!force && loadCachedSubStatus(60_000)) return;
 
   if (subscriptionStatusLoading) return;
   subscriptionStatusLoading = true;
@@ -809,12 +818,12 @@ async function fetchSubscriptionStatus(force = false) {
       body: JSON.stringify({ action: "status" }),
     });
 
-    const raw = await res.text();
+    const rawText = await res.text();
     let data: any = {};
     try {
-      data = raw ? JSON.parse(raw) : {};
+      data = rawText ? JSON.parse(rawText) : {};
     } catch {
-      data = { raw };
+      data = { raw: rawText };
     }
 
     if (
@@ -822,12 +831,10 @@ async function fetchSubscriptionStatus(force = false) {
       String(data?.error || "").includes("INVALID_SESSION")
     ) {
       setSavedSession(null);
-      subscriptionStatus = "unknown";
-      setCachedSubStatus("unknown");
+      setCachedSubStatus("unknown", "unknown");
       return;
     }
 
-    // ✅ Treat trialing as active + accept multiple shapes
     const statusStr = String(
       data?.status ??
         data?.subscriptionStatus ??
@@ -837,18 +844,17 @@ async function fetchSubscriptionStatus(force = false) {
         data?.data?.subscription?.status ??
         "",
     ).toLowerCase();
-    subscriptionRawStatus = statusStr || "unknown";
 
+    const rawStatus = statusStr || "unknown";
 
     const active =
       Boolean(data?.active) ||
       Boolean(data?.subscribed) ||
-      ["active", "trialing"].includes(statusStr);
+      ["active", "trialing"].includes(rawStatus);
 
-    subscriptionStatus = active ? "active" : "inactive";
-    setCachedSubStatus(subscriptionStatus);
+    setCachedSubStatus(active ? "active" : "inactive", rawStatus);
   } catch {
-    // if status call fails, don't break the UI — keep last known
+    // keep last known; don't break UI
   } finally {
     subscriptionStatusLoading = false;
   }
@@ -992,17 +998,18 @@ try {
   const metaLineEl = getEl<HTMLElement>("metaLine");
 
   const mode = getEl<HTMLSelectElement>("mode");
-  function enforceModeAccess() {
-  // Paid users: unlock modes
-  if (isPaidActive()) {
-    mode.disabled = false;
-    return;
-  }
 
-  // Trial or not subscribed: lock to Full Lesson only
-  mode.value = "full_lesson";
-  mode.disabled = true;
-}
+  function enforceModeAccess() {
+    // Paid users: unlock modes
+    if (isPaidActive()) {
+      mode.disabled = false;
+      return;
+    }
+
+    // Trial or not subscribed: lock to Full Lesson only
+    mode.value = "full_lesson";
+    mode.disabled = true;
+  }
 
   const outputStyle = getElOpt<HTMLSelectElement>("outputStyle");
   const state = getEl<HTMLSelectElement>("state");
@@ -1134,8 +1141,7 @@ try {
     const loggedIn = Boolean(s?.access_token);
 
     if (!loggedIn) {
-      subscriptionStatus = "unknown";
-      setCachedSubStatus("unknown");
+      setCachedSubStatus("unknown", "unknown");
     } else {
       await fetchSubscriptionStatus(forceStatus);
       enforceModeAccess();
@@ -1220,7 +1226,7 @@ try {
       await logIn(email, pw);
       showMessage("Logged in ✅", true);
       await refreshBillingUI(true);
-            enforceModeAccess();
+      enforceModeAccess();
 
       refreshAuthUI();
     } catch (e: any) {
@@ -1250,8 +1256,7 @@ try {
     favoriteBtn.textContent = "☆ Favorite";
     favoriteBtn.disabled = true;
 
-    subscriptionStatus = "unknown";
-    setCachedSubStatus("unknown");
+    setCachedSubStatus("unknown", "unknown");
 
     refreshAuthUI();
   }
@@ -1649,10 +1654,10 @@ try {
           data.lesson_html || formatLessonToHtml(data.lesson_text || "");
         lastLessonPlainText = htmlToPlainText(output.innerHTML);
         downloadPdfBtn.disabled = !lastLessonPlainText.trim();
-        // ✅ Show Feedback Garage when opening a saved lesson
-const feedbackGarage = getElOpt<HTMLElement>("feedbackGarage");
-if (feedbackGarage) feedbackGarage.style.display = "block";
 
+        // ✅ Show Feedback Garage when opening a saved lesson
+        const feedbackGarage = getElOpt<HTMLElement>("feedbackGarage");
+        if (feedbackGarage) feedbackGarage.style.display = "block";
 
         if (action === "pdf") {
           const filename = safeName(
@@ -1873,12 +1878,12 @@ if (feedbackGarage) feedbackGarage.style.display = "block";
     output.innerHTML = "";
     lastLessonPlainText = "";
     downloadPdfBtn.disabled = true;
-    // ✅ Hide Feedback Garage until we have a fresh lesson
-const garage = getElOpt<HTMLElement>("feedbackGarage");
-if (garage) garage.style.display = "none";
-const fbStatus = getElOpt<HTMLElement>("feedbackStatus");
-if (fbStatus) fbStatus.innerHTML = "";
 
+    // ✅ Hide Feedback Garage until we have a fresh lesson
+    const garage = getElOpt<HTMLElement>("feedbackGarage");
+    if (garage) garage.style.display = "none";
+    const fbStatus = getElOpt<HTMLElement>("feedbackStatus");
+    if (fbStatus) fbStatus.innerHTML = "";
 
     generateBtn.disabled = true;
     setStatus("Working…");
@@ -2076,9 +2081,7 @@ if (fbStatus) fbStatus.innerHTML = "";
       downloadPdfBtn.disabled = !lastLessonPlainText.trim();
 
       // ✅ Show Feedback Garage after output renders
-const garage = getElOpt<HTMLElement>("feedbackGarage");
-if (garage) garage.style.display = "block";
-
+      if (garage) garage.style.display = "block";
 
       const row = {
         user_id: session.user.id,
@@ -2127,6 +2130,9 @@ if (garage) garage.style.display = "block";
     }
   });
 
+  // ✅ Load subscription cache ASAP so UI doesn’t flash “unknown”
+  loadCachedSubStatus(60_000);
+
   // Initial UI state
   setStatus("Idle");
   setMeta("Ready when you are.");
@@ -2136,4 +2142,3 @@ if (garage) garage.style.display = "block";
   console.error("❌ main.ts crashed:", err);
   alert(String(err?.message || err));
 }
-
