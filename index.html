@@ -1429,6 +1429,41 @@
               <button class="secondary" id="favoriteBtn" type="button" disabled>☆ Favorite</button>
             </div>
             <div id="output">(nothing yet)</div>
+               <!-- 🔧 Lesson Tune-Up Garage -->
+<!-- 🔧 Lesson Tune-Up Garage -->
+<div id="feedbackGarage" class="authBox" style="margin-top:12px; display:none;">
+  <div class="sectionTitle" style="margin-top:0;">Feedback</div>
+
+  <p class="miniHelp" style="margin-top:0;">
+    🔧 <b>Lesson Tune-Up Garage:</b> Help us fine-tune lesson quality + alignment. (No student data.)
+  </p>
+
+  <label for="feedbackCategory">Focus Area</label>
+  <select id="feedbackCategory" style="margin-top:6px; margin-bottom:10px;">
+    <option value="" selected>Select one</option>
+    <option value="alignment">Alignment accuracy</option>
+    <option value="scaffolds">EB/SPED scaffolds</option>
+    <option value="practice">Practice quality</option>
+    <option value="exports">Export formatting</option>
+    <option value="other">Other</option>
+  </select>
+
+  <textarea
+    id="feedbackText"
+    placeholder="Example: The CFU ladder needs a harder Tier 3..."
+    rows="4"
+    style="margin-bottom:10px;"
+  ></textarea>
+
+  <div class="btnRow" style="margin-top:0;">
+    <button class="secondary" id="submitFeedbackBtn" type="button">
+      Submit Feedback
+    </button>
+  </div>
+
+  <div class="msg" id="feedbackStatus"></div>
+</div>
+         
           </div>
 
           <div id="libraryView" style="display:none;">
