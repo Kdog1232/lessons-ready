@@ -733,8 +733,18 @@ async function ensureLoggedInForBilling(
     return await signUp(email, pw);
   }
 }
+ type SubscriptionState = "unknown" | "active" | "inactive";
 
-type SubscriptionState = "unknown" | "active" | "inactive";
+let subscriptionRawStatus: string = "unknown"; // "trialing", "active", etc.
+
+function isTrialing() {
+  return subscriptionStatus === "active" && subscriptionRawStatus === "trialing";
+}
+
+function isPaidActive() {
+  return subscriptionStatus === "active" && subscriptionRawStatus === "active";
+}
+
 
 const LS_SUB_STATUS_KEY = "lr_subscription_status_v1";
 const LS_SUB_STATUS_TS_KEY = "lr_subscription_status_ts_v1";
@@ -827,6 +837,8 @@ async function fetchSubscriptionStatus(force = false) {
         data?.data?.subscription?.status ??
         "",
     ).toLowerCase();
+    subscriptionRawStatus = statusStr || "unknown";
+
 
     const active =
       Boolean(data?.active) ||
@@ -980,6 +992,18 @@ try {
   const metaLineEl = getEl<HTMLElement>("metaLine");
 
   const mode = getEl<HTMLSelectElement>("mode");
+  function enforceModeAccess() {
+  // Paid users: unlock modes
+  if (isPaidActive()) {
+    mode.disabled = false;
+    return;
+  }
+
+  // Trial or not subscribed: lock to Full Lesson only
+  mode.value = "full_lesson";
+  mode.disabled = true;
+}
+
   const outputStyle = getElOpt<HTMLSelectElement>("outputStyle");
   const state = getEl<HTMLSelectElement>("state");
   const publisher = getEl<HTMLSelectElement>("publisher");
@@ -1114,6 +1138,7 @@ try {
       setCachedSubStatus("unknown");
     } else {
       await fetchSubscriptionStatus(forceStatus);
+      enforceModeAccess();
     }
 
     // Landing view subscribe button (only when logged OUT)
@@ -1177,6 +1202,8 @@ try {
       await signUp(email, pw);
       showMessage("Account created ✅ Logged in.", true);
       await refreshBillingUI(true);
+      enforceModeAccess();
+
       refreshAuthUI();
     } catch (e: any) {
       showMessage(`Sign up failed: ${esc(e?.message || e)}`, false);
@@ -1193,6 +1220,8 @@ try {
       await logIn(email, pw);
       showMessage("Logged in ✅", true);
       await refreshBillingUI(true);
+            enforceModeAccess();
+
       refreshAuthUI();
     } catch (e: any) {
       showMessage(`Login failed: ${esc(e?.message || e)}`, false);
@@ -2102,6 +2131,7 @@ if (garage) garage.style.display = "block";
   setStatus("Idle");
   setMeta("Ready when you are.");
   refreshAuthUI();
+  enforceModeAccess();
 } catch (err: any) {
   console.error("❌ main.ts crashed:", err);
   alert(String(err?.message || err));
