@@ -1620,6 +1620,10 @@ try {
           data.lesson_html || formatLessonToHtml(data.lesson_text || "");
         lastLessonPlainText = htmlToPlainText(output.innerHTML);
         downloadPdfBtn.disabled = !lastLessonPlainText.trim();
+        // ✅ Show Feedback Garage when opening a saved lesson
+const feedbackGarage = getElOpt<HTMLElement>("feedbackGarage");
+if (feedbackGarage) feedbackGarage.style.display = "block";
+
 
         if (action === "pdf") {
           const filename = safeName(
@@ -1840,6 +1844,12 @@ try {
     output.innerHTML = "";
     lastLessonPlainText = "";
     downloadPdfBtn.disabled = true;
+    // ✅ Hide Feedback Garage until we have a fresh lesson
+const garage = getElOpt<HTMLElement>("feedbackGarage");
+if (garage) garage.style.display = "none";
+const fbStatus = getElOpt<HTMLElement>("feedbackStatus");
+if (fbStatus) fbStatus.innerHTML = "";
+
 
     generateBtn.disabled = true;
     setStatus("Working…");
@@ -2035,6 +2045,11 @@ try {
       output.innerHTML = formatLessonToHtml(lessonText);
       lastLessonPlainText = htmlToPlainText(output.innerHTML);
       downloadPdfBtn.disabled = !lastLessonPlainText.trim();
+
+      // ✅ Show Feedback Garage after output renders
+const garage = getElOpt<HTMLElement>("feedbackGarage");
+if (garage) garage.style.display = "block";
+
 
       const row = {
         user_id: session.user.id,
