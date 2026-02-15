@@ -103,6 +103,101 @@ function addOnce(el: HTMLElement | null, key: string, fn: () => void) {
   el.addEventListener("click", fn);
 }
 
+/**
+ * ✅ PRINT FIX (NORMAL PRINT LAYOUT)
+ * This prints ONLY the lesson output, using a clean document in a hidden iframe.
+ * It avoids “shrunk/tiny” print caused by app CSS or fixed positioning.
+ */
+function printOutputHtml(opts: { title: string; metaLine: string; bodyHtml: string }) {
+  const { title, metaLine, bodyHtml } = opts;
+
+  const css = `
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; background: #fff; color: #000; font-family: Inter, Arial, sans-serif; }
+    .page { padding: 1in; }
+    h1 { font-size: 18pt; margin: 0 0 10pt; }
+    .meta { font-size: 10.5pt; color: #222; margin: 0 0 12pt; }
+    hr { border: 0; border-top: 1px solid #bbb; margin: 10pt 0 14pt; }
+    p { margin: 8pt 0; font-size: 11pt; line-height: 1.35; }
+    ul, ol { margin: 8pt 0 8pt 18pt; font-size: 11pt; line-height: 1.35; }
+    li { margin: 4pt 0; }
+    b, strong { font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; margin: 10pt 0; }
+    th, td { border: 1px solid #000; padding: 6pt 6pt; vertical-align: top; font-size: 10.5pt; }
+    th { background: #f2f2f2; }
+    a { color: #000; text-decoration: underline; }
+    .secHead { margin: 12pt 0 6pt; font-weight: 700; font-size: 12pt; }
+    /* Page break helpers */
+    h1, h2, h3, h4 { break-after: avoid; page-break-after: avoid; }
+    table, ul, ol { break-inside: avoid; page-break-inside: avoid; }
+    @media print {
+      @page { margin: 0; }
+      .page { padding: 0.85in; }
+    }
+  `;
+
+  const doc = `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>${escapeHtml(title)}</title>
+        <style>${css}</style>
+      </head>
+      <body>
+        <div class="page">
+          <h1>${escapeHtml(title)}</h1>
+          <div class="meta">${escapeHtml(metaLine || "")}</div>
+          <hr/>
+          <div id="content">${bodyHtml || ""}</div>
+        </div>
+        <script>
+          // Ensure fonts/layout settle, then print
+          window.onload = () => {
+            setTimeout(() => {
+              window.focus();
+              window.print();
+            }, 50);
+          };
+        </script>
+      </body>
+    </html>
+  `;
+
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  iframe.setAttribute("aria-hidden", "true");
+
+  document.body.appendChild(iframe);
+
+  const win = iframe.contentWindow;
+  const idoc = iframe.contentDocument || win?.document;
+  if (!win || !idoc) {
+    iframe.remove();
+    throw new Error("Print failed: unable to open print frame.");
+  }
+
+  idoc.open();
+  idoc.write(doc);
+  idoc.close();
+
+  // Cleanup after printing
+  const cleanup = () => {
+    try {
+      iframe.remove();
+    } catch {}
+    win.removeEventListener("afterprint", cleanup);
+  };
+  win.addEventListener("afterprint", cleanup);
+}
+
 // -------------------------
 // ✅ Minimal Supabase Auth (NO supabase-js import)
 // -------------------------
@@ -706,10 +801,27 @@ function dedupeWholeTextIfRepeated(t: string) {
   return t;
 }
 
+// ✅ UPDATED: supports your new modes + preserves old aliases
 function normalizeMode(v: string) {
   const x = (v || "").trim();
+
+  // legacy aliases (safe)
   if (x === "lite") return "one_pager";
   if (x === "full") return "full_lesson";
+
+  // allow these passthrough modes
+  if (
+    x === "full_lesson" ||
+    x === "internalization" ||
+    x === "one_pager" ||
+    x === "sub_plan" ||
+    x === "admin_defense" ||
+    x === "admin_toolkit" ||
+    x === "pacing_plan"
+  ) {
+    return x;
+  }
+
   return x || "full_lesson";
 }
 
@@ -985,12 +1097,12 @@ try {
 
   // Billing + top buttons (HTML already has these)
   const billingBtnSubscribe =
-    getElOpt<HTMLButtonElement>("billingBtn_subscribe"); // landing subscribe
+    getElOpt<HTMLButtonElement>("billingBtn_subscribe"); // landing subscribe (not present in your new HTML, safe)
   const billingBtn = getElOpt<HTMLButtonElement>("billingBtn"); // legacy / hidden
   const billingBtnApp =
     getElOpt<HTMLButtonElement>("billingBtn_app"); // app top right (single source of truth)
   const billingBtnApp2 =
-    getElOpt<HTMLButtonElement>("billingBtn_app2"); // duplicate (always hidden)
+    getElOpt<HTMLButtonElement>("billingBtn_app2"); // duplicate (not present now, safe)
   const logOutBtnApp = getElOpt<HTMLButtonElement>("logOutBtn_app");
 
   // Form / app UI
@@ -999,16 +1111,40 @@ try {
 
   const mode = getEl<HTMLSelectElement>("mode");
 
-  function enforceModeAccess() {
-    // Paid users: unlock modes
-    if (isPaidActive()) {
-      mode.disabled = false;
-      return;
-    }
+  // ✅ NEW: disables Pro-only mode options in the dropdown (uses data-pro="1")
+  function applyModeAvailability() {
+    const proAllowed = isPaidActive(); // strict: only paid "active" (not trialing)
+    const opts = Array.from(mode.querySelectorAll("option"));
 
-    // Trial or not subscribed: lock to Full Lesson only
-    mode.value = "full_lesson";
-    mode.disabled = true;
+    for (const opt of opts) {
+      const isPro = opt.getAttribute("data-pro") === "1";
+      if (isPro) {
+        opt.disabled = !proAllowed;
+        if (!proAllowed && mode.value === opt.value) {
+          mode.value = "full_lesson";
+        }
+      }
+    }
+  }
+
+  function enforceModeAccess() {
+    // Paid users: unlock Pro-marked options
+    applyModeAvailability();
+
+    // Keep dropdown enabled for everyone (we just disable Pro options)
+    mode.disabled = false;
+
+    // If NOT paid and user somehow selected a Pro mode, force to full_lesson
+    const selectedOpt = mode.querySelector(
+      `option[value="${CSS.escape(mode.value)}"]`,
+    );
+    if (
+      selectedOpt &&
+      selectedOpt.getAttribute("data-pro") === "1" &&
+      !isPaidActive()
+    ) {
+      mode.value = "full_lesson";
+    }
   }
 
   const outputStyle = getElOpt<HTMLSelectElement>("outputStyle");
@@ -1027,22 +1163,18 @@ try {
   const lessonLength = getElOpt<HTMLInputElement>("lessonLength");
   const includeStaar = getElOpt<HTMLSelectElement>("includeStaar");
   const subNotes = getElOpt<HTMLTextAreaElement>("subNotes");
-  const lessonCycleTemplate =
-    getElOpt<HTMLSelectElement>("lessonCycleTemplate");
-  const publisherComponents =
-    getElOpt<HTMLTextAreaElement>("publisherComponents");
+  const lessonCycleTemplate = getElOpt<HTMLSelectElement>("lessonCycleTemplate");
+  const publisherComponents = getElOpt<HTMLTextAreaElement>("publisherComponents");
 
   // ✅ Campus / Program (DB-powered accuracy) — optional inputs/hidden fields
-  const campusId = getElOpt<HTMLInputElement>("campusId"); // hidden or input
-  const programName = getElOpt<HTMLInputElement>("programName"); // hidden or input
-  const curriculumLessonCode =
-    getElOpt<HTMLInputElement>("curriculumLessonCode"); // optional
+  const campusId = getElOpt<HTMLInputElement>("campusId"); // hidden or input (not present in your HTML, safe)
+  const programName = getElOpt<HTMLInputElement>("programName"); // hidden or input (not present in your HTML, safe)
+  const curriculumLessonCode = getElOpt<HTMLInputElement>("curriculumLessonCode"); // optional (not present in your HTML, safe)
 
   const ebSupport = getElOpt<HTMLInputElement>("ebSupport");
   const spedSupport = getElOpt<HTMLInputElement>("spedSupport");
   const vocabularyFocus = getElOpt<HTMLInputElement>("vocabularyFocus");
-  const checksForUnderstanding =
-    getElOpt<HTMLInputElement>("checksForUnderstanding");
+  const checksForUnderstanding = getElOpt<HTMLInputElement>("checksForUnderstanding");
   const writingExtension = getElOpt<HTMLInputElement>("writingExtension");
 
   const practiceToggle = getElOpt<HTMLInputElement>("practiceToggle");
@@ -1052,13 +1184,9 @@ try {
   const allowTrendy = getElOpt<HTMLSelectElement>("allowTrendy");
 
   const worksheetToggle = getElOpt<HTMLInputElement>("worksheetToggle");
-  const worksheetBeginnerCount =
-    getElOpt<HTMLInputElement>("worksheetBeginnerCount");
-  const worksheetIntermediateCount = getElOpt<HTMLInputElement>(
-    "worksheetIntermediateCount",
-  );
-  const worksheetAdvancedCount =
-    getElOpt<HTMLInputElement>("worksheetAdvancedCount");
+  const worksheetBeginnerCount = getElOpt<HTMLInputElement>("worksheetBeginnerCount");
+  const worksheetIntermediateCount = getElOpt<HTMLInputElement>("worksheetIntermediateCount");
+  const worksheetAdvancedCount = getElOpt<HTMLInputElement>("worksheetAdvancedCount");
 
   const presetName = getElOpt<HTMLInputElement>("presetName");
   const savePresetBtn = getElOpt<HTMLButtonElement>("savePresetBtn");
@@ -1085,6 +1213,12 @@ try {
   const downloadPdfBtn = getEl<HTMLButtonElement>("downloadPdfBtn");
 
   const output = getEl<HTMLElement>("output");
+
+  // Feedback Garage (HTML has it — but backend endpoint/table might not yet exist, so it’s optional/safe)
+  const submitFeedbackBtn = getElOpt<HTMLButtonElement>("submitFeedbackBtn");
+  const feedbackCategory = getElOpt<HTMLSelectElement>("feedbackCategory");
+  const feedbackText = getElOpt<HTMLTextAreaElement>("feedbackText");
+  const feedbackStatus = getElOpt<HTMLElement>("feedbackStatus");
 
   let lastLessonPlainText = "";
   let activeStreamAbort: AbortController | null = null;
@@ -1125,8 +1259,7 @@ try {
   }
 
   function refreshPublisherUI() {
-    publisherOtherWrap.style.display =
-      publisher.value === "Other" ? "block" : "none";
+    publisherOtherWrap.style.display = publisher.value === "Other" ? "block" : "none";
   }
 
   function showLibrary(show: boolean) {
@@ -1152,7 +1285,7 @@ try {
       billingBtnSubscribe.style.display = loggedIn ? "none" : "inline-block";
     }
 
-    // ✅ Hide legacy/duplicate app CTA button
+    // ✅ Hide legacy button
     if (billingBtn) {
       billingBtn.style.display = "none";
     }
@@ -1160,12 +1293,10 @@ try {
     // ✅ Single source of truth: billingBtn_app
     if (billingBtnApp) {
       billingBtnApp.style.display = loggedIn ? "inline-block" : "none";
-      billingBtnApp.textContent = isSubscribed()
-        ? "Manage Subscription"
-        : "Subscribe";
+      billingBtnApp.textContent = isSubscribed() ? "Manage Subscription" : "Subscribe";
     }
 
-    // ✅ Always hide duplicate button
+    // ✅ Always hide duplicate (if it exists)
     if (billingBtnApp2) {
       billingBtnApp2.style.display = "none";
     }
@@ -1181,8 +1312,7 @@ try {
 
     signUpBtn.style.display = loggedIn ? "none" : "inline-block";
     logInBtn.style.display = loggedIn ? "none" : "inline-block";
-    if (forgotPwBtn)
-      forgotPwBtn.style.display = loggedIn ? "none" : "inline-block";
+    if (forgotPwBtn) forgotPwBtn.style.display = loggedIn ? "none" : "inline-block";
     logOutBtn.style.display = loggedIn ? "inline-block" : "none";
 
     setView(loggedIn);
@@ -1194,6 +1324,9 @@ try {
 
   refreshPublisherUI();
   publisher.addEventListener("change", refreshPublisherUI);
+
+  // ✅ Keep mode access correct if user changes mode
+  mode.addEventListener("change", () => enforceModeAccess());
 
   // -------------------------
   // ✅ BUTTON WIRING
@@ -1257,6 +1390,7 @@ try {
     favoriteBtn.disabled = true;
 
     setCachedSubStatus("unknown", "unknown");
+    enforceModeAccess();
 
     refreshAuthUI();
   }
@@ -1264,7 +1398,7 @@ try {
   addOnce(logOutBtn, "logout", doLogout);
   if (logOutBtnApp) addOnce(logOutBtnApp, "logout_app", doLogout);
 
-  // ✅ Landing subscribe button (billingBtn_subscribe)
+  // ✅ Landing subscribe button (if present)
   if (billingBtnSubscribe) {
     addOnce(billingBtnSubscribe, "checkout_subscribe", async () => {
       try {
@@ -1295,19 +1429,12 @@ try {
       showMessage("🔐 Opening Stripe Customer Portal…", true);
       await openPortal(authEmail, authPassword);
     } catch (e: any) {
-      showMessage(
-        `${isSubscribed() ? "Portal" : "Subscribe"}: ${esc(e?.message || e)}`,
-        false,
-      );
+      showMessage(`${isSubscribed() ? "Portal" : "Subscribe"}: ${esc(e?.message || e)}`, false);
     }
   }
 
-  if (billingBtnApp)
-    addOnce(billingBtnApp, "app_billing", handleAppBillingClick);
-
-  // NOTE: billingBtnApp2 is intentionally hidden, but handler is harmless if present
-  if (billingBtnApp2)
-    addOnce(billingBtnApp2, "app_billing2", handleAppBillingClick);
+  if (billingBtnApp) addOnce(billingBtnApp, "app_billing", handleAppBillingClick);
+  if (billingBtnApp2) addOnce(billingBtnApp2, "app_billing2", handleAppBillingClick);
 
   // Paid banner -> also refresh subscription status
   try {
@@ -1356,9 +1483,7 @@ try {
 
   function upsertPreset(name: string, data: Record<string, any>) {
     const presets = loadPresets();
-    const i = presets.findIndex(
-      (p) => p.name.toLowerCase() === name.toLowerCase(),
-    );
+    const i = presets.findIndex((p) => p.name.toLowerCase() === name.toLowerCase());
     const next: Preset = { name, createdAt: Date.now(), data };
     if (i >= 0) presets[i] = next;
     else presets.unshift(next);
@@ -1366,9 +1491,7 @@ try {
   }
 
   function deletePreset(name: string) {
-    const presets = loadPresets().filter(
-      (p) => p.name.toLowerCase() !== name.toLowerCase(),
-    );
+    const presets = loadPresets().filter((p) => p.name.toLowerCase() !== name.toLowerCase());
     savePresets(presets);
   }
 
@@ -1419,22 +1542,18 @@ try {
     if (outputStyle && data.outputStyle) outputStyle.value = data.outputStyle;
     if (data.state !== undefined) state.value = data.state;
     if (data.publisher) publisher.value = data.publisher;
-    if (data.publisherOther !== undefined)
-      publisherOther.value = data.publisherOther;
+    if (data.publisherOther !== undefined) publisherOther.value = data.publisherOther;
     if (data.grade) grade.value = data.grade;
     if (data.subject) subject.value = data.subject;
     if (data.standard !== undefined) standard.value = data.standard;
     if (data.unit !== undefined) unit.value = data.unit;
     if (data.lesson !== undefined) lesson.value = data.lesson;
 
-    if (skillFocus && data.skillFocus !== undefined)
-      skillFocus.value = data.skillFocus;
+    if (skillFocus && data.skillFocus !== undefined) skillFocus.value = data.skillFocus;
     if (supportingStandards && data.supportingStandards !== undefined)
       supportingStandards.value = data.supportingStandards;
-    if (lessonLength && data.lessonLength !== undefined)
-      lessonLength.value = String(data.lessonLength);
-    if (includeStaar && data.includeStaar !== undefined)
-      includeStaar.value = data.includeStaar;
+    if (lessonLength && data.lessonLength !== undefined) lessonLength.value = String(data.lessonLength);
+    if (includeStaar && data.includeStaar !== undefined) includeStaar.value = data.includeStaar;
 
     if (subNotes && data.subNotes !== undefined) subNotes.value = data.subNotes;
     if (lessonCycleTemplate && data.lessonCycleTemplate !== undefined)
@@ -1442,37 +1561,25 @@ try {
     if (publisherComponents && data.publisherComponents !== undefined)
       publisherComponents.value = data.publisherComponents;
 
-    if (campusId && data.campusId !== undefined)
-      campusId.value = String(data.campusId || "");
-    if (programName && data.programName !== undefined)
-      programName.value = String(data.programName || "");
+    if (campusId && data.campusId !== undefined) campusId.value = String(data.campusId || "");
+    if (programName && data.programName !== undefined) programName.value = String(data.programName || "");
     if (curriculumLessonCode && data.curriculumLessonCode !== undefined)
       curriculumLessonCode.value = String(data.curriculumLessonCode || "");
 
-    if (ebSupport && data.ebSupport !== undefined)
-      ebSupport.checked = !!data.ebSupport;
-    if (spedSupport && data.spedSupport !== undefined)
-      spedSupport.checked = !!data.spedSupport;
-    if (vocabularyFocus && data.vocabularyFocus !== undefined)
-      vocabularyFocus.checked = !!data.vocabularyFocus;
+    if (ebSupport && data.ebSupport !== undefined) ebSupport.checked = !!data.ebSupport;
+    if (spedSupport && data.spedSupport !== undefined) spedSupport.checked = !!data.spedSupport;
+    if (vocabularyFocus && data.vocabularyFocus !== undefined) vocabularyFocus.checked = !!data.vocabularyFocus;
     if (checksForUnderstanding && data.checksForUnderstanding !== undefined)
       checksForUnderstanding.checked = !!data.checksForUnderstanding;
-    if (writingExtension && data.writingExtension !== undefined)
-      writingExtension.checked = !!data.writingExtension;
+    if (writingExtension && data.writingExtension !== undefined) writingExtension.checked = !!data.writingExtension;
 
-    if (practiceToggle && data.practiceToggle !== undefined)
-      practiceToggle.checked = !!data.practiceToggle;
-    if (practiceGenre && data.practiceGenre !== undefined)
-      practiceGenre.value = data.practiceGenre;
-    if (slangLevel && data.slangLevel !== undefined)
-      slangLevel.value = data.slangLevel;
-    if (practiceTopic && data.practiceTopic !== undefined)
-      practiceTopic.value = data.practiceTopic;
-    if (allowTrendy && data.allowTrendy !== undefined)
-      allowTrendy.value = data.allowTrendy;
+    if (practiceToggle && data.practiceToggle !== undefined) practiceToggle.checked = !!data.practiceToggle;
+    if (practiceGenre && data.practiceGenre !== undefined) practiceGenre.value = data.practiceGenre;
+    if (slangLevel && data.slangLevel !== undefined) slangLevel.value = data.slangLevel;
+    if (practiceTopic && data.practiceTopic !== undefined) practiceTopic.value = data.practiceTopic;
+    if (allowTrendy && data.allowTrendy !== undefined) allowTrendy.value = data.allowTrendy;
 
-    if (worksheetToggle && data.worksheetToggle !== undefined)
-      worksheetToggle.checked = !!data.worksheetToggle;
+    if (worksheetToggle && data.worksheetToggle !== undefined) worksheetToggle.checked = !!data.worksheetToggle;
     if (worksheetBeginnerCount && data.worksheetBeginnerCount !== undefined)
       worksheetBeginnerCount.value = String(data.worksheetBeginnerCount);
     if (worksheetIntermediateCount && data.worksheetIntermediateCount !== undefined)
@@ -1483,6 +1590,7 @@ try {
     if (data.testMode !== undefined) testMode.checked = !!data.testMode;
 
     refreshPublisherUI();
+    enforceModeAccess();
   }
 
   function refreshPresetDropdown() {
@@ -1491,10 +1599,7 @@ try {
     presetSelect.innerHTML =
       `<option value="" selected>Select preset…</option>` +
       presets
-        .map(
-          (p) =>
-            `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`,
-        )
+        .map((p) => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`)
         .join("");
   }
 
@@ -1575,8 +1680,7 @@ try {
 
     libraryList.innerHTML = data
       .map((r: any) => {
-        const title =
-          `Grade ${r.grade ?? "?"} • ${r.subject ?? ""} • ${r.standard ?? ""}`.trim();
+        const title = `Grade ${r.grade ?? "?"} • ${r.subject ?? ""} • ${r.standard ?? ""}`.trim();
         const metaTxt =
           `${r.publisher ?? ""}${r.state ? ` • ${r.state}` : ""} • ${r.curriculum_unit ?? ""} ${r.curriculum_lesson ?? ""}`.trim();
         const star = r.is_favorite ? "★" : "☆";
@@ -1646,12 +1750,9 @@ try {
         lastLessonId = data.id;
         lastLessonFavorite = Boolean(data.is_favorite);
         favoriteBtn.disabled = false;
-        favoriteBtn.textContent = lastLessonFavorite
-          ? "★ Favorited"
-          : "☆ Favorite";
+        favoriteBtn.textContent = lastLessonFavorite ? "★ Favorited" : "☆ Favorite";
 
-        output.innerHTML =
-          data.lesson_html || formatLessonToHtml(data.lesson_text || "");
+        output.innerHTML = data.lesson_html || formatLessonToHtml(data.lesson_text || "");
         lastLessonPlainText = htmlToPlainText(output.innerHTML);
         downloadPdfBtn.disabled = !lastLessonPlainText.trim();
 
@@ -1747,6 +1848,7 @@ try {
     });
   }
 
+  // ✅ PRINT (FIXED): uses iframe clean print doc
   if (printBtn) {
     printBtn.addEventListener("click", () => {
       const text = htmlToPlainText(output.innerHTML || "").trim();
@@ -1754,7 +1856,18 @@ try {
         showMessage("Generate a lesson first, then print.", false);
         return;
       }
-      window.print();
+
+      try {
+        printOutputHtml({
+          title: "Lessons-Ready Lesson Plan",
+          metaLine: metaLineEl.textContent || "",
+          bodyHtml: output.innerHTML || "",
+        });
+      } catch (e: any) {
+        // fallback
+        console.warn("Print iframe failed, falling back to window.print()", e);
+        window.print();
+      }
     });
   }
 
@@ -1836,9 +1949,7 @@ try {
     if (!enabled) return null;
 
     const b = worksheetBeginnerCount ? Number(worksheetBeginnerCount.value) : NaN;
-    const i = worksheetIntermediateCount
-      ? Number(worksheetIntermediateCount.value)
-      : NaN;
+    const i = worksheetIntermediateCount ? Number(worksheetIntermediateCount.value) : NaN;
     const a = worksheetAdvancedCount ? Number(worksheetAdvancedCount.value) : NaN;
 
     return {
@@ -1949,20 +2060,15 @@ try {
 
       if (skillFocus) payload.skillFocus = skillFocus.value.trim();
       if (subNotes) payload.subNotes = subNotes.value.trim();
-      if (lessonCycleTemplate)
-        payload.districtLessonCycleName = lessonCycleTemplate.value || "";
-      if (publisherComponents)
-        payload.publisherComponents = publisherComponents.value.trim();
-      if (supportingStandards)
-        payload.supportingStandards = supportingStandards.value.trim();
+      if (lessonCycleTemplate) payload.districtLessonCycleName = lessonCycleTemplate.value || "";
+      if (publisherComponents) payload.publisherComponents = publisherComponents.value.trim();
+      if (supportingStandards) payload.supportingStandards = supportingStandards.value.trim();
 
       payload.options = {
         ebSupport: ebSupport ? !!ebSupport.checked : true,
         spedSupport: spedSupport ? !!spedSupport.checked : true,
         vocabularyFocus: vocabularyFocus ? !!vocabularyFocus.checked : true,
-        checksForUnderstanding: checksForUnderstanding
-          ? !!checksForUnderstanding.checked
-          : true,
+        checksForUnderstanding: checksForUnderstanding ? !!checksForUnderstanding.checked : true,
         writingExtension: writingExtension ? !!writingExtension.checked : false,
         subNotes: subNotes ? subNotes.value.trim() : "",
       };
@@ -1978,6 +2084,25 @@ try {
 
       const worksheetPack = getWorksheetPackFromUI();
       if (worksheetPack) payload.worksheetPack = worksheetPack;
+
+      // ✅ NEW: inject Admin Defense/Toolkit instructions (frontend-only, safe)
+      if (chosenMode === "admin_defense" || chosenMode === "admin_toolkit") {
+        payload.teacherNotes =
+          (payload.teacherNotes || "") +
+          `
+
+ADMIN DEFENSE MODE:
+Generate a coach/admin-facing artifact pack (NOT a student lesson).
+
+Include:
+• 1-page lesson defense overview aligned to observation look-fors
+• T-TESS high-level alignment (Domains I–IV) in plain language
+• “If asked by admin…” talking points (brief, professional)
+• Evidence list: what artifacts would exist (plans, CFUs, student work)
+• Walkthrough look-fors checklist + quick rubric (Basic/Proficient/Distinguished)
+• Red flags to avoid (compliance, pacing, vague objectives)
+`;
+      }
 
       setMeta(
         `${pub}${pub === "Other" ? ` (${pubOther || ""})` : ""} • ${st || "n/a"} • Output: ${style} • Mode: ${chosenMode}${
@@ -2050,8 +2175,7 @@ try {
             },
 
             onError: (obj) => {
-              const msg =
-                obj?.error || obj?.message || obj?.detail || JSON.stringify(obj || {});
+              const msg = obj?.error || obj?.message || obj?.detail || JSON.stringify(obj || {});
               throw new Error(String(msg));
             },
           },
@@ -2129,6 +2253,45 @@ try {
       refreshAuthUI();
     }
   });
+
+  // -------------------------
+  // Feedback (safe/no-crash)
+  // -------------------------
+  if (submitFeedbackBtn && feedbackCategory && feedbackText && feedbackStatus) {
+    submitFeedbackBtn.addEventListener("click", async () => {
+      try {
+        feedbackStatus.innerHTML = "";
+        requireSession();
+
+        const cat = feedbackCategory.value.trim();
+        const txt = feedbackText.value.trim();
+        if (!cat) {
+          feedbackStatus.innerHTML = `<div class="error">Pick a focus area.</div>`;
+          return;
+        }
+        if (!txt) {
+          feedbackStatus.innerHTML = `<div class="error">Type feedback first.</div>`;
+          return;
+        }
+
+        await postgrest("POST", "feedback", {
+          body: {
+            category: cat,
+            text: txt,
+            lesson_id: lastLessonId,
+            meta: { publisher: publisher.value, state: state.value, mode: mode.value },
+          },
+          preferReturn: "minimal",
+        });
+
+        feedbackText.value = "";
+        feedbackCategory.value = "";
+        feedbackStatus.innerHTML = `<div class="ok">Feedback submitted ✅</div>`;
+      } catch (e: any) {
+        feedbackStatus.innerHTML = `<div class="error">Feedback not saved (table not set up yet) — but your lesson is fine.</div>`;
+      }
+    });
+  }
 
   // ✅ Load subscription cache ASAP so UI doesn’t flash “unknown”
   loadCachedSubStatus(60_000);
