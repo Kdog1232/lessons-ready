@@ -2232,10 +2232,30 @@ Include:
       lastLessonFavorite = false;
 
       favoriteBtn.disabled = !lastLessonId;
-      favoriteBtn.textContent = "☆ Favorite";
+favoriteBtn.textContent = "☆ Favorite";
 
-      showMessage("Success ✅ Saved to Library", true);
-      setStatus("Done");
+// ✅ USAGE TRACKING (logs only successful generations)
+try {
+  await postgrest("POST", "usage_events", {
+    body: {
+      user_id: session.user.id,
+      event_type: "lesson_generated",
+      lesson_id: lastLessonId,
+      publisher: pub,
+      state: st || null,
+      grade: grade.value || null,
+      subject: subject.value.trim() || null,
+      standard: standard.value.trim() || null,
+    },
+    preferReturn: "minimal",
+  });
+} catch (e) {
+  // don't break the user experience if tracking fails
+  console.warn("usage_events insert failed", e);
+}
+
+showMessage("Success ✅ Saved to Library", true);
+setStatus("Done");
     } catch (err: any) {
       const msg =
         err?.name === "AbortError"
