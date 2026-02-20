@@ -1,6 +1,6 @@
 // ✅ FILE: src/main.ts (COPY/PASTE THIS WHOLE FILE)
 console.log("✅ src/main.ts loaded");
-
+import { generateDefaultSkillFocus } from "./utils/skillFocus";
 // -------------------------
 // ✅ CONFIG
 // -------------------------
@@ -1165,6 +1165,28 @@ try {
   const subNotes = getElOpt<HTMLTextAreaElement>("subNotes");
   const lessonCycleTemplate = getElOpt<HTMLSelectElement>("lessonCycleTemplate");
   const publisherComponents = getElOpt<HTMLTextAreaElement>("publisherComponents");
+    // ✅ Skill Focus Auto-Fill (removes activation friction)
+  function autoFillSkillFocusIfBlank() {
+    if (!skillFocus) return;
+
+    // Only auto-fill if user hasn't typed anything
+    if (skillFocus.value.trim().length > 0) return;
+
+    const generated = generateDefaultSkillFocus({
+      state: state?.value,
+      standard: standard?.value,
+      grade: grade?.value,
+      subject: subject?.value,
+    });
+
+    skillFocus.value = generated;
+  }
+
+  // Auto-fill when user changes inputs
+  standard.addEventListener("change", autoFillSkillFocusIfBlank);
+  grade.addEventListener("change", autoFillSkillFocusIfBlank);
+  subject.addEventListener("change", autoFillSkillFocusIfBlank);
+  state.addEventListener("change", autoFillSkillFocusIfBlank);
 
   // ✅ Campus / Program (DB-powered accuracy) — optional inputs/hidden fields
   const campusId = getElOpt<HTMLInputElement>("campusId"); // hidden or input (not present in your HTML, safe)
@@ -2014,7 +2036,8 @@ try {
       const st = state.value;
 
       const wantsStream = !testMode.checked;
-
+      
+      autoFillSkillFocusIfBlank();
       const check = validateSkillFocus();
       if (!check.ok) {
         showMessage(esc(check.message), false);
@@ -2058,7 +2081,23 @@ try {
         includeStaarStyleQuestions: includeStaarBool,
       };
 
-      if (skillFocus) payload.skillFocus = skillFocus.value.trim();
+            // ✅ Always include a Skill Focus (auto-filled if user left blank)
+      const finalSkillFocus =
+        skillFocus && skillFocus.value.trim().length > 0
+          ? skillFocus.value.trim()
+          : generateDefaultSkillFocus({
+              state: state?.value,
+              standard: standard?.value,
+              grade: grade?.value,
+              subject: subject?.value,
+            });
+
+      payload.skillFocus = finalSkillFocus;
+
+      // If field exists and was blank, show what we used
+      if (skillFocus && skillFocus.value.trim().length === 0) {
+        skillFocus.value = finalSkillFocus;
+      }
       if (subNotes) payload.subNotes = subNotes.value.trim();
       if (lessonCycleTemplate) payload.districtLessonCycleName = lessonCycleTemplate.value || "";
       if (publisherComponents) payload.publisherComponents = publisherComponents.value.trim();
