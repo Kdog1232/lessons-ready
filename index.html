@@ -459,7 +459,23 @@
         border-color: rgba(255, 77, 109, 0.55);
         box-shadow: 0 0 0 3px rgba(255, 77, 109, 0.14);
       }
-      option { color: #111; }
+
+      /* Normal dropdowns (single select) */
+      select:not([multiple]) option { color: #111; }
+
+      /* Multi-select lists (like Publisher Components preset) */
+      select[multiple] option {
+        color: rgba(255,255,255,0.92);
+        background: rgba(6, 16, 25, 0.95);
+      }
+
+      /* Make the multi-select match theme */
+      #publisherComponentsPreset {
+        color: rgba(255,255,255,0.92);
+        background: rgba(255,255,255,0.045);
+        border: 1px solid rgba(255,255,255,0.14);
+      }
+
       .full { grid-column: 1 / -1; }
       .formGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
@@ -550,7 +566,7 @@
       .toggleRow input[type="checkbox"] { width: 18px; height: 18px; }
 
       /* =========================================================
-         ✅ NEW: Polished slide switches (keeps your checkbox IDs)
+         ✅ Polished slide switches (keeps your checkbox IDs)
          ========================================================= */
       .switch {
         display: inline-flex !important;
@@ -818,8 +834,147 @@
       }
 
       /* =========================================================
+         ✅ First-login banner + quick start
+         ========================================================= */
+      .firstLoginBanner {
+        border: 1px solid rgba(255,255,255,0.14);
+        background:
+          radial-gradient(520px 160px at 15% 0%, rgba(255,77,109,0.18), transparent 60%),
+          radial-gradient(520px 160px at 85% 0%, rgba(43,231,255,0.12), transparent 60%),
+          rgba(255,255,255,0.03);
+        border-radius: 18px;
+        padding: 14px;
+        margin-bottom: 12px;
+        box-shadow: 0 14px 34px rgba(0,0,0,0.18);
+      }
+
+      .firstLoginTop {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .firstLoginTitle {
+        font-weight: 900;
+        margin: 0 0 6px;
+        font-size: 14px;
+      }
+
+      .firstLoginText {
+        margin: 0;
+        color: rgba(255,255,255,0.82);
+        font-size: 12.5px;
+        line-height: 1.5;
+      }
+
+      .firstLoginSteps {
+        margin: 10px 0 0 18px;
+        color: rgba(255,255,255,0.80);
+        font-size: 12.5px;
+        line-height: 1.5;
+      }
+
+      .firstLoginActions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+
+      .dismissBtn {
+        padding: 9px 10px;
+        border-radius: 12px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.12);
+        color: rgba(255,255,255,0.92);
+        font-size: 12px;
+        font-weight: 800;
+      }
+      .dismissBtn:hover { border-color: rgba(255, 77, 109, 0.55); }
+
+      .quickStartBox {
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 18px;
+        padding: 14px;
+        margin-bottom: 12px;
+      }
+
+      .quickStartHeader {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .quickStartHeader .qsTitle {
+        font-weight: 900;
+        letter-spacing: 0.2px;
+        margin: 0;
+        font-size: 13.5px;
+      }
+
+      .qsHint {
+        margin: 6px 0 0;
+        color: rgba(255,255,255,0.74);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .modePills {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+
+      .pillSmall {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.04);
+        color: rgba(255,255,255,0.82);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .advWrap {
+        border: 1px dashed rgba(255,255,255,0.14);
+        border-radius: 18px;
+        padding: 12px;
+        margin-top: 12px;
+        background: rgba(255,255,255,0.02);
+      }
+
+      .advHead {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .advHead .label {
+        font-size: 12.5px;
+        color: rgba(255,255,255,0.72);
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        margin: 0;
+      }
+
+      .sectionDivider {
+        height: 1px;
+        background: rgba(255,255,255,0.10);
+        margin: 12px 0;
+      }
+
+      /* =========================================================
          ✅ PRINT STYLES (Normal print flow)
-         Prints ONLY the lesson output area in standard page format
          ========================================================= */
       @media print {
         @page { margin: 15mm; }
@@ -836,35 +991,21 @@
           print-color-adjust: economy;
         }
 
-        /* Hide everything but keep the page engine stable */
-        body * {
-          visibility: hidden !important;
-        }
+        body * { visibility: hidden !important; }
 
-        /* Show ONLY the output */
-        #output, #output * {
-          visibility: visible !important;
-        }
+        #output, #output * { visibility: visible !important; }
 
-        /* Normal document flow (no fixed positioning) */
         #output {
           position: static !important;
-          left: auto !important;
-          top: auto !important;
-
           width: auto !important;
           max-width: 100% !important;
-
           margin: 0 !important;
           padding: 0 !important;
-
           background: transparent !important;
           color: #000 !important;
           border: none !important;
-
           overflow: visible !important;
           white-space: normal !important;
-
           font-size: 11pt !important;
           line-height: 1.35 !important;
         }
@@ -1153,6 +1294,86 @@
           <div id="appView" style="display:none;">
             <input id="anonKey_app" type="hidden" value="" />
 
+            <!-- ✅ First login / How to use -->
+            <div class="firstLoginBanner" id="firstLoginBanner" style="display:none;">
+              <div class="firstLoginTop">
+                <div>
+                  <p class="firstLoginTitle">🍕 Welcome! Lessons-Ready works like a pizza.</p>
+                  <p class="firstLoginText">
+                    You give the <b>standard</b> (TEKS, CCSS, NGSS, your state code — any format is fine),
+                    and we auto-build the lesson. Then you pick your “toppings” (supports + practice options).
+                  </p>
+                  <ol class="firstLoginSteps">
+                    <li><b>Pick Grade + Subject</b></li>
+                    <li><b>Paste your Standard</b> (ex: “TEKS 4.8B”, “CCSS.RL.4.2”, “NGSS 5-PS1-3”)</li>
+                    <li><b>Choose toppings</b> (EB/SPED, Vocabulary, CFUs, Practice, Worksheets)</li>
+                    <li>Click <b>Generate</b> ✅</li>
+                  </ol>
+                  <div class="firstLoginActions">
+                    <button class="chipBtn" id="scrollToGenerateBtn" type="button">Take me to Generate</button>
+                    <button class="dismissBtn" id="dismissFirstLoginBtn" type="button">Got it</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ✅ Quick start + curriculum components helper -->
+            <div class="quickStartBox" id="quickStartBox">
+              <div class="quickStartHeader">
+                <p class="qsTitle">Quick Start</p>
+                <span class="pillSmall">✅ Any standards code format works</span>
+              </div>
+
+              <p class="qsHint">
+                Pick from a list to auto-fill your curriculum components — teachers can still type custom ones.
+              </p>
+
+              <div class="modePills" aria-label="Quick tips">
+                <span class="pillSmall">✅ Skill Focus auto-fills if blank</span>
+                <span class="pillSmall">✅ Components can be picked from a list</span>
+                <span class="pillSmall">✅ Use Library to reuse lessons</span>
+              </div>
+
+              <div class="sectionDivider"></div>
+
+              <label class="full">
+                Publisher / Curriculum Components (pick from list)
+                <select id="publisherComponentsPreset" multiple size="6">
+                  <option value="Anchor chart">Anchor chart</option>
+                  <option value="Read aloud / shared reading">Read aloud / shared reading</option>
+                  <option value="Mini-lesson / direct teach">Mini-lesson / direct teach</option>
+                  <option value="Modeling (think-aloud)">Modeling (think-aloud)</option>
+                  <option value="Guided practice">Guided practice</option>
+                  <option value="Independent practice">Independent practice</option>
+                  <option value="Partner work / Turn & Talk">Partner work / Turn & Talk</option>
+                  <option value="Stations / rotations">Stations / rotations</option>
+                  <option value="Small group / teacher table">Small group / teacher table</option>
+                  <option value="Interactive notebook">Interactive notebook</option>
+                  <option value="Graphic organizer">Graphic organizer</option>
+                  <option value="Exit ticket">Exit ticket</option>
+                  <option value="Spiral review / warm-up">Spiral review / warm-up</option>
+                  <option value="Vocabulary routine">Vocabulary routine</option>
+                  <option value="Frayer model">Frayer model</option>
+                  <option value="Sentence stems">Sentence stems</option>
+                  <option value="Writing response">Writing response</option>
+                </select>
+                <div class="miniHelp">
+                  Select as many as you want — this auto-fills the Components box below. Teachers can still type custom components too.
+                </div>
+              </label>
+
+              <label class="full" style="margin-top:10px;">
+                Components (auto-filled from picks above)
+                <textarea
+                  id="publisherComponents"
+                  placeholder="Example: anchor chart, guided practice problems, independent practice set, exit ticket."
+                ></textarea>
+                <div class="miniHelp">
+                  Your selections above will auto-fill here. You can also type your own components.
+                </div>
+              </label>
+            </div>
+
             <div class="sectionTitle">Lesson setup</div>
 
             <div class="formGrid">
@@ -1301,17 +1522,6 @@
               </label>
 
               <label class="full">
-                Publisher / Curriculum Components (optional)
-                <textarea
-                  id="publisherComponents"
-                  placeholder="Example: anchor chart, guided practice problems, independent practice set, exit ticket."
-                ></textarea>
-                <div class="miniHelp">
-                  List materials/routines your curriculum expects. No copying text — just components.
-                </div>
-              </label>
-
-              <label class="full">
                 Supporting Standards (optional)
                 <input id="supportingStandards" placeholder="Example: TEKS 4.2A, TEKS 4.4A (comma-separated)" />
               </label>
@@ -1332,163 +1542,172 @@
 
             <div class="sectionTitle">Supports & controls</div>
 
-            <div class="authBox">
-              <div class="toggleRow">
-                <label class="switch">
-                  <input type="checkbox" id="ebSupport" checked />
-                  <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
-                  <span class="switchText">EB Supports</span>
-                </label>
-
-                <label class="switch">
-                  <input type="checkbox" id="spedSupport" checked />
-                  <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
-                  <span class="switchText">SPED Supports</span>
-                </label>
-
-                <label class="switch">
-                  <input type="checkbox" id="vocabularyFocus" checked />
-                  <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
-                  <span class="switchText">Vocabulary</span>
-                </label>
-
-                <label class="switch">
-                  <input type="checkbox" id="checksForUnderstanding" checked />
-                  <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
-                  <span class="switchText">CFUs</span>
-                </label>
-
-                <label class="switch">
-                  <input type="checkbox" id="writingExtension" />
-                  <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
-                  <span class="switchText">Writing Ext.</span>
-                </label>
+            <!-- ✅ Advanced controls ALWAYS visible (toggle removed) -->
+            <div class="advWrap" id="advancedControlsWrap">
+              <div class="advHead">
+                <p class="label">Advanced Controls</p>
+                <div class="pillSmall">Tip: These are optional — defaults work fine.</div>
               </div>
+              <div class="sectionDivider"></div>
 
-              <div class="toggleRow" style="margin-top:12px;">
-                <label class="switch wide">
-                  <input type="checkbox" id="practiceToggle" />
-                  <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
-                  <span class="switchText">Original Practice Passage + MCQs</span>
-                </label>
-              </div>
+              <div class="authBox">
+                <div class="toggleRow">
+                  <label class="switch">
+                    <input type="checkbox" id="ebSupport" checked />
+                    <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
+                    <span class="switchText">EB Supports</span>
+                  </label>
 
-              <div class="toggleRow" style="margin-top:12px;">
-                <label class="switch wide">
-                  <input type="checkbox" id="worksheetToggle" />
-                  <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
-                  <span class="switchText">Worksheet Pack (B / I / A)</span>
-                </label>
-              </div>
+                  <label class="switch">
+                    <input type="checkbox" id="spedSupport" checked />
+                    <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
+                    <span class="switchText">SPED Supports</span>
+                  </label>
 
-              <div class="formGrid" style="margin-top:12px;">
-                <label>
-                  Practice Genre
-                  <select id="practiceGenre">
-                    <option value="informational" selected>Informational</option>
-                    <option value="fiction">Fiction</option>
-                    <option value="poem">Poem</option>
-                    <option value="scenario">Scenario</option>
-                  </select>
-                </label>
+                  <label class="switch">
+                    <input type="checkbox" id="vocabularyFocus" checked />
+                    <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
+                    <span class="switchText">Vocabulary</span>
+                  </label>
 
-                <label>
-                  Slang Level
-                  <select id="slangLevel">
-                    <option value="none">None</option>
-                    <option value="light" selected>Light</option>
-                    <option value="moderate">Moderate</option>
-                  </select>
-                </label>
+                  <label class="switch">
+                    <input type="checkbox" id="checksForUnderstanding" checked />
+                    <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
+                    <span class="switchText">CFUs</span>
+                  </label>
 
-                <label>
-                  Worksheet Qs (Beginner)
-                  <input id="worksheetBeginnerCount" type="number" min="1" max="25" value="6" />
-                  <div class="miniHelp">Default: 6</div>
-                </label>
+                  <label class="switch">
+                    <input type="checkbox" id="writingExtension" />
+                    <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
+                    <span class="switchText">Writing Ext.</span>
+                  </label>
+                </div>
 
-                <label>
-                  Worksheet Qs (Intermediate)
-                  <input id="worksheetIntermediateCount" type="number" min="1" max="25" value="6" />
-                  <div class="miniHelp">Default: 6</div>
-                </label>
+                <div class="toggleRow" style="margin-top:12px;">
+                  <label class="switch wide">
+                    <input type="checkbox" id="practiceToggle" />
+                    <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
+                    <span class="switchText">Original Practice Passage + MCQs</span>
+                  </label>
+                </div>
 
-                <label class="full">
-                  Worksheet Qs (Advanced)
-                  <input id="worksheetAdvancedCount" type="number" min="1" max="25" value="4" />
-                  <div class="miniHelp">Default: 4</div>
-                </label>
+                <div class="toggleRow" style="margin-top:12px;">
+                  <label class="switch wide">
+                    <input type="checkbox" id="worksheetToggle" />
+                    <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
+                    <span class="switchText">Worksheet Pack (B / I / A)</span>
+                  </label>
+                </div>
 
-                <label class="full">
-                  Practice Topic (optional)
-                  <input id="practiceTopic" placeholder="Example: school store, video game points, sports stats..." />
-                </label>
+                <div class="formGrid" style="margin-top:12px;">
+                  <label>
+                    Practice Genre
+                    <select id="practiceGenre">
+                      <option value="informational" selected>Informational</option>
+                      <option value="fiction">Fiction</option>
+                      <option value="poem">Poem</option>
+                      <option value="scenario">Scenario</option>
+                    </select>
+                  </label>
 
-                <label class="full">
-                  Allow trendy references (safe + generic)
-                  <select id="allowTrendy">
-                    <option value="yes" selected>Yes</option>
-                    <option value="no">No</option>
-                  </select>
-                </label>
-              </div>
+                  <label>
+                    Slang Level
+                    <select id="slangLevel">
+                      <option value="none">None</option>
+                      <option value="light" selected>Light</option>
+                      <option value="moderate">Moderate</option>
+                    </select>
+                  </label>
 
-              <div class="toggleRow" style="margin-top:12px;">
-                <label class="switch wide">
-                  <input type="checkbox" id="testMode" />
-                  <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
-                  <span class="switchText">Test Mode (skip OpenAI)</span>
-                </label>
-              </div>
+                  <label>
+                    Worksheet Qs (Beginner)
+                    <input id="worksheetBeginnerCount" type="number" min="1" max="25" value="6" />
+                    <div class="miniHelp">Default: 6</div>
+                  </label>
 
-              <div class="sectionTitle" style="margin-top:14px;">Exports & presets</div>
+                  <label>
+                    Worksheet Qs (Intermediate)
+                    <input id="worksheetIntermediateCount" type="number" min="1" max="25" value="6" />
+                    <div class="miniHelp">Default: 6</div>
+                  </label>
 
-              <div class="chipRow">
-                <div class="chipGroup">
-                  <span class="chipLabel">Output style</span>
-                  <select id="outputStyle" class="chipSelect">
-                    <option value="default" selected>Default</option>
-                    <option value="simple">Simple / clean</option>
-                    <option value="detailed">More detailed</option>
-                    <option value="admin">Admin-facing</option>
-                  </select>
+                  <label class="full">
+                    Worksheet Qs (Advanced)
+                    <input id="worksheetAdvancedCount" type="number" min="1" max="25" value="4" />
+                    <div class="miniHelp">Default: 4</div>
+                  </label>
 
-                  <button class="chipBtn" id="copyDocsBtn" type="button">Copy for Google Docs</button>
-                  <button class="chipBtn" id="printBtn" type="button">Print</button>
+                  <label class="full">
+                    Practice Topic (optional)
+                    <input id="practiceTopic" placeholder="Example: school store, video game points, sports stats..." />
+                  </label>
+
+                  <label class="full">
+                    Allow trendy references (safe + generic)
+                    <select id="allowTrendy">
+                      <option value="yes" selected>Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="toggleRow" style="margin-top:12px;">
+                  <label class="switch wide">
+                    <input type="checkbox" id="testMode" />
+                    <span class="track" aria-hidden="true"><span class="thumb" aria-hidden="true"></span></span>
+                    <span class="switchText">Test Mode (skip OpenAI)</span>
+                  </label>
+                </div>
+
+                <div class="sectionTitle" style="margin-top:14px;">Exports & presets</div>
+
+                <div class="chipRow">
+                  <div class="chipGroup">
+                    <span class="chipLabel">Output style</span>
+                    <select id="outputStyle" class="chipSelect">
+                      <option value="default" selected>Default</option>
+                      <option value="simple">Simple / clean</option>
+                      <option value="detailed">More detailed</option>
+                      <option value="admin">Admin-facing</option>
+                    </select>
+
+                    <button class="chipBtn" id="copyDocsBtn" type="button">Copy for Google Docs</button>
+                    <button class="chipBtn" id="printBtn" type="button">Print</button>
+                  </div>
+                </div>
+
+                <div class="chipRow" style="margin-top:10px;">
+                  <div class="chipGroup">
+                    <span class="chipLabel">Preset</span>
+                    <input id="presetName" class="chipInput" placeholder="Preset name…" />
+                    <button class="chipBtn" id="savePresetBtn" type="button">Save</button>
+
+                    <select id="presetSelect" class="chipSelect">
+                      <option value="" selected>Select preset…</option>
+                    </select>
+                    <button class="chipBtn" id="loadPresetBtn" type="button">Load</button>
+                    <button class="chipBtn" id="deletePresetBtn" type="button">Delete</button>
+                  </div>
                 </div>
               </div>
-
-              <div class="chipRow" style="margin-top:10px;">
-                <div class="chipGroup">
-                  <span class="chipLabel">Preset</span>
-                  <input id="presetName" class="chipInput" placeholder="Preset name…" />
-                  <button class="chipBtn" id="savePresetBtn" type="button">Save</button>
-
-                  <select id="presetSelect" class="chipSelect">
-                    <option value="" selected>Select preset…</option>
-                  </select>
-                  <button class="chipBtn" id="loadPresetBtn" type="button">Load</button>
-                  <button class="chipBtn" id="deletePresetBtn" type="button">Delete</button>
-                </div>
-              </div>
-
-              <div class="btnRow" style="margin-top:14px;">
-                <button class="billing" id="billingBtn_app" type="button" style="display:none;">
-                  Manage subscription
-                </button>
-
-                <button class="secondary" id="openLibraryBtn" type="button">Library</button>
-                <button class="secondary" id="closeLibraryBtn" type="button" style="display:none;">Close</button>
-
-                <button class="secondary" id="copyBtn" type="button">Copy</button>
-                <button class="secondary" id="downloadPdfBtn" type="button" disabled>Download PDF</button>
-                <button class="primary" id="generateBtn" type="button">Generate</button>
-
-                <button class="dangerBtn" id="logOutBtn_app" type="button">Log Out</button>
-              </div>
-
-              <div class="msg" id="message_app"></div>
             </div>
+
+            <div class="btnRow" style="margin-top:14px;">
+              <button class="billing" id="billingBtn_app" type="button" style="display:none;">
+                Manage subscription
+              </button>
+
+              <button class="secondary" id="openLibraryBtn" type="button">Library</button>
+              <button class="secondary" id="closeLibraryBtn" type="button" style="display:none;">Close</button>
+
+              <button class="secondary" id="copyBtn" type="button">Copy</button>
+              <button class="secondary" id="downloadPdfBtn" type="button" disabled>Download PDF</button>
+              <button class="primary" id="generateBtn" type="button">Generate</button>
+
+              <button class="dangerBtn" id="logOutBtn_app" type="button">Log Out</button>
+            </div>
+
+            <div class="msg" id="message_app"></div>
           </div>
         </div>
 
@@ -1595,24 +1814,24 @@
               Lessons-Ready respects your privacy. We collect only the information necessary
               to provide and improve our services.
             </p>
-      
+
             <p><strong>Information We Collect:</strong></p>
             <ul>
               <li>Email address and account credentials</li>
               <li>Subscription and billing status (processed securely via Stripe)</li>
               <li>Lesson inputs you voluntarily enter</li>
             </ul>
-      
+
             <p>
               <strong>Important:</strong> Do not enter student IDs, medical data, or sensitive
               personal student information into the platform.
             </p>
-      
+
             <p>
               We do not sell your data. Payment information is handled securely by Stripe.
               We may use anonymized usage data to improve lesson quality and features.
             </p>
-      
+
             <p>
               If you have privacy concerns, contact us at
               <a href="mailto:admin@lessons-ready.com">admin@lessons-ready.com</a>.
@@ -1620,7 +1839,7 @@
           </div>
         </details>
       </div>
-      
+
       <div class="policyCard" id="terms">
         <details>
           <summary>
@@ -1630,29 +1849,25 @@
             </span>
           </summary>
           <div class="policyBody">
-            <p>
-              By using Lessons-Ready, you agree to the following terms:
-            </p>
-      
+            <p>By using Lessons-Ready, you agree to the following terms:</p>
+
             <ul>
               <li>You are responsible for reviewing generated content before classroom use.</li>
               <li>You agree not to input confidential student information.</li>
               <li>You may not resell, redistribute, or republish generated content as your own SaaS product.</li>
               <li>Access may be suspended for misuse or violation of these terms.</li>
             </ul>
-      
+
             <p>
               Lessons-Ready generates original instructional content but does not replace
               district curriculum requirements or professional judgment.
             </p>
-      
-            <p>
-              We reserve the right to modify features, pricing, or services at any time.
-            </p>
+
+            <p>We reserve the right to modify features, pricing, or services at any time.</p>
           </div>
         </details>
       </div>
-      
+
       <div class="policyCard" id="refunds">
         <details>
           <summary>
@@ -1666,13 +1881,13 @@
               Lessons-Ready offers a 7-day free trial. After the trial period,
               subscriptions renew automatically at $7.99 per month unless canceled.
             </p>
-      
+
             <ul>
               <li>You may cancel anytime through the “Manage Subscription” button.</li>
               <li>After cancellation, access continues until the end of the billing period.</li>
               <li>Refunds are not guaranteed but may be issued at our discretion for billing errors.</li>
             </ul>
-      
+
             <p>
               For billing questions, contact
               <a href="mailto:admin@lessons-ready.com">admin@lessons-ready.com</a>.
@@ -1680,7 +1895,7 @@
           </div>
         </details>
       </div>
-      
+
       <div class="policyCard" id="contact">
         <details>
           <summary>
@@ -1690,26 +1905,20 @@
             </span>
           </summary>
           <div class="policyBody">
-            <p>
-              Lessons-Ready is built by educators for educators.
-            </p>
-      
-            <p>
-              📍 Garland, Texas, USA  
-            </p>
-      
+            <p>Lessons-Ready is built by educators for educators.</p>
+
+            <p>📍 Garland, Texas, USA</p>
+
             <p>
               📧 Email:
               <a href="mailto:admin@lessons-ready.com">admin@lessons-ready.com</a>
             </p>
-      
-            <p>
-              We aim to respond within 1–2 business days.
-            </p>
+
+            <p>We aim to respond within 1–2 business days.</p>
           </div>
         </details>
       </div>
-      
+    </div>
 
     <!-- ✅ pdf-lib (needed for Download PDF) -->
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
@@ -1791,7 +2000,7 @@
               “Write the main idea in one sentence and cite one detail from the text.”
             </div>
 
-            <div style="padding:12px;border:1px solid rgba(255,77,109,0.10);border:1px solid rgba(255,77,109,0.20);border-radius:14px;background:rgba(255,255,255,0.03);">
+            <div style="padding:12px;border:1px solid rgba(255,77,109,0.20);border-radius:14px;background:rgba(255,255,255,0.03);">
               <b>✨ Want this for your exact unit/lesson?</b><br/>
               Scroll left, enter your standard + skill focus, and click <b>Generate</b>.
             </div>
@@ -1814,8 +2023,128 @@
       });
     </script>
 
+    <!-- ✅ App UX helpers (clean, single copy; no nested scripts; no advanced toggle) -->
+    <script>
+      function getUserKeyForBanner() {
+        const email = (document.getElementById("authEmail")?.value || "").trim().toLowerCase();
+        return email ? `lr_seen_banner_${email}` : "lr_seen_banner_generic";
+      }
+
+      function showFirstLoginBannerIfNeeded() {
+        const banner = document.getElementById("firstLoginBanner");
+        if (!banner) return;
+        const seen = localStorage.getItem(getUserKeyForBanner());
+        if (!seen) banner.style.display = "block";
+      }
+
+      function dismissFirstLoginBanner() {
+        const banner = document.getElementById("firstLoginBanner");
+        if (banner) banner.style.display = "none";
+        localStorage.setItem(getUserKeyForBanner(), "1");
+      }
+
+      function syncComponentsPresetToTextarea() {
+        const preset = document.getElementById("publisherComponentsPreset");
+        const textarea = document.getElementById("publisherComponents");
+        if (!preset || !textarea) return;
+
+        const values = Array.from(preset.selectedOptions).map(o => o.value).filter(Boolean);
+        if (!values.length) return;
+
+        const current = (textarea.value || "").trim();
+        if (!current) {
+          textarea.value = values.join(", ");
+          return;
+        }
+
+        const lowerCurrent = current.toLowerCase();
+        const toAdd = values.filter(v => !lowerCurrent.includes(v.toLowerCase()));
+        if (toAdd.length) {
+          textarea.value = current.replace(/\s+$/, "") + (current.endsWith(",") ? " " : ", ") + toAdd.join(", ");
+        }
+      }
+
+      function addStandardHelpTextOnce() {
+        const standard = document.getElementById("standard");
+        if (!standard) return;
+        if (document.getElementById("standardHelpText")) return;
+
+        const help = document.createElement("div");
+        help.id = "standardHelpText";
+        help.className = "miniHelp";
+        help.innerHTML =
+          'Works with <b>any</b> standards code format — TEKS, CCSS, NGSS, state acronyms, district codes. Examples: ' +
+          '<span class="monoPill">TEKS 4.8B</span>, <span class="monoPill">CCSS.RL.4.2</span>, <span class="monoPill">NGSS 5-PS1-3</span>.';
+        standard.parentElement.appendChild(help);
+      }
+
+      function wirePublisherOther() {
+        const publisher = document.getElementById("publisher");
+        const wrap = document.getElementById("publisherOtherWrap");
+        const input = document.getElementById("publisherOther");
+        if (!publisher || !wrap) return;
+
+        function apply() {
+          const isOther = (publisher.value || "").toLowerCase() === "other";
+          wrap.style.display = isOther ? "block" : "none";
+          if (!isOther && input) input.value = "";
+        }
+
+        publisher.addEventListener("change", apply);
+        apply();
+      }
+
+      function wireBannerButtons() {
+        const dismissBtn = document.getElementById("dismissFirstLoginBtn");
+        if (dismissBtn) dismissBtn.addEventListener("click", dismissFirstLoginBanner);
+
+        const scrollBtn = document.getElementById("scrollToGenerateBtn");
+        if (scrollBtn) {
+          scrollBtn.addEventListener("click", () => {
+            const gen = document.getElementById("generateBtn");
+            if (gen) gen.scrollIntoView({ behavior: "smooth", block: "center" });
+            dismissFirstLoginBanner();
+          });
+        }
+      }
+
+      function wireComponentPreset() {
+        const componentsPreset = document.getElementById("publisherComponentsPreset");
+        if (componentsPreset) {
+          componentsPreset.addEventListener("change", syncComponentsPresetToTextarea);
+        }
+      }
+
+      // Trigger when app view becomes visible (best-effort without touching main.ts)
+      function watchForAppViewOpen() {
+        const appView = document.getElementById("appView");
+        if (!appView) return;
+
+        const onOpen = () => {
+          addStandardHelpTextOnce();
+          wirePublisherOther();
+          wireBannerButtons();
+          wireComponentPreset();
+          showFirstLoginBannerIfNeeded();
+        };
+
+        // If already open (rare), run now
+        if (appView.style.display !== "none") onOpen();
+
+        const obs = new MutationObserver(() => {
+          const isOpen = appView.style.display !== "none";
+          if (isOpen) onOpen();
+        });
+
+        obs.observe(appView, { attributes: true, attributeFilter: ["style"] });
+      }
+
+      window.addEventListener("DOMContentLoaded", () => {
+        watchForAppViewOpen();
+      });
+    </script>
+
     <!-- ✅ Your app -->
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
-
