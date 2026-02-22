@@ -1275,11 +1275,17 @@ try {
   }
 
   function setView(isLoggedIn: boolean) {
-    if (!landingView || !appView) return;
-    landingView.style.display = isLoggedIn ? "none" : "block";
-    appView.style.display = isLoggedIn ? "block" : "none";
-  }
+  if (!landingView || !appView) return;
 
+  landingView.style.display = isLoggedIn ? "none" : "block";
+  appView.style.display = isLoggedIn ? "block" : "none";
+
+  if (isLoggedIn) {
+    document.body.classList.add("logged-in");
+  } else {
+    document.body.classList.remove("logged-in");
+  }
+}
   function refreshPublisherUI() {
     publisherOtherWrap.style.display = publisher.value === "Other" ? "block" : "none";
   }
@@ -1404,18 +1410,17 @@ try {
   }
 
   async function doLogout() {
-    await logOut();
-    showMessage("Logged out ✅", true);
-    lastLessonId = null;
-    lastLessonFavorite = false;
-    favoriteBtn.textContent = "☆ Favorite";
-    favoriteBtn.disabled = true;
+  await logOut();
+  showMessage("Logged out ✅", true);
+  lastLessonId = null;
+  lastLessonFavorite = false;
+  favoriteBtn.textContent = "☆ Favorite";
+  favoriteBtn.disabled = true;
 
-    setCachedSubStatus("unknown", "unknown");
-    enforceModeAccess();
-
-    refreshAuthUI();
-  }
+  setCachedSubStatus("unknown", "unknown");
+  enforceModeAccess();
+  refreshAuthUI();
+}
 
   addOnce(logOutBtn, "logout", doLogout);
   if (logOutBtnApp) addOnce(logOutBtnApp, "logout_app", doLogout);
