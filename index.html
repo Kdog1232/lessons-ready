@@ -1026,6 +1026,29 @@
         li { break-inside: avoid; }
       }
 
+
+      body.logged-in .nav,
+      body.logged-in #marketingSection,
+      body.logged-in .site-footer,
+      body.logged-in .policyCard { display: none !important; }
+
+      .quickGenerateBox {
+        border: 1px solid rgba(255,255,255,0.14);
+        background:
+          radial-gradient(520px 160px at 15% 0%, rgba(255,77,109,0.16), transparent 60%),
+          radial-gradient(520px 160px at 85% 0%, rgba(43,231,255,0.10), transparent 60%),
+          rgba(255,255,255,0.03);
+        border-radius: 18px;
+        padding: 14px;
+        margin-bottom: 12px;
+        box-shadow: 0 14px 34px rgba(0,0,0,0.18);
+      }
+      .advDetails {
+        border: 1px dashed rgba(255,255,255,0.14);
+        border-radius: 18px;
+        padding: 10px 12px;
+        background: rgba(255,255,255,0.02);
+      }
       @media (max-width: 980px) {
         .grid { grid-template-columns: 1fr; }
         #output { min-height: 340px; }
@@ -1068,7 +1091,7 @@
         </h1>
 
         <p class="tagline">
-          Teacher + student-ready lessons with EB/SPED scaffolds, CFUs, and optional STAAR-style practice — original and admin-safe.
+          Reinforce and extend your required curriculum without rebuilding your week — with EB/SPED scaffolds, CFUs, and optional STAAR-style practice.
         </p>
 
         <div class="heroCTARow">
@@ -1295,21 +1318,14 @@
           <div id="appView" style="display:none;">
             <input id="anonKey_app" type="hidden" value="" />
 
-            <!-- ✅ First login / How to use -->
-            <div class="firstLoginBanner" id="firstLoginBanner" style="display:none;">
+            <!-- ✅ First login / lightweight onboarding (non-duplicate) -->
+            <div class="firstLoginBanner" id="firstLoginBanner">
               <div class="firstLoginTop">
                 <div>
-                  <p class="firstLoginTitle">🍕 Welcome! Lessons-Ready works like a pizza.</p>
+                  <p class="firstLoginTitle">Quick walkthrough</p>
                   <p class="firstLoginText">
-                    You give the <b>standard</b> (TEKS, CCSS, NGSS, your state code — any format is fine),
-                    and we auto-build the lesson. Then you pick your “toppings” (supports + practice options).
+                    Start with the 30-second setup below. Use Advanced Controls only if you need extra customization.
                   </p>
-                  <ol class="firstLoginSteps">
-                    <li><b>Pick Grade + Subject</b></li>
-                    <li><b>Paste your Standard</b> (ex: “TEKS 4.8B”, “CCSS.RL.4.2”, “NGSS 5-PS1-3”)</li>
-                    <li><b>Choose toppings</b> (EB/SPED, Vocabulary, CFUs, Practice, Worksheets)</li>
-                    <li>Click <b>Generate</b> ✅</li>
-                  </ol>
                   <div class="firstLoginActions">
                     <button class="chipBtn" id="scrollToGenerateBtn" type="button">Take me to Generate</button>
                     <button class="dismissBtn" id="dismissFirstLoginBtn" type="button">Got it</button>
@@ -1318,63 +1334,77 @@
               </div>
             </div>
 
-            <!-- ✅ Quick start + curriculum components helper -->
-            <div class="quickStartBox" id="quickStartBox">
+            <!-- ✅ How to use + 30-second generator -->
+            <div class="quickGenerateBox" id="quickStartBox">
               <div class="quickStartHeader">
-                <p class="qsTitle">Quick Start</p>
-                <span class="pillSmall">✅ Any standards code format works</span>
+                <p class="qsTitle">How to use Lessons-Ready 🍕</p>
+                <span class="pillSmall">30-second setup</span>
               </div>
 
               <p class="qsHint">
-                Pick from a list to auto-fill your curriculum components — teachers can still type custom ones.
+                Think of Lessons-Ready like a <b>pizza</b>: you pick the base (grade + subject + standard + curriculum), then add toppings in <b>Advanced Controls</b>.
               </p>
 
-              <div class="modePills" aria-label="Quick tips">
-                <span class="pillSmall">✅ Skill Focus auto-fills if blank</span>
-                <span class="pillSmall">✅ Components can be picked from a list</span>
-                <span class="pillSmall">✅ Use Library to reuse lessons</span>
+              <div class="formGrid" style="margin-top:10px;">
+                <label>
+                  Grade
+                  <select id="qs_grade">
+                    <option value="0">K</option><option value="1">1</option><option value="2">2</option>
+                    <option value="3">3</option><option value="4" selected>4</option><option value="5">5</option>
+                    <option value="6">6</option><option value="7">7</option><option value="8">8</option>
+                    <option value="9">9</option><option value="10">10</option><option value="11">11</option>
+                    <option value="12">12</option>
+                  </select>
+                </label>
+
+                <label>
+                  Subject
+                  <select id="qs_subject">
+                    <option value="ELAR" selected>ELAR</option>
+                    <option value="Math">Math</option>
+                    <option value="Science">Science</option>
+                    <option value="Social Studies">Social Studies</option>
+                  </select>
+                </label>
+
+                <label class="full">
+                  Standard
+                  <input id="qs_standard" value="TEKS 4.8B" placeholder="e.g., TEKS 4.8B" />
+                </label>
+
+                <label class="full">
+                  Curriculum
+                  <select id="qs_publisher">
+                    <option value="Bluebonnet Learning (TX OER)" selected>Bluebonnet Learning (TX OER)</option>
+                    <option value="Houghton Mifflin Harcourt (HMH)">Houghton Mifflin Harcourt (HMH)</option>
+                    <option value="McGraw Hill">McGraw Hill</option>
+                    <option value="Savvas / Pearson">Savvas / Pearson</option>
+                    <option value="Curriculum Associates (i-Ready)">Curriculum Associates (i-Ready)</option>
+                    <option value="Great Minds">Great Minds</option>
+                    <option value="Amplify">Amplify</option>
+                    <option value="EL Education">EL Education</option>
+                    <option value="OpenSciEd">OpenSciEd</option>
+                    <option value="CKLA / Core Knowledge">CKLA / Core Knowledge</option>
+                    <option value="Open Up Resources">Open Up Resources</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </label>
+
+                <label class="full" id="qs_unitModuleWrap" style="display:none;">
+                  Unit / Module (optional)
+                  <input id="qs_unitModule" placeholder="Example: Module 1 or Unit 2" />
+                </label>
               </div>
 
-              <div class="sectionDivider"></div>
-
-              <label class="full">
-                Publisher / Curriculum Components (pick from list)
-                <select id="publisherComponentsPreset" multiple size="6">
-                  <option value="Anchor chart">Anchor chart</option>
-                  <option value="Read aloud / shared reading">Read aloud / shared reading</option>
-                  <option value="Mini-lesson / direct teach">Mini-lesson / direct teach</option>
-                  <option value="Modeling (think-aloud)">Modeling (think-aloud)</option>
-                  <option value="Guided practice">Guided practice</option>
-                  <option value="Independent practice">Independent practice</option>
-                  <option value="Partner work / Turn & Talk">Partner work / Turn & Talk</option>
-                  <option value="Stations / rotations">Stations / rotations</option>
-                  <option value="Small group / teacher table">Small group / teacher table</option>
-                  <option value="Interactive notebook">Interactive notebook</option>
-                  <option value="Graphic organizer">Graphic organizer</option>
-                  <option value="Exit ticket">Exit ticket</option>
-                  <option value="Spiral review / warm-up">Spiral review / warm-up</option>
-                  <option value="Vocabulary routine">Vocabulary routine</option>
-                  <option value="Frayer model">Frayer model</option>
-                  <option value="Sentence stems">Sentence stems</option>
-                  <option value="Writing response">Writing response</option>
-                </select>
-                <div class="miniHelp">
-                  Select as many as you want — this auto-fills the Components box below. Teachers can still type custom components too.
-                </div>
-              </label>
-
-              <label class="full" style="margin-top:10px;">
-                Components (auto-filled from picks above)
-                <textarea
-                  id="publisherComponents"
-                  placeholder="Example: anchor chart, guided practice problems, independent practice set, exit ticket."
-                ></textarea>
-                <div class="miniHelp">
-                  Your selections above will auto-fill here. You can also type your own components.
-                </div>
-              </label>
+              <div class="btnRow" style="margin-top:10px;">
+                <button class="secondary" id="qs_openAdvancedBtn" type="button">Advanced Controls</button>
+                <button class="primary" id="qs_generateBtn" type="button">Generate</button>
+              </div>
             </div>
 
+            <details class="advDetails" id="advancedOptions">
+              <summary><span class="sumLeft"><strong>Advanced Controls</strong><span class="policyMeta">Everything beyond the 30-second setup</span></span></summary>
+              <div class="policyBody" style="padding-top: 0; border-top: 0; margin-top: 0;">
             <div class="sectionTitle">Lesson setup</div>
 
             <div class="formGrid">
@@ -1679,6 +1709,16 @@
 
                 <div class="chipRow" style="margin-top:10px;">
                   <div class="chipGroup">
+                    <span class="chipLabel">View</span>
+                    <select id="audienceView" class="chipSelect">
+                      <option value="teacher" selected>Teacher view</option>
+                      <option value="student">Student worksheet view</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="chipRow" style="margin-top:10px;">
+                  <div class="chipGroup">
                     <span class="chipLabel">Preset</span>
                     <input id="presetName" class="chipInput" placeholder="Preset name…" />
                     <button class="chipBtn" id="savePresetBtn" type="button">Save</button>
@@ -1693,6 +1733,9 @@
               </div>
             </div>
 
+              </div>
+            </details>
+
             <div class="btnRow" style="margin-top:14px;">
               <button class="billing" id="billingBtn_app" type="button" style="display:none;">
                 Manage subscription
@@ -1703,6 +1746,7 @@
 
               <button class="secondary" id="copyBtn" type="button">Copy</button>
               <button class="secondary" id="downloadPdfBtn" type="button" disabled>Download PDF</button>
+              <button class="secondary" id="exportPackBtn" type="button" disabled>Export Lesson Pack (.zip)</button>
               <button class="primary" id="generateBtn" type="button">Generate</button>
 
               <button class="dangerBtn" id="logOutBtn_app" type="button">Log Out</button>
@@ -1787,7 +1831,8 @@
               <a href="mailto:admin@lessons-ready.com" style="color: rgba(255, 255, 255, 0.88);">
                 admin@lessons-ready.com
               </a>
-            </span>
+            </span><br />
+            <span style="opacity:.9;">Content is original and admin-safe; always review before classroom use.</span>
           </div>
           <div class="footer-links">
             <a href="#privacy">Privacy Policy</a>
@@ -1980,7 +2025,7 @@
             <div style="padding:12px;border:1px solid rgba(255,255,255,0.10);border-radius:14px;background:rgba(255,255,255,0.04);">
               <b>🧩 Guided Practice (We Do)</b>
               <ul>
-                <li>Read a short original paragraph together (teacher reads once, students whisper-read once).</li>
+                <li>Cold Read Protocol: Students annotate independently for 3 minutes, then discuss how details support the main idea.</li>
                 <li>Stop-and-jot: “Main idea is…” + “Evidence is…”</li>
                 <li>Share out using sentence stems.</li>
               </ul>
@@ -2140,8 +2185,51 @@
         obs.observe(appView, { attributes: true, attributeFilter: ["style"] });
       }
 
+
+      function syncQuickGenerateToMain() {
+        const map = [
+          ["qs_grade", "grade"],
+          ["qs_subject", "subject"],
+          ["qs_standard", "standard"],
+          ["qs_publisher", "publisher"],
+          ["qs_unitModule", "unit"],
+        ];
+        map.forEach(([fromId, toId]) => {
+          const from = document.getElementById(fromId);
+          const to = document.getElementById(toId);
+          if (!from || !to) return;
+          to.value = from.value;
+          to.dispatchEvent(new Event("change", { bubbles: true }));
+          to.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+      }
+
+      function wireQuickGenerate() {
+        const qsPublisher = document.getElementById("qs_publisher");
+        const qsUnitWrap = document.getElementById("qs_unitModuleWrap");
+        const applyQsVisibility = () => {
+          if (!qsUnitWrap || !qsPublisher) return;
+          const hasCurriculum = Boolean(qsPublisher.value && qsPublisher.value.trim());
+          qsUnitWrap.style.display = hasCurriculum ? "grid" : "none";
+        };
+        qsPublisher?.addEventListener("change", applyQsVisibility);
+        applyQsVisibility();
+
+        document.getElementById("qs_openAdvancedBtn")?.addEventListener("click", () => {
+          const adv = document.getElementById("advancedOptions");
+          if (adv && adv.tagName === "DETAILS") adv.open = true;
+          adv?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+
+        document.getElementById("qs_generateBtn")?.addEventListener("click", () => {
+          syncQuickGenerateToMain();
+          document.getElementById("generateBtn")?.click();
+        });
+      }
+
       window.addEventListener("DOMContentLoaded", () => {
         watchForAppViewOpen();
+        wireQuickGenerate();
       });
     </script>
 
@@ -2149,3 +2237,4 @@
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
+
