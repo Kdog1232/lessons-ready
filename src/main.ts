@@ -7,20 +7,20 @@ import { generateDefaultSkillFocus } from "./utils/skillFocus";
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 
 // ✅ Lesson generation (keep as-is)
-const SUPABASE_FN_URL =
-  "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/generate-lesson";
+const SUPABASE_FN_URL = `${SUPABASE_URL}/functions/v1/generate-lesson`;
+const SUPABASE_EXPORT_PACK_FN_URL = `${SUPABASE_URL}/functions/v1/export-lesson-pack`;
 
 // ✅ Checkout MUST use create-checkout-session (tier pricing + correct Stripe session)
 const SUPABASE_BILLING_FN_URL =
-  "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/create-checkout-session";
+  `${SUPABASE_URL}/functions/v1/create-checkout-session`;
 
 // ✅ Portal uses dynamic-api
 const SUPABASE_PORTAL_FN_URL =
-  "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/dynamic-api";
+  `${SUPABASE_URL}/functions/v1/dynamic-api`;
 
 // ✅ Status uses dynamic-api (separate const so we never accidentally point it at checkout)
 const SUPABASE_STATUS_FN_URL =
-  "https://pinplfyymnpfctwcpzol.supabase.co/functions/v1/dynamic-api";
+  `${SUPABASE_URL}/functions/v1/dynamic-api`;
 
 // ✅ Supabase anon/public key
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
@@ -77,6 +77,229 @@ function safeName(s: string) {
 function esc(s: any) {
   return escapeHtml(String(s ?? ""));
 }
+
+function extractSectionBlocksFromPlainText(text: string) {
+  const lines = String(text || "").replaceAll("\r\n", "\n").split("\n");
+  const out: Array<{ heading: string; lines: string[] }> = [];
+  let current: { heading: string; lines: string[] } | null = null;
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    const isHeading = /^\d+\)\s+/.test(line);
+    if (isHeading) {
+      if (current) out.push(current);
+      current = { heading: line, lines: [] };
+      continue;
+    }
+    if (!current) continue;
+    current.lines.push(raw);
+  }
+  if (current) out.push(current);
+  return out;
+}
+
+
+function resolveEngagementTemplate(skillFocus: string, subjectValue: string): "neutral" | "sports" | "gaming" | "real-world" | "holiday" {
+  const text = `${skillFocus || ""} ${subjectValue || ""}`.toLowerCase();
+  if (/(football|basketball|soccer|sports|athlete)/.test(text)) return "sports";
+  if (/(gaming|game|fortnite|minecraft|esports)/.test(text)) return "gaming";
+  if (/(holiday|winter break|thanksgiving|christmas|new year)/.test(text)) return "holiday";
+  if (/(community|real-world|career|workplace|civic)/.test(text)) return "real-world";
+  return "neutral";
+}
+
+
+function resolveLessonMode(plainText: string): "bluebonnet" | "amplify" | "generic" {
+  const t = (plainText || "").toLowerCase();
+  if (t.includes("bluebonnet")) return "bluebonnet";
+  if (t.includes("amplify")) return "amplify";
+  return "generic";
+}
+
+function toLessonExportPayload(opts: {
+  plainText: string;
+  grade: string;
+  subject: string;
+  standard: string;
+  unit: string;
+  lesson: string;
+  skillFocus?: string;
+}) {
+  const blocks = extractSectionBlocksFromPlainText(opts.plainText || "");
+  const getBlock = (needle: string) =>
+    blocks.find((b) => b.heading.toLowerCase().includes(needle.toLowerCase()));
+
+  const objectiveBlock = getBlock("objective") || getBlock("i can");
+  const objective = (objectiveBlock?.lines || [])
+    .map((l) => l.trim())
+    .find((l) => l && !/^[-•]/.test(l)) || opts.skillFocus || "Students will demonstrate the target skill with evidence.";
+
+  const successBlock = getBlock("success criteria");
+  const successCriteria = (successBlock?.lines || [])
+    .map((l) => l.trim().replace(/^[-•]\s*/, ""))
+    .filter(Boolean)
+    .slice(0, 8);
+
+  const vocabBlock = getBlock("academic vocabulary") || getBlock("vocabulary");
+  const vocabulary = (vocabBlock?.lines || [])
+    .map((l) => l.trim().replace(/^[-•]\s*/, ""))
+    .filter(Boolean)
+    .slice(0, 12)
+    .map((line) => ({ term: line }));
+
+  const qLines = String(opts.plainText || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => /^\d+[\).]\s+/.test(l) && /\?$/.test(l));
+
+  const questions = qLines.slice(0, 20).map((line, idx) => ({
+    id: idx + 1,
+    prompt: line.replace(/^\d+[\).]\s+/, "").trim(),
+    points: idx < 3 ? 2 : idx < 10 ? 3 : 4,
+  }));
+
+  const defaultProgressionQuestions = [
+    { id: 1, prompt: "What is happening in the text? Summarize the key event or conflict.", points: 2 },
+    { id: 2, prompt: "What message or theme is the author teaching?", points: 3 },
+    { id: 3, prompt: "What sentence or detail from the text best supports that theme?", points: 3 },
+    { id: 4, prompt: "Explain how your evidence supports the theme in 2–3 sentences.", points: 4 },
+  ];
+
+  const selectedQuestions = questions.length ? questions : defaultProgressionQuestions;
+
+  const answerKey = selectedQuestions.map((q, idx) => ({
+    questionId: q.id,
+    prompt: q.prompt,
+    answer: idx === 1
+      ? "**Claim:** The author teaches that perseverance helps people overcome challenges."
+      : "Use text evidence and reasoning to justify the response.",
+    evidence: idx === 2 ? "__Evidence:__ \"Even when the path was steep, Maya kept climbing until she reached the top.\"" : undefined,
+    rationale: idx === 3
+      ? "Teacher explanation: This detail supports the theme because it shows the character choosing persistence despite difficulty."
+      : "Teacher explanation: Accept text-based responses that connect claim, evidence, and reasoning.",
+  }));
+
+  const title = `${opts.grade} ${opts.subject} — ${opts.standard}`.trim();
+  const engagementTemplate = resolveEngagementTemplate(opts.skillFocus || "", opts.subject || "");
+  const lessonMode = resolveLessonMode(opts.plainText || "");
+  const passageTitle = `${opts.unit || "Unit"} ${opts.lesson || "Lesson"}`.trim();
+  const passageText = "Use the generated lesson text/passage content as the reading source for this worksheet pack.";
+
+  return {
+    lessonMode,
+    meta: {
+      teks: opts.standard || "",
+      bluebonnetMode: lessonMode === "bluebonnet",
+      coldReadSupport: true,
+      endOfModulePrep: true,
+    },
+    header: {
+      objective,
+      successCriteria: successCriteria.length ? successCriteria : ["I can answer questions using evidence and reasoning."],
+      materials: ["Lesson text", "Student notebook", "Annotation tool"],
+    },
+    alignment: {
+      curriculumBridge: [
+        {
+          connection: `Aligns to ${opts.standard || "target standard"}`,
+          supportExplanation: "Students identify theme, justify evidence, and explain reasoning in writing.",
+        },
+      ],
+    },
+    instruction: {
+      hook: {
+        description: "Quick write + turn-and-talk warmup to activate background knowledge.",
+      },
+      miniLesson: {
+        script: "Teacher models how to identify theme and prove it with evidence.",
+        modeledExample: "Theme: perseverance. Evidence: character keeps trying after failure.",
+      },
+      guidedPractice: {
+        prompts: selectedQuestions.slice(0, 2).map((q) => q.prompt),
+      },
+      collaborativePractice: {
+        activity: selectedQuestions[2]?.prompt || "Partner discussion: justify strongest evidence.",
+      },
+      independentPractice: {
+        writingPrompt: selectedQuestions[3]?.prompt || "Write a CER response using textual evidence.",
+        cerFrame: "Claim: ___ Evidence: ___ Reasoning: ___",
+      },
+      exitTicket: {
+        prompt: selectedQuestions[4]?.prompt || "Connect the theme to a real-life scenario.",
+      },
+    },
+    cfuLadder: {
+      tier1: "What happened first in the text?",
+      tier2: "Which evidence best supports the theme?",
+      tier3: "How does the chosen evidence shape reader understanding?",
+    },
+    differentiation: {
+      ebStems: ["The theme is ___ because ___.", "The text says ___, which shows ___."],
+      misconceptions: ["Confusing topic with theme", "Using unrelated details as evidence"],
+      reteachPlan: "Reteach in small group with sentence stems and evidence sorting cards.",
+    },
+    title,
+    objective,
+    successCriteria: successCriteria.length ? successCriteria : ["I can answer questions using evidence and reasoning."],
+    vocabulary,
+    passages: [
+      {
+        title: passageTitle,
+        text: passageText,
+      },
+    ],
+    questions: selectedQuestions,
+    answerKey,
+    exportOptions: { engagementTemplate },
+    rubric: {
+      title: "Constructed Response Rubric",
+      criteria: [
+        {
+          name: "Claim",
+          levels: [
+            { label: "Advanced", description: "Clear and precise claim", points: 4 },
+            { label: "Proficient", description: "Claim is clear", points: 3 },
+            { label: "Developing", description: "Claim is partial", points: 2 },
+          ],
+        },
+        {
+          name: "Evidence + Reasoning",
+          levels: [
+            { label: "Advanced", description: "Strong evidence and reasoning", points: 4 },
+            { label: "Proficient", description: "Adequate evidence and reasoning", points: 3 },
+            { label: "Developing", description: "Limited evidence/reasoning", points: 2 },
+          ],
+        },
+        {
+          name: "Organization",
+          levels: [
+            { label: "Advanced", description: "Response is logically organized with clear transitions", points: 4 },
+            { label: "Proficient", description: "Mostly organized with a clear beginning/middle/end", points: 3 },
+            { label: "Developing", description: "Some organization but ideas may be disconnected", points: 2 },
+          ],
+        },
+        {
+          name: "Academic Language",
+          levels: [
+            { label: "Advanced", description: "Uses precise grade-level academic vocabulary", points: 4 },
+            { label: "Proficient", description: "Uses some relevant academic language", points: 3 },
+            { label: "Developing", description: "Limited or imprecise academic language", points: 2 },
+          ],
+        },
+        {
+          name: "Textual Citation Formatting",
+          levels: [
+            { label: "Advanced", description: "Citations are accurate and consistently formatted", points: 4 },
+            { label: "Proficient", description: "Citations are present with minor formatting issues", points: 3 },
+            { label: "Developing", description: "Citation attempts are incomplete or inconsistent", points: 2 },
+          ],
+        },
+      ],
+      maxPoints: 20,
+    },
+  };
+}
+
 
 function getAnonKey(): string {
   return (SUPABASE_ANON_KEY || "").trim();
@@ -209,6 +432,46 @@ type Session = {
 
 const LS_SESSION_KEY = "lr_supabase_session_v1";
 
+function currentSupabaseProjectRef() {
+  try {
+    return new URL(SUPABASE_URL).hostname.split(".")[0] || "";
+  } catch {
+    return "";
+  }
+}
+
+function decodeJwtPayload(token: string): any | null {
+  try {
+    const parts = String(token || "").split(".");
+    if (parts.length < 2) return null;
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+    const json = atob(padded);
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+function isJwtForCurrentProject(token: string): boolean {
+  const payload = decodeJwtPayload(token);
+  if (!payload) return false;
+  const projectRef = currentSupabaseProjectRef();
+  if (!projectRef) return true;
+  const iss = String(payload.iss || "");
+  return iss.includes(`${projectRef}.supabase.co/auth/v1`);
+}
+
+function getSessionIfValidForCurrentProject(): Session | null {
+  const s = getSavedSession();
+  if (!s?.access_token) return null;
+  if (!isJwtForCurrentProject(s.access_token)) {
+    setSavedSession(null);
+    return null;
+  }
+  return s;
+}
+
 function getSavedSession(): Session | null {
   try {
     const raw = localStorage.getItem(LS_SESSION_KEY);
@@ -274,14 +537,43 @@ async function logIn(email: string, password: string): Promise<Session> {
   return session;
 }
 
+async function refreshSessionWithRefreshToken(refreshToken: string): Promise<Session | null> {
+  const rt = String(refreshToken || "").trim();
+  if (!rt) return null;
+  try {
+    const data = await supabaseAuthPOST("token?grant_type=refresh_token", {
+      refresh_token: rt,
+    });
+    const session: Session = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token || rt,
+      user: data.user,
+    };
+    setSavedSession(session);
+    return session;
+  } catch {
+    return null;
+  }
+}
+
 async function logOut() {
   setSavedSession(null);
 }
 
 function requireSession(): Session {
-  const s = getSavedSession();
-  if (!s?.access_token) throw new Error("Please log in to use this feature.");
+  const s = getSessionIfValidForCurrentProject();
+  if (!s?.access_token)
+    throw new Error("Please log in again (session missing or from a different Supabase project).");
   return s;
+}
+
+function buildFunctionAuthHeaders(accessToken: string): Record<string, string> {
+  const token = String(accessToken || "").trim();
+  if (!token) throw new Error("No active session token available for function call.");
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
 }
 
 // -------------------------
@@ -649,6 +941,404 @@ function formatLessonToHtml(rawText: string) {
   return out.join("\n");
 }
 
+
+
+
+
+type OutputAudienceView = "teacher" | "student";
+
+function buildStudentWorksheetHtml(rawText: string, opts?: { includeTopSignals?: boolean }) {
+  const source = (rawText || "").replaceAll("\r\n", "\n");
+  const lines = source.split("\n");
+
+
+  const titleFromSection = lines.find((line) => {
+    const t = line.trim();
+    return /^section\s*\d+/i.test(t) || /student\s+practice/i.test(t);
+  });
+
+  const worksheetTitle = titleFromSection?.trim() || "Student Practice: Theme & Evidence";
+
+  const questionSeeds = lines
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => /^\d+\.\s+/.test(line) || /\?$/.test(line));
+
+  const cleanQuestion = (q: string) =>
+    q
+      .replace(/^\d+\.\s*/, "")
+      .replace(/^DOK\s*[1-4]\s*[:\-]\s*/i, "")
+      .replace(/^Question\s*[:\-]\s*/i, "")
+      .trim();
+
+  const uniqueQuestions: string[] = [];
+  for (const seed of questionSeeds) {
+    const q = cleanQuestion(seed);
+    if (!q) continue;
+    if (!uniqueQuestions.includes(q)) uniqueQuestions.push(q);
+  }
+
+  const selected = uniqueQuestions.slice(0, 10);
+
+  const renderedQuestions = selected.length
+    ? selected
+      .map((q, idx) => {
+        const points = idx < 2 ? 2 : idx < 6 ? 3 : 4;
+        return `
+          <div style="margin:0 0 14px;">
+            <div style="font-weight:800; margin-bottom:4px;">${idx + 1}. ${escapeHtml(q)} <span style="font-size:12px; color:rgba(255,255,255,.72);">(${points} pts)</span></div>
+            <div style="border-bottom:1px solid rgba(255,255,255,.35); height:18px;"></div>
+            <div style="border-bottom:1px solid rgba(255,255,255,.22); height:18px; margin-top:6px;"></div>
+          </div>
+        `;
+      })
+      .join("")
+    : `
+      <div style="margin:0 0 14px;">
+        <div style="font-weight:800; margin-bottom:4px;">1. What theme is developed in the text? Use one detail to support your answer. <span style="font-size:12px; color:rgba(255,255,255,.72);">(3 pts)</span></div>
+        <div style="border-bottom:1px solid rgba(255,255,255,.35); height:18px;"></div>
+        <div style="border-bottom:1px solid rgba(255,255,255,.22); height:18px; margin-top:6px;"></div>
+      </div>
+    `;
+
+  const optionalTop = opts?.includeTopSignals
+    ? `
+      <div class="authBox" style="margin:0 0 10px;">
+        <div class="sectionTitle" style="margin-top:0;">🧾 Student Worksheet View Active</div>
+        <div class="miniHelp" style="margin:0;">Formatted for print-ready student use with response lines and point values.</div>
+      </div>
+    `
+    : "";
+
+  return `
+    ${optionalTop}
+    <div class="authBox" style="margin:0 0 10px;">
+      <div class="sectionTitle" style="margin-top:0;">${escapeHtml(worksheetTitle)}</div>
+      <p style="margin-top:0;"><b>Directions:</b> Read each text carefully. Answer each question in complete sentences using text evidence.</p>
+      ${renderedQuestions}
+      <div style="margin-top:10px; font-size:12px; color:rgba(255,255,255,.78);">Rubric tip: use evidence, reasoning, and academic vocabulary in every response.</div>
+    </div>
+  `;
+}
+type CurriculumToneProfile = {
+  name: string;
+  flowWords: [string, string, string];
+  assessmentType: string;
+  assessmentLabel: string;
+  discussionLanguage: string;
+  interventionLanguage: string;
+};
+
+function getCurriculumTerms(publisherName: string): CurriculumToneProfile {
+  const p = (publisherName || "").toLowerCase();
+
+  if (p.includes("bluebonnet")) {
+    return {
+      name: "Bluebonnet",
+      flowWords: ["Cold Read 1", "Cold Read 2", "End-of-Module Assessment"],
+      assessmentType: "short constructed response",
+      assessmentLabel: "Bluebonnet weekly assessment format",
+      discussionLanguage: "fidelity look-fors",
+      interventionLanguage: "module reteach block",
+    };
+  }
+
+  if (p.includes("amplify")) {
+    return {
+      name: "Amplify",
+      flowWords: ["Close Reading", "Work Time", "Unit Assessment"],
+      assessmentType: "text-based written response",
+      assessmentLabel: "Amplify unit assessment format",
+      discussionLanguage: "discussion protocols",
+      interventionLanguage: "targeted support block",
+    };
+  }
+
+  if (p.includes("houghton") || p.includes("hmh") || p.includes("mcgraw") || p.includes("savvas")) {
+    return {
+      name: "HMH/McGraw/Savvas",
+      flowWords: ["Guided Reading", "Practice Task", "Performance Task"],
+      assessmentType: "performance-based written response",
+      assessmentLabel: "performance task expectations",
+      discussionLanguage: "guided discussion stems",
+      interventionLanguage: "small-group reteach cycle",
+    };
+  }
+
+  return {
+    name: "District Curriculum",
+    flowWords: ["Core Lesson", "Reteach Routine", "Weekly Assessment"],
+    assessmentType: "standards-based written response",
+    assessmentLabel: "weekly assessment format",
+    discussionLanguage: "curriculum look-fors",
+    interventionLanguage: "intervention block",
+  };
+}
+
+function buildCurriculumBridgeHtml(opts: {
+  publisher: string;
+  standard: string;
+  unit: string;
+  lesson: string;
+}) {
+  const terms = getCurriculumTerms(opts.publisher);
+  const publisherLabel = escapeHtml(opts.publisher || "Selected curriculum");
+  const unitLabel = escapeHtml(opts.unit || "Current unit");
+  const lessonLabel = escapeHtml(opts.lesson || "Today’s lesson");
+  const standardLabel = escapeHtml(opts.standard || "Selected standard");
+
+  return `
+    <div class="authBox" style="margin-top:12px;">
+      <div class="sectionTitle" style="margin-top:0;">Curriculum Bridge Map</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Curriculum Connection</th>
+            <th>How This Lesson Supports It</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>${publisherLabel} • ${unitLabel} • ${lessonLabel}</td>
+            <td>Schedule this as a 15-minute bridge after <b>${terms.flowWords[1]}</b> to lock in ${standardLabel} before <b>${terms.flowWords[2]}</b>.</td>
+          </tr>
+          <tr>
+            <td>${terms.assessmentLabel}</td>
+            <td>Each response is structured as a <b>${terms.assessmentType}</b> with explicit evidence + reasoning language your assessment expects.</td>
+          </tr>
+          <tr>
+            <td>Cold Read protocol + discussion</td>
+            <td>Students annotate independently for 3 minutes, then use partner turn-and-talk with accountable stems during debrief.</td>
+          </tr>
+          <tr>
+            <td>Small-group intervention</td>
+            <td>Use DOK 1→3 CFU sequencing for reteach groups, then assign one transfer question as an independent check.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="sectionTitle" style="margin-top:12px;">📎 Use With Your Curriculum Today</div>
+      <ul class="mList" style="margin-top:0;">
+        <li>Launch with a <b>3-minute Cold Read</b> (silent annotate), then move into your <b>${terms.interventionLanguage}</b> routine.</li>
+        <li>Require a <b>claim + evidence + reasoning</b> response on every prompt so practice mirrors graded writing expectations.</li>
+        <li>Use the final question as a <b>4-point mini-rubric check</b> before <b>${terms.flowWords[2]}</b>.</li>
+        <li>Listen for and reinforce <b>${terms.discussionLanguage}</b> during partner talk and CFU debriefs.</li>
+      </ul>
+    </div>
+  `;
+}
+
+function stripLegacyCurriculumBridgeHtml(html: string) {
+  const root = document.createElement("div");
+  root.innerHTML = html || "";
+
+  // Remove section headings that look like legacy bridge maps + their immediate table/list blocks
+  const secHeads = Array.from(root.querySelectorAll(".secHead"));
+  for (const head of secHeads) {
+    const titleEl = head.querySelector(".secTitle");
+    const title = (titleEl?.textContent || head.textContent || "").toLowerCase();
+    const looksLikeBridge =
+      title.includes("curriculum bridge") ||
+      title.includes("bridge map") ||
+      title.includes("curriculum components") ||
+      title.includes("curriculum map");
+
+    if (!looksLikeBridge) continue;
+
+    const next = head.nextElementSibling;
+    head.remove();
+
+    if (next && ["TABLE", "UL", "OL", "P", "DIV"].includes(next.tagName)) {
+      next.remove();
+    }
+  }
+
+  // Remove bare placeholder lines/divs for Curriculum Bridge Map with no content
+  const placeholders = Array.from(root.querySelectorAll("p,div"));
+  for (const node of placeholders) {
+    const txt = (node.textContent || "").trim().toLowerCase();
+    const isBridgePlaceholder = txt === "🗺️ curriculum bridge map" || txt === "curriculum bridge map";
+    if (isBridgePlaceholder) node.remove();
+  }
+
+  // Remove legacy TEKS-only bridge tables if they still exist
+  const tables = Array.from(root.querySelectorAll("table"));
+  for (const t of tables) {
+    const txt = (t.textContent || "").toLowerCase();
+    const looksLikeLegacy =
+      (txt.includes("curriculum components") || txt.includes("teks")) &&
+      (txt.includes("purpose") || txt.includes("determine theme") || txt.includes("students will"));
+    if (looksLikeLegacy) t.remove();
+  }
+
+  return root.innerHTML;
+}
+
+
+
+
+
+function normalizePublisherForBadge(publisherName: string) {
+  const p = (publisherName || "").trim();
+  if (!p) return "";
+
+  const lower = p.toLowerCase();
+  if (lower.includes("savvas")) return "Savvas / Pearson";
+  if (lower.includes("bluebonnet")) return "Bluebonnet";
+  if (lower.includes("amplify")) return "Amplify";
+  if (lower.includes("mcgraw")) return "McGraw Hill";
+  if (lower.includes("houghton") || lower.includes("hmh")) return "Houghton Mifflin Harcourt (HMH)";
+  if (lower.includes("great minds")) return "Great Minds";
+  if (lower.includes("open up")) return "Open Up Resources";
+  if (lower.includes("ckla") || lower.includes("core knowledge")) return "CKLA / Core Knowledge";
+  if (lower.includes("el education")) return "EL Education";
+  if (lower.includes("openscied")) return "OpenSciEd";
+  if (lower.includes("curriculum associates") || lower.includes("i-ready")) return "Curriculum Associates (i-Ready)";
+
+  return p;
+}
+
+function buildCurriculumModeBadgeHtml(opts: { publisherName: string; standard: string }) {
+  const normalized = normalizePublisherForBadge(opts.publisherName);
+  if (!normalized) return "";
+
+  const terms = getCurriculumTerms(opts.publisherName);
+  const standardLabel = escapeHtml(opts.standard || "Selected standard");
+
+  return `
+    <div style="
+      display:grid;
+      gap:4px;
+      padding:10px 12px;
+      border-radius:14px;
+      border:1px solid rgba(56,255,143,0.35);
+      background:rgba(56,255,143,0.10);
+      color:rgba(255,255,255,0.95);
+      margin:0 0 10px;
+    ">
+      <div style="display:inline-flex; align-items:center; gap:8px; font-size:12px; font-weight:900;">
+        <span aria-hidden="true">🟢</span>
+        ${escapeHtml(normalized)} Alignment Mode Active
+      </div>
+      <div style="font-size:12px; font-weight:700; color:rgba(255,255,255,0.90);">
+        Supports ${escapeHtml(terms.flowWords[0])} • ${escapeHtml(terms.flowWords[2])} • ${standardLabel}
+      </div>
+    </div>
+  `;
+}
+
+
+
+function buildWalkthroughLookForsHtml(opts: { standard: string; publisherName: string }) {
+  const terms = getCurriculumTerms(opts.publisherName);
+  const standardLabel = escapeHtml(opts.standard || "selected standard");
+  return `
+    <div class="authBox" style="margin:0 0 10px;">
+      <div class="sectionTitle" style="margin-top:0;">👀 Walkthrough Look-Fors Covered</div>
+      <ul class="mList" style="margin-top:0;">
+        <li>✓ Clear objective aligned to ${standardLabel}</li>
+        <li>✓ Student discourse during ${escapeHtml(terms.flowWords[0])} discussion</li>
+        <li>✓ Text-based evidence cited in writing and discussion</li>
+        <li>✓ Academic vocabulary explicitly reinforced</li>
+        <li>✓ CFU ladder with tiered questioning</li>
+      </ul>
+    </div>
+  `;
+}
+
+function buildEngagementBoostHtml() {
+  return `
+    <div class="authBox" style="margin:0 0 10px;">
+      <div class="sectionTitle" style="margin-top:0;">🔥 Engagement Boost Built In</div>
+      <ul class="mList" style="margin-top:0;">
+        <li>• Partner talk with structured discourse</li>
+        <li>• Tiered CFU questioning (DOK 1–3)</li>
+        <li>• Collaborative evidence debate</li>
+        <li>• Academic vocabulary usage expectations</li>
+      </ul>
+    </div>
+  `;
+}
+
+function injectBridgeIntoSection2(cleanHtml: string, bridgeHtml: string) {
+  const root = document.createElement("div");
+  root.innerHTML = cleanHtml || "";
+
+  const secHeads = Array.from(root.querySelectorAll(".secHead"));
+  const section2Head = secHeads.find((head) => {
+    const title = (head.querySelector(".secTitle")?.textContent || head.textContent || "")
+      .toLowerCase()
+      .trim();
+    return /(^|\b)section\s*2(\b|:)/i.test(title) || title.includes("section 2");
+  });
+
+  const bridgeWrap = document.createElement("div");
+  bridgeWrap.innerHTML = bridgeHtml;
+  const bridgeNode = bridgeWrap.firstElementChild;
+
+  if (!bridgeNode) return cleanHtml;
+
+  if (section2Head) {
+    // remove empty placeholder block right under section 2 (if present)
+    const maybePlaceholder = section2Head.nextElementSibling as HTMLElement | null;
+    if (maybePlaceholder) {
+      const txt = (maybePlaceholder.textContent || "").trim().toLowerCase();
+      const isEmptyPlaceholder =
+        (maybePlaceholder.tagName === "P" || maybePlaceholder.tagName === "DIV") &&
+        (!txt || txt === "-" || txt === "—" || txt.includes("curriculum bridge map"));
+      if (isEmptyPlaceholder) maybePlaceholder.remove();
+    }
+
+    section2Head.insertAdjacentElement("afterend", bridgeNode);
+    return root.innerHTML;
+  }
+
+  // fallback when section 2 heading is not present: place bridge near the top for immediate scan visibility
+  const firstSection = root.querySelector(".secHead");
+  if (firstSection) {
+    firstSection.insertAdjacentElement("beforebegin", bridgeNode);
+  } else {
+    root.prepend(bridgeNode);
+  }
+  return root.innerHTML;
+}
+
+function renderLessonWithCurriculumBridge(lessonText: string, opts: {
+  publisher: string;
+  standard: string;
+  unit: string;
+  lesson: string;
+  audienceView?: OutputAudienceView;
+}) {
+  const audienceView = opts.audienceView || "teacher";
+  const baseHtml =
+    audienceView === "student"
+      ? buildStudentWorksheetHtml(lessonText, { includeTopSignals: true })
+      : formatLessonToHtml(lessonText);
+
+  const publisherSelected = Boolean((opts.publisher || "").trim());
+  if (!publisherSelected) return baseHtml;
+
+  const modeBadge = buildCurriculumModeBadgeHtml({
+    publisherName: opts.publisher,
+    standard: opts.standard,
+  });
+
+  if (audienceView === "student") {
+    return `${modeBadge}${baseHtml}`;
+  }
+
+  const rewiredHtml = stripLegacyCurriculumBridgeHtml(baseHtml);
+  const bridgeHtml = buildCurriculumBridgeHtml(opts);
+  const withBridge = injectBridgeIntoSection2(rewiredHtml, bridgeHtml);
+  const walkthrough = buildWalkthroughLookForsHtml({
+    standard: opts.standard,
+    publisherName: opts.publisher,
+  });
+  const engagement = buildEngagementBoostHtml();
+  const topSignals = `${modeBadge}${walkthrough}${engagement}`;
+  return `${topSignals}${withBridge}`;
+}
 // -------------------------
 // PDF Generation (pdf-lib)
 // -------------------------
@@ -1148,6 +1838,7 @@ try {
   }
 
   const outputStyle = getElOpt<HTMLSelectElement>("outputStyle");
+  const audienceView = getElOpt<HTMLSelectElement>("audienceView");
   const state = getEl<HTMLSelectElement>("state");
   const publisher = getEl<HTMLSelectElement>("publisher");
   const publisherOtherWrap = getEl<HTMLElement>("publisherOtherWrap");
@@ -1233,6 +1924,7 @@ try {
   const copyDocsBtn = getElOpt<HTMLButtonElement>("copyDocsBtn");
   const printBtn = getElOpt<HTMLButtonElement>("printBtn");
   const downloadPdfBtn = getEl<HTMLButtonElement>("downloadPdfBtn");
+  const exportPackBtn = getElOpt<HTMLButtonElement>("exportPackBtn");
 
   const output = getEl<HTMLElement>("output");
 
@@ -1526,6 +2218,7 @@ try {
     return {
       mode: mode.value,
       outputStyle: outputStyle?.value ?? "default",
+      audienceView: audienceView?.value ?? "teacher",
       state: state.value,
       publisher: publisher.value,
       publisherOther: publisherOther.value,
@@ -1567,6 +2260,7 @@ try {
   function applyFormState(data: Record<string, any>) {
     if (data.mode) mode.value = data.mode;
     if (outputStyle && data.outputStyle) outputStyle.value = data.outputStyle;
+    if (audienceView && data.audienceView) audienceView.value = data.audienceView;
     if (data.state !== undefined) state.value = data.state;
     if (data.publisher) publisher.value = data.publisher;
     if (data.publisherOther !== undefined) publisherOther.value = data.publisherOther;
@@ -1779,9 +2473,16 @@ try {
         favoriteBtn.disabled = false;
         favoriteBtn.textContent = lastLessonFavorite ? "★ Favorited" : "☆ Favorite";
 
-        output.innerHTML = data.lesson_html || formatLessonToHtml(data.lesson_text || "");
+        output.innerHTML = renderLessonWithCurriculumBridge(data.lesson_text || "", {
+          publisher: publisher.value === "Other" ? (publisherOther.value.trim() || "Other") : publisher.value,
+          standard: standard.value.trim(),
+          unit: unit.value.trim(),
+          lesson: lesson.value.trim(),
+          audienceView: (audienceView?.value as OutputAudienceView) || "teacher",
+        });
         lastLessonPlainText = htmlToPlainText(output.innerHTML);
         downloadPdfBtn.disabled = !lastLessonPlainText.trim();
+        if (exportPackBtn) exportPackBtn.disabled = !lastLessonPlainText.trim();
 
         // ✅ Show Feedback Garage when opening a saved lesson
         const feedbackGarage = getElOpt<HTMLElement>("feedbackGarage");
@@ -1921,6 +2622,82 @@ try {
     }
   });
 
+  if (exportPackBtn) {
+    exportPackBtn.addEventListener("click", async () => {
+      const text = (lastLessonPlainText || htmlToPlainText(output.innerHTML || "")).trim();
+      if (!text) return showMessage("Generate a lesson first, then export the lesson pack.", false);
+
+      try {
+        const lessonPayload = toLessonExportPayload({
+          plainText: text,
+          grade: grade.value,
+          subject: subject.value.trim(),
+          standard: standard.value.trim(),
+          unit: unit.value.trim(),
+          lesson: lesson.value.trim(),
+          skillFocus: skillFocus?.value?.trim(),
+        });
+
+        showMessage("📦 Building lesson pack ZIP…", true);
+        exportPackBtn.disabled = true;
+
+        const validSession = getSessionIfValidForCurrentProject();
+        if (!validSession?.access_token) {
+          throw new Error(
+            "Missing authorization header: please log in again (session missing/expired or from another Supabase project).",
+          );
+        }
+
+        const callExport = async (token: string) => {
+          const headers = buildFunctionAuthHeaders(token);
+          if (!headers.Authorization?.startsWith("Bearer ")) {
+            throw new Error("Authorization header missing for export request.");
+          }
+          return await fetch(SUPABASE_EXPORT_PACK_FN_URL, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ lesson: lessonPayload }),
+          });
+        };
+
+        let res = await callExport(validSession.access_token);
+        if (res.status === 401) {
+          const refreshed = await refreshSessionWithRefreshToken(validSession.refresh_token);
+          if (refreshed?.access_token) {
+            res = await callExport(refreshed.access_token);
+          }
+        }
+
+        if (!res.ok) {
+          const raw = await res.text();
+          if (res.status === 401) {
+            throw new Error(
+              `Export failed (401): ${raw.slice(0, 220) || "Invalid JWT. Please log in again."}`,
+            );
+          }
+          throw new Error(`Export failed (${res.status}): ${raw.slice(0, 220)}`);
+        }
+
+        const blob = await res.blob();
+        const fileName = safeName(`${grade.value}-${subject.value}-${standard.value}-lesson-pack`) + ".zip";
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        showMessage("Lesson pack exported ✅", true);
+      } catch (e: any) {
+        showMessage(`Export error: ${esc(e?.message || e)}`, false);
+      } finally {
+        exportPackBtn.disabled = !((lastLessonPlainText || "").trim());
+      }
+    });
+  }
+
   favoriteBtn.addEventListener("click", async () => {
     try {
       clearMessage();
@@ -1971,6 +2748,28 @@ try {
     return { publisher: p };
   }
 
+  function buildQualityGuardrailsNotes(selectedStandard: string) {
+    const std = (selectedStandard || "").trim();
+    const isThemeStandard = /4\.8b/i.test(std) || /theme/i.test(std);
+
+    const base = `
+QUALITY GUARDRAILS:
+- Keep every comprehension question anchored to the target standard, not generic plot recall.
+- For question wording, prioritize "how/why" prompts tied directly to the standard language.
+- Provide a robust answer key with text-based evidence (quoted/paraphrased detail) and a brief reasoning sentence.
+- When possible, cite where evidence appears (e.g., line/paragraph reference) to strengthen instructional trust.
+`;
+
+    if (!isThemeStandard) return base;
+
+    return base + `
+THEME-SPECIFIC FOCUS (${std || "theme"}):
+- Avoid plot-only prompts like "What obstacle did the character face?"
+- Rewrite toward theme analysis: "How does the obstacle develop the theme? Use evidence."
+- In answer keys, explicitly name the theme and explain how the selected detail supports that theme.
+`;
+  }
+
   function getWorksheetPackFromUI() {
     const enabled = worksheetToggle ? !!worksheetToggle.checked : false;
     if (!enabled) return null;
@@ -2016,6 +2815,7 @@ try {
     output.innerHTML = "";
     lastLessonPlainText = "";
     downloadPdfBtn.disabled = true;
+    if (exportPackBtn) exportPackBtn.disabled = true;
 
     // ✅ Hide Feedback Garage until we have a fresh lesson
     const garage = getElOpt<HTMLElement>("feedbackGarage");
@@ -2073,8 +2873,8 @@ try {
         gradeLabel: grade.value,
         subject: subject.value.trim(),
         standard: standard.value.trim(),
-        curriculumUnit: unit.value.trim(),
-        curriculumLesson: lesson.value.trim(),
+        curriculumUnit: unit.value.trim() || "Not specified",
+        curriculumLesson: lesson.value.trim() || "Not specified",
 
         campusId: campusId?.value?.trim() || null,
         programName: programName?.value?.trim() || null,
@@ -2128,6 +2928,11 @@ try {
 
       const worksheetPack = getWorksheetPackFromUI();
       if (worksheetPack) payload.worksheetPack = worksheetPack;
+
+      payload.teacherNotes =
+        (payload.teacherNotes || "") +
+        `
+${buildQualityGuardrailsNotes(standard.value.trim())}`;
 
       // ✅ NEW: inject Admin Defense/Toolkit instructions (frontend-only, safe)
       if (chosenMode === "admin_defense" || chosenMode === "admin_toolkit") {
@@ -2199,7 +3004,9 @@ Include:
 
               if (liveText !== lastRendered) {
                 lastRendered = liveText;
-                output.innerHTML = formatLessonToHtml(liveText);
+                output.innerHTML = (audienceView?.value === "student")
+                  ? buildStudentWorksheetHtml(liveText, { includeTopSignals: true })
+                  : formatLessonToHtml(liveText);
               }
             },
 
@@ -2229,7 +3036,13 @@ Include:
         output.classList.remove("typing");
 
         lessonText = (finalLessonText || liveText) as string;
-        output.innerHTML = formatLessonToHtml(lessonText);
+        output.innerHTML = renderLessonWithCurriculumBridge(lessonText, {
+          publisher: pub,
+          standard: standard.value.trim(),
+          unit: unit.value.trim(),
+          lesson: lesson.value.trim(),
+          audienceView: (audienceView?.value as OutputAudienceView) || "teacher",
+        });
       } else {
         const raw = await res.text();
         let data: any = null;
@@ -2244,9 +3057,16 @@ Include:
 
       lessonText = dedupeWholeTextIfRepeated(lessonText);
 
-      output.innerHTML = formatLessonToHtml(lessonText);
+      output.innerHTML = renderLessonWithCurriculumBridge(lessonText, {
+        publisher: pub,
+        standard: standard.value.trim(),
+        unit: unit.value.trim(),
+        lesson: lesson.value.trim(),
+        audienceView: (audienceView?.value as OutputAudienceView) || "teacher",
+      });
       lastLessonPlainText = htmlToPlainText(output.innerHTML);
       downloadPdfBtn.disabled = !lastLessonPlainText.trim();
+      if (exportPackBtn) exportPackBtn.disabled = !lastLessonPlainText.trim();
 
       // ✅ Show Feedback Garage after output renders
       if (garage) garage.style.display = "block";
