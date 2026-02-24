@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Lessons-Ready Present Mode</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        background: var(--present-bg, #0f172a);
+        color: #e2e8f0;
+        height: 100vh;
+        display: grid;
+        grid-template-rows: 1fr auto;
+      }
+      #slide-container {
+        padding: 40px;
+        display: grid;
+        place-items: center;
+      }
+      .slide {
+        width: min(1100px, 100%);
+        background: rgba(15, 23, 42, 0.86);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 18px;
+        padding: 34px;
+      }
+      h1 { font-size: 56px; margin: 0 0 18px; }
+      h2 { font-size: 40px; margin: 0 0 18px; }
+      p { font-size: 24px; margin: 0; line-height: 1.4; }
+      ul { list-style: none; padding: 0; margin: 0; }
+      li {
+        font-size: 24px;
+        margin: 0 0 14px;
+        padding: 12px 16px;
+        border-left: 4px solid var(--present-accent, #38bdf8);
+        background: rgba(30, 41, 59, 0.65);
+        border-radius: 8px;
+      }
+      #notes-panel {
+        position: fixed;
+        right: 18px;
+        top: 18px;
+        width: min(340px, 28vw);
+        max-height: 72vh;
+        overflow: auto;
+        background: rgba(15, 23, 42, 0.94);
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        border-left: 4px solid var(--present-border, #1d4ed8);
+        border-radius: 12px;
+        padding: 12px;
+        display: none;
+      }
+      .notesTitle {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #94a3b8;
+        margin-bottom: 8px;
+      }
+      .notesText {
+        font-size: 16px;
+        line-height: 1.45;
+      }
+      #footer {
+        height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        color: #94a3b8;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="slide-container"></div>
+    <div id="footer"><span id="slide-counter"></span><span style="margin-left:10px;">• N: notes • F: fullscreen</span></div>
+    <aside id="notes-panel" aria-label="Teacher notes"></aside>
+
+    <script type="module" src="/src/present.ts"></script>
+  </body>
+</html>
