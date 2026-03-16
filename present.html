@@ -762,11 +762,60 @@ button:active {
 .reteachButton:hover { background: rgba(120, 53, 15, 0.65); }
 
 
+#present-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 40px;
+  background: rgba(15,23,42,0.97);
+  border-top: 1px solid rgba(51,65,85,0.9);
+  z-index: 999;
+}
+
+#dock-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+#dock-tabs button {
+  background: #1e293b;
+  border: 1px solid rgba(71,85,105,0.8);
+  color: #fff;
+  padding: 5px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+#dock-toggle { margin-left: auto; }
+
+#dock-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: -320px;
+  height: 320px;
+  background: #020617;
+  border-top: 1px solid #334155;
+  transition: bottom 0.25s ease;
+  z-index: 998;
+  overflow: auto;
+}
+
+#dock-panel.open { bottom: 40px; }
+
+.panel { display: none; padding: 14px; color: #e2e8f0; }
+.panel.active { display: block; }
+
+
 /* =========================
    PRINT CLEANUP
 ========================= */
 @media print {
-  #controls, #notes-panel, #footer, #mastery-tracker, #skill-panel, #alignment-proof, #next-slide-preview, .presentHelp { display: none !important; }
+  #controls, #notes-panel, #footer, #mastery-tracker, #skill-panel, #alignment-proof, #next-slide-preview, .presentHelp, #present-dock, #dock-panel { display: none !important; }
   body { background: white !important; color: #111 !important; }
 }
 </style>
@@ -866,6 +915,22 @@ button:active {
 </aside>
 
 <div class="presentHelp">← Previous • → Next • R Reveal • T Turn Talk • N Notes • F Fullscreen</div>
+
+
+<div id="present-dock" aria-label="Presenter dock">
+  <div id="dock-tabs">
+    <button data-panel="responses" type="button">Responses</button>
+    <button data-panel="reteach" type="button">Reteach</button>
+    <button data-panel="notes" type="button">Notes</button>
+    <button id="dock-toggle" type="button">▲ Tools</button>
+  </div>
+</div>
+
+<div id="dock-panel" aria-label="Dock panel">
+  <div class="panel" id="responses-panel"></div>
+  <div class="panel" id="reteach-panel"></div>
+  <div class="panel" id="dock-notes-panel"></div>
+</div>
 
 <script type="module" src="/src/present.ts"></script>
 
