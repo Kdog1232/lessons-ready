@@ -2633,6 +2633,19 @@ function stageBadge(stageType?: SlideType): string {
   return `<div class="stageBadge">${escHtml(stageLabels[stageType] || "")}</div>`;
 }
 
+function adjustSlideText() {
+  const slide = document.querySelector(".slide-content") as HTMLElement | null;
+  if (!slide) return;
+
+  let fontSize = 48;
+  slide.style.fontSize = `${fontSize}px`;
+
+  while (slide.scrollHeight > slide.clientHeight && fontSize > 24) {
+    fontSize -= 2;
+    slide.style.fontSize = `${fontSize}px`;
+  }
+}
+
 function preferredStageDuration(stageType?: SlideType): number {
   if (stageType === "objective_lock") return 90;
   if (stageType === "verb_definition") return 75;
@@ -2653,7 +2666,7 @@ function renderSlide() {
   const notesPanel = document.getElementById("teacher-notes");
 
   if (!slide) {
-    container.innerHTML = `<div class="slide"><h2>No slide found</h2></div>`;
+    container.innerHTML = `<div class="slide slide-content"><h2>No slide found</h2></div>`;
     if (counter) counter.textContent = "";
     if (notesPanel) notesPanel.innerHTML = "";
     return;
@@ -2686,7 +2699,7 @@ function renderSlide() {
   try {
   if (slide.type === "splash") {
     container.innerHTML = `
-      <div class="slide slide--splash${extraClass}">
+      <div class="slide slide-content slide--splash${extraClass}">
         <div class="brandMark">LR</div>
         <div class="brandKicker">Instruction Launch</div>
         <h1>${escHtml(slide.heading || "Lessons-Ready")}</h1>
@@ -2695,12 +2708,12 @@ function renderSlide() {
       </div>
     `;
   } else if (slide.type === "headline") {
-    container.innerHTML = `<div class="slide slide--headline${extraClass}">${stage}${coachingTag}<div class="sectionTag">${escHtml(slide.section || "")}</div><h1>${escHtml(slide.heading)}</h1><p>${escHtml(slide.subtext)}</p>${coachLine}${alignment}</div>`;
+    container.innerHTML = `<div class="slide slide-content slide--headline${extraClass}">${stage}${coachingTag}<div class="sectionTag">${escHtml(slide.section || "")}</div><h1>${escHtml(slide.heading)}</h1><p>${escHtml(slide.subtext)}</p>${coachLine}${alignment}</div>`;
   } else if (slide.type === "split") {
     const items = slide.items || [];
     const visibleCount = revealStep > 0 ? Math.min(revealStep, items.length) : Math.min(1, items.length);
     container.innerHTML = `
-      <div class="slide slide--split${extraClass}">
+      <div class="slide slide-content slide--split${extraClass}">
         ${stage}${coachingTag}
         <h2>${escHtml(slide.heading)}</h2>
         <p class="slideSubtext">${escHtml(slide.subtext)}</p>
@@ -2724,7 +2737,7 @@ function renderSlide() {
         : "";
 
     container.innerHTML = `
-      <div class="slide slide--question${extraClass}">
+      <div class="slide slide-content slide--question${extraClass}">
         ${stage}${coachingTag}<h2>${escHtml(slide.heading)}</h2>
         <p class="promptPrimary">${escHtml(slide.question)}</p>
         <p>${escHtml(slide.prompt)}</p>
@@ -2740,7 +2753,7 @@ function renderSlide() {
         ? `<p class="revealBlock">${escHtml(currentSkillType === "context_clues" ? "Model paragraph reveal: The word \"obscured\" means hidden because the nearby detail says thick fog blocked visibility." : "Model paragraph reveal: Explain your claim with direct evidence and reasoning from the text.")}</p>`
         : "";
     container.innerHTML = `
-      <div class="slide slide--writing${extraClass}">
+      <div class="slide slide-content slide--writing${extraClass}">
         ${stage}${coachingTag}<h2>${escHtml(slide.heading)}</h2>
         <p class="promptPrimary">${escHtml(slide.subtext)}</p>
         <div class="cerScaffold"><div>Claim</div><div>Evidence</div><div>Reasoning</div></div>
@@ -2751,11 +2764,11 @@ function renderSlide() {
     `;
   } else if (slide.type === "energy") {
     const contrastClass = currentIndex % 4 === 0 ? " slide--contrast" : "";
-    container.innerHTML = `<div class="slide slide--energy${contrastClass}${extraClass}">${stage}${coachingTag}<h1>${escHtml(slide.heading)}</h1><p>${escHtml(slide.subtext || "")}</p>${coachLine}${alignment}</div>`;
+    container.innerHTML = `<div class="slide slide-content slide--energy${contrastClass}${extraClass}">${stage}${coachingTag}<h1>${escHtml(slide.heading)}</h1><p>${escHtml(slide.subtext || "")}</p>${coachLine}${alignment}</div>`;
   } else if (slide.type === "discussion") {
     const stem = revealStep > 0 ? `<p class="revealBlock">Sentence stem reveal: "I agree because the text says..."</p>` : "";
     container.innerHTML = `
-      <div class="slide slide--discussion${extraClass}">
+      <div class="slide slide-content slide--discussion${extraClass}">
         ${stage}${coachingTag}<h2>${escHtml(slide.heading || "Discuss")}</h2>
         <p class="promptPrimary">${escHtml(slide.prompt || "Discuss with your partner.")}</p>
         ${stem}
@@ -2763,11 +2776,11 @@ function renderSlide() {
       </div>
     `;
   } else {
-    container.innerHTML = `<div class="slide${extraClass}">${stage}${coachingTag}<h2>${escHtml(slide.heading || "Slide")}</h2>${coachLine}${alignment}</div>`;
+    container.innerHTML = `<div class="slide slide-content${extraClass}">${stage}${coachingTag}<h2>${escHtml(slide.heading || "Slide")}</h2>${coachLine}${alignment}</div>`;
   }
 
   } catch (e: any) {
-    container.innerHTML = `<div class="slide"><h2>Slide render error</h2><p>${escHtml(e?.message || e)}</p></div>`;
+    container.innerHTML = `<div class="slide slide-content"><h2>Slide render error</h2><p>${escHtml(e?.message || e)}</p></div>`;
   }
 
   const renderedSlide = container.querySelector(".slide") as HTMLElement | null;
@@ -2777,6 +2790,8 @@ function renderSlide() {
       renderedSlide.classList.add("slide-enter-active");
     });
   }
+
+  adjustSlideText();
 
   const section = slide.section ? ` • ${slide.section}` : "";
   const stageDuration = slide.durationSeconds || preferredStageDuration(slide.stageType);
@@ -3036,7 +3051,7 @@ async function boot() {
   slideContainerEl = document.getElementById("slide-container") as HTMLElement | null;
   if (slideContainerEl) {
     slideContainerEl.innerHTML = `
-      <div class="slide">
+      <div class="slide slide-content">
         <h2>Loading lesson...</h2>
       </div>
     `;
@@ -3051,7 +3066,7 @@ async function boot() {
   } catch (e: any) {
     const container = document.getElementById("slide-container");
     if (container) {
-      container.innerHTML = `<div class="slide"><h2>Present mode unavailable</h2><p>${escHtml(e?.message || e)}</p></div>`;
+      container.innerHTML = `<div class="slide slide-content"><h2>Present mode unavailable</h2><p>${escHtml(e?.message || e)}</p></div>`;
     }
   }
 }
