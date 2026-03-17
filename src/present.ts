@@ -73,6 +73,11 @@ type GenerateLessonPayload = {
   stream: boolean;
 };
 
+type SavedSession = {
+  access_token?: string;
+  refresh_token?: string;
+};
+
 type LiveSessionRow = {
   id: string;
   join_code: string;
@@ -306,8 +311,61 @@ function getSavedToken(): string {
   try {
     const raw = localStorage.getItem(LS_SESSION_KEY);
     if (!raw) return "";
-    const parsed = JSON.parse(raw) as { access_token?: string };
+    const parsed = JSON.parse(raw) as SavedSession;
     return String(parsed?.access_token || "");
+  } catch {
+    return "";
+  }
+}
+
+function getSavedSession(): SavedSession | null {
+  try {
+    const raw = localStorage.getItem(LS_SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as SavedSession;
+  } catch {
+    return null;
+  }
+}
+
+function setSavedSession(session: SavedSession | null) {
+  if (!session) {
+    localStorage.removeItem(LS_SESSION_KEY);
+    return;
+  }
+  localStorage.setItem(LS_SESSION_KEY, JSON.stringify(session));
+}
+
+function isJwtExpiredError(status: number, body: string): boolean {
+  if (status !== 401) return false;
+  const text = String(body || "").toLowerCase();
+  return text.includes("jwt expired") || text.includes("pgrst303") || text.includes("invalid jwt");
+}
+
+async function refreshTokenIfPossible(): Promise<string> {
+  const session = getSavedSession();
+  const refreshToken = String(session?.refresh_token || "").trim();
+  if (!refreshToken) return "";
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    const text = await res.text();
+    if (!res.ok) return "";
+    const parsed = JSON.parse(text) as SavedSession;
+    const next: SavedSession = {
+      access_token: String(parsed?.access_token || ""),
+      refresh_token: String(parsed?.refresh_token || refreshToken),
+    };
+    if (!next.access_token) return "";
+    setSavedSession(next);
+    return next.access_token;
   } catch {
     return "";
   }
@@ -1751,6 +1809,10 @@ async function fetchLessonRow(lessonId: string, headers: Record<string, string>)
 
     lastErrorMessage = `Failed to load slides (${res.status}): ${body.slice(0, 120)}`;
 
+    if (isJwtExpiredError(res.status, body)) {
+      throw new Error("SESSION_EXPIRED");
+    }
+
     const isMissingColumn =
       res.status === 400 &&
       (body.includes("canonical_skill") ||
@@ -1848,6 +1910,17 @@ async function loadSlides() {
       row = await fetchLessonRow(lessonId, headers);
     } catch (e: any) {
       lessonLookupError = String(e?.message || e || "");
+      if (lessonLookupError === "SESSION_EXPIRED") {
+        const refreshedToken = await refreshTokenIfPossible();
+        if (refreshedToken) {
+          headers.Authorization = `Bearer ${refreshedToken}`;
+          row = await fetchLessonRow(lessonId, headers);
+          lessonLookupError = "";
+        } else {
+          setSavedSession(null);
+          throw new Error("Session expired. Please return to the main page, sign in again, and reopen Present mode.");
+        }
+      }
     }
   }
 
@@ -2577,7 +2650,7 @@ function renderSlide() {
   const container = slideContainerEl;
   if (!container) return;
   const counter = document.getElementById("slide-counter");
-  const notesPanel = document.getElementById("notes-panel");
+  const notesPanel = document.getElementById("teacher-notes");
 
   if (!slide) {
     container.innerHTML = `<div class="slide"><h2>No slide found</h2></div>`;
@@ -2718,13 +2791,30 @@ function renderSlide() {
   }
 
   const noteText = slide.notes ? escHtml(slide.notes) : "No teacher notes for this slide.";
-  const cueText = slide.teacherCue
-    ? `<div class="notesTitle" style="margin-top:10px;">Teacher Cue</div><div class="notesText">${escHtml(slide.teacherCue)}</div>`
-    : "";
-  const notesHtml = `<div class="notesInner"><div class="notesTitle">Teacher Notes</div><div class="notesText">${noteText}</div>${cueText}</div>`;
+  const cueText = slide.teacherCue ? escHtml(slide.teacherCue) : "Use the prompt and circulate for evidence-based responses.";
+  const notesHtml = `
+    <div class="notesSection">
+      <h3>🎯 Teacher Cue</h3>
+      <div class="notesText">${cueText}</div>
+    </div>
+    <div class="notesSection">
+      <h3>⚠️ Misconceptions</h3>
+      <div class="notesText">Watch for unsupported claims, text evidence that does not match the claim, or summary without reasoning.</div>
+    </div>
+    <div class="notesSection">
+      <h3>🛠 Reteach Plan</h3>
+      <div class="notesText">${noteText}</div>
+    </div>
+  `;
+
+  if (slide.stageType === "model_think_aloud") notesOpen = true;
+  if (slide.stageType === "independent_transfer" || slide.stageType === "exit_ticket") notesOpen = false;
+  localStorage.setItem(LS_PRESENT_NOTES_KEY, notesOpen ? "1" : "0");
+
   if (notesPanel) {
-    notesPanel.innerHTML = notesHtml;
-    notesPanel.style.display = notesOpen ? "block" : "none";
+    const content = document.getElementById("teacher-notes-content") as HTMLElement | null;
+    if (content) content.innerHTML = notesHtml;
+    notesPanel.classList.toggle("is-open", notesOpen);
   }
   const dockNotesPanel = document.getElementById("dock-notes-panel");
   if (dockNotesPanel) dockNotesPanel.innerHTML = notesHtml;
@@ -2734,40 +2824,6 @@ function renderSlide() {
   if (slide.stageType) {
     logPresentationEvent(currentIndex, slide.stageType).catch(() => {});
   }
-}
-
-function bindControlsDrag() {
-  const panel = document.getElementById("controls") as HTMLElement | null;
-  const handle = document.getElementById("controlsHeader") as HTMLElement | null;
-  if (!panel || !handle) return;
-
-  let dragging = false;
-  let offsetX = 0;
-  let offsetY = 0;
-
-  handle.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    panel.setPointerCapture?.(e.pointerId);
-    const rect = panel.getBoundingClientRect();
-    offsetX = e.clientX - rect.left;
-    offsetY = e.clientY - rect.top;
-  });
-
-  window.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    const maxX = Math.max(0, window.innerWidth - panel.offsetWidth);
-    const maxY = Math.max(0, window.innerHeight - panel.offsetHeight);
-    const nextLeft = Math.min(maxX, Math.max(0, e.clientX - offsetX));
-    const nextTop = Math.min(maxY, Math.max(0, e.clientY - offsetY));
-    panel.style.left = `${nextLeft}px`;
-    panel.style.top = `${nextTop}px`;
-  });
-
-  const stop = () => {
-    dragging = false;
-  };
-  window.addEventListener("pointerup", stop);
-  window.addEventListener("pointercancel", stop);
 }
 
 function downloadPresentPdf() {
@@ -2825,6 +2881,35 @@ function downloadPresentPdf() {
 }
 
 function bindControls() {
+  const panelStates: Record<string, boolean> = {
+    controls: true,
+    "teacher-notes": notesOpen,
+    "alignment-proof": true,
+    "skill-panel": true,
+    "mastery-tracker": true,
+  };
+
+  const refreshPanelVisibility = () => {
+    Object.entries(panelStates).forEach(([id, isOpen]) => {
+      const panel = document.getElementById(id);
+      if (panel) panel.classList.toggle("is-open", isOpen);
+    });
+  };
+
+  document.querySelectorAll("[data-panel-target]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = String((button as HTMLElement).dataset.panelTarget || "");
+      if (!id || !(id in panelStates)) return;
+      panelStates[id] = !panelStates[id];
+      if (id === "teacher-notes") {
+        notesOpen = panelStates[id];
+        localStorage.setItem(LS_PRESENT_NOTES_KEY, notesOpen ? "1" : "0");
+      }
+      refreshPanelVisibility();
+    });
+  });
+  refreshPanelVisibility();
+
   const bindToggle = (id: string, key: keyof PresentSettings) => {
     const el = document.getElementById(id) as HTMLInputElement | null;
     if (!el) return;
@@ -2915,7 +3000,6 @@ function bindControls() {
     renderSlide();
   });
 
-  bindControlsDrag();
 }
 
 function bindKeys() {
