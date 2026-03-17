@@ -2576,10 +2576,6 @@ qsStandard?.addEventListener("change", () => {
       enforceModeAccess();
     }
 
-    // -------------------------
-// Billing UI (SAFE VERSION)
-// -------------------------
-function refreshBillingUI(loggedIn: boolean) {
   // Landing subscribe button (only when logged OUT)
   setDisplay(billingBtnSubscribe, loggedIn ? "none" : "inline-block");
 
