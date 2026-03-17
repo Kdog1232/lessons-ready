@@ -2898,7 +2898,6 @@ function downloadPresentPdf() {
 function bindControls() {
   const panelStates: Record<string, boolean> = {
     controls: true,
-    "teacher-notes": notesOpen,
     "alignment-proof": true,
     "skill-panel": true,
     "mastery-tracker": true,
@@ -2916,10 +2915,6 @@ function bindControls() {
       const id = String((button as HTMLElement).dataset.panelTarget || "");
       if (!id || !(id in panelStates)) return;
       panelStates[id] = !panelStates[id];
-      if (id === "teacher-notes") {
-        notesOpen = panelStates[id];
-        localStorage.setItem(LS_PRESENT_NOTES_KEY, notesOpen ? "1" : "0");
-      }
       refreshPanelVisibility();
     });
   });

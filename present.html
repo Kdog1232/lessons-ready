@@ -266,7 +266,7 @@ li:hover {
    CONTROLS PANEL
 ========================= */
 #controls {
-  width: var(--dock-panel-width);
+  width: 320px;
   max-height: min(62vh, 520px);
   background: rgba(15, 23, 42, 0.95);
   border: 1px solid rgba(148,163,184,0.2);
@@ -279,14 +279,12 @@ li:hover {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(var(--dock-height) + var(--space-1));
+  bottom: 48px;
   z-index: 20;
   display: flex;
-  gap: var(--dock-stack-gap);
+  gap: 12px;
   overflow-x: auto;
-  padding: 0 var(--space-2);
-  scrollbar-gutter: stable both-edges;
-  align-items: flex-end;
+  padding: 0 12px;
 }
 
 #controlsHeader {
@@ -316,7 +314,6 @@ li:hover {
   transform: translateY(calc(100% - 48px));
   transition: transform 0.22s ease;
   overflow: hidden;
-  border: 1px solid rgba(148,163,184,0.3);
 }
 
 .dock-panel.is-open {
@@ -324,7 +321,7 @@ li:hover {
 }
 
 .dock-content {
-  padding: var(--space-2);
+  padding: 14px;
   overflow-y: auto;
   max-height: calc(min(62vh, 520px) - 48px);
 }
@@ -606,7 +603,7 @@ button:active {
 
 
 .masteryTracker {
-  width: var(--dock-panel-width);
+  width: 340px;
   max-height: min(62vh, 520px);
   background: rgba(17, 24, 39, 0.94);
   color: #f8fafc;
@@ -633,7 +630,7 @@ button:active {
 
 
 .skillPanel {
-  width: var(--dock-panel-width);
+  width: 340px;
   max-height: min(62vh, 520px);
   background: rgba(15, 23, 42, 0.94);
   color: #e2e8f0;
@@ -657,7 +654,7 @@ button:active {
 
 
 .alignmentPanel {
-  width: var(--dock-panel-width);
+  width: 340px;
   max-height: min(62vh, 520px);
   background: rgba(15, 23, 42, 0.94);
   color: #e2e8f0;
@@ -948,7 +945,7 @@ button:active {
    PRINT CLEANUP
 ========================= */
 @media print {
-  .dock-container, #controls, #teacher-notes, #footer, #mastery-tracker, #skill-panel, #alignment-proof, #next-slide-preview, .presentHelp, #present-dock, #dock-panel { display: none !important; }
+  .dock-container, #controls, #notes-panel, #footer, #mastery-tracker, #skill-panel, #alignment-proof, #next-slide-preview, .presentHelp, #present-dock, #dock-panel { display: none !important; }
   body { background: white !important; color: #111 !important; }
 }
 </style>
@@ -994,13 +991,6 @@ button:active {
     </div>
     <div id="slide-thumbnails" class="thumbGrid" aria-label="Slide thumbnails"></div>
     </div>
-  </aside>
-
-  <aside id="teacher-notes" class="dock-panel" aria-label="Teacher notes">
-    <div class="dock-header" data-panel-target="teacher-notes">
-      <h3>🧠 Teacher Notes</h3>
-    </div>
-    <div class="dock-content" id="teacher-notes-content"></div>
   </aside>
 
   <aside id="alignment-proof" class="alignmentPanel dock-panel is-open" aria-label="TEKS alignment proof">
@@ -1051,6 +1041,10 @@ button:active {
     </div>
   </div>
 </div>
+
+<aside id="notes-panel" aria-label="Teacher notes"></aside>
+
+
 
 <aside id="next-slide-preview" class="nextSlidePreview" aria-label="Next slide preview">
   <div class="nextPreviewHeader">Next Slide</div>
