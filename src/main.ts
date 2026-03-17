@@ -2175,68 +2175,104 @@ try {
   const landingView = getElOpt<HTMLElement>("landingView");
   const appView = getElOpt<HTMLElement>("appView");
 
-  // Auth UI
-  const authEmail = getEl<HTMLInputElement>("authEmail");
-  const authPassword = getEl<HTMLInputElement>("authPassword");
-  const signUpBtn = getEl<HTMLButtonElement>("signUpBtn");
-  const logInBtn = getEl<HTMLButtonElement>("logInBtn");
-  const logOutBtn = getEl<HTMLButtonElement>("logOutBtn");
-  const forgotPwBtn = getElOpt<HTMLButtonElement>("forgotPwBtn");
-  const authStatusPill = getEl<HTMLElement>("authStatusPill");
-  const message = getEl<HTMLElement>("message");
-  const messageApp = getElOpt<HTMLElement>("message_app");
+  // -------------------------
+// Auth UI (SAFE VERSION)
+// -------------------------
+const authEmail = getElOpt<HTMLInputElement>("authEmail");
+const authPassword = getElOpt<HTMLInputElement>("authPassword");
+const signUpBtn = getElOpt<HTMLButtonElement>("signUpBtn");
+const logInBtn = getElOpt<HTMLButtonElement>("logInBtn");
+const logOutBtn = getElOpt<HTMLButtonElement>("logOutBtn");
+const forgotPwBtn = getElOpt<HTMLButtonElement>("forgotPwBtn");
+const authStatusPill = getElOpt<HTMLElement>("authStatusPill");
+const message = getElOpt<HTMLElement>("message");
+const messageApp = getElOpt<HTMLElement>("message_app");
 
-  // Billing + top buttons (HTML already has these)
-  const billingBtnSubscribe =
-    getElOpt<HTMLButtonElement>("billingBtn_subscribe"); // landing subscribe (not present in your new HTML, safe)
-  const billingBtn = getElOpt<HTMLButtonElement>("billingBtn"); // legacy / hidden
-  const billingBtnApp =
-    getElOpt<HTMLButtonElement>("billingBtn_app"); // app top right (single source of truth)
-  const billingBtnApp2 =
-    getElOpt<HTMLButtonElement>("billingBtn_app2"); // duplicate (not present now, safe)
-  const logOutBtnApp = getElOpt<HTMLButtonElement>("logOutBtn_app");
+// -------------------------
+// Safe Event Listeners
+// -------------------------
+signUpBtn?.addEventListener("click", () => {
+  const email = authEmail?.value?.trim();
+  const password = authPassword?.value?.trim();
 
-  // Form / app UI
-  const statusPill = getEl<HTMLElement>("statusPill");
-  const metaLineEl = getEl<HTMLElement>("metaLine");
+  if (!email || !password) return;
 
-  const mode = getEl<HTMLSelectElement>("mode");
+  console.log("Sign up:", email);
+});
 
-  // ✅ NEW: disables Pro-only mode options in the dropdown (uses data-pro="1")
-  function applyModeAvailability() {
-    const proAllowed = isPaidActive(); // strict: only paid "active" (not trialing)
-    const opts = Array.from(mode.querySelectorAll("option"));
+logInBtn?.addEventListener("click", () => {
+  const email = authEmail?.value?.trim();
+  const password = authPassword?.value?.trim();
 
-    for (const opt of opts) {
-      const isPro = opt.getAttribute("data-pro") === "1";
-      if (isPro) {
-        opt.disabled = !proAllowed;
-        if (!proAllowed && mode.value === opt.value) {
-          mode.value = "full_lesson";
-        }
+  if (!email || !password) return;
+
+  console.log("Log in:", email);
+});
+
+logOutBtn?.addEventListener("click", () => {
+  console.log("Log out");
+});
+
+forgotPwBtn?.addEventListener("click", () => {
+  const email = authEmail?.value?.trim();
+  if (!email) return;
+
+  console.log("Reset password for:", email);
+});
+
+  // Billing + top buttons (SAFE)
+const billingBtnSubscribe = getElOpt<HTMLButtonElement>("billingBtn_subscribe");
+const billingBtn = getElOpt<HTMLButtonElement>("billingBtn");
+const billingBtnApp = getElOpt<HTMLButtonElement>("billingBtn_app");
+const billingBtnApp2 = getElOpt<HTMLButtonElement>("billingBtn_app2");
+const logOutBtnApp = getElOpt<HTMLButtonElement>("logOutBtn_app");
+
+// Form / app UI (SAFE)
+const statusPill = getElOpt<HTMLElement>("statusPill");
+const metaLineEl = getElOpt<HTMLElement>("metaLine");
+const mode = getElOpt<HTMLSelectElement>("mode");
+
+// ✅ SAFE MODE HANDLER
+function applyModeAvailability() {
+  if (!mode) return; // 🔥 prevents crash
+
+  const proAllowed = isPaidActive();
+  const opts = Array.from(mode.querySelectorAll("option"));
+
+  for (const opt of opts) {
+    const isPro = opt.getAttribute("data-pro") === "1";
+
+    if (isPro) {
+      opt.disabled = !proAllowed;
+
+      if (!proAllowed && mode.value === opt.value) {
+        mode.value = "full_lesson";
       }
     }
   }
+}
+function enforceModeAccess() {
+  if (!mode) return; // 🔥 prevents crash on presenter
 
-  function enforceModeAccess() {
-    // Paid users: unlock Pro-marked options
-    applyModeAvailability();
+  // Paid users: unlock Pro-marked options
+  applyModeAvailability();
 
-    // Keep dropdown enabled for everyone (we just disable Pro options)
-    mode.disabled = false;
+  // Keep dropdown enabled for everyone
+  mode.disabled = false;
 
-    // If NOT paid and user somehow selected a Pro mode, force to full_lesson
-    const selectedOpt = mode.querySelector(
-      `option[value="${CSS.escape(mode.value)}"]`,
-    );
-    if (
-      selectedOpt &&
-      selectedOpt.getAttribute("data-pro") === "1" &&
-      !isPaidActive()
-    ) {
-      mode.value = "full_lesson";
-    }
+  // If NOT paid and user somehow selected a Pro mode, force fallback
+  const selectedOpt = mode.querySelector(
+    `option[value="${CSS.escape(mode.value)}"]`,
+  );
+
+  if (
+    selectedOpt &&
+    selectedOpt.getAttribute("data-pro") === "1" &&
+    !isPaidActive()
+  ) {
+    mode.value = "full_lesson";
   }
+}
 
   const outputStyle = getElOpt<HTMLSelectElement>("outputStyle");
   const audienceView = getElOpt<HTMLSelectElement>("audienceView");
