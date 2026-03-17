@@ -2277,7 +2277,7 @@ function enforceModeAccess() {
   const outputStyle = getElOpt<HTMLSelectElement>("outputStyle");
   const audienceView = getElOpt<HTMLSelectElement>("audienceView");
   const state = getEl<HTMLSelectElement>("state");
-  const publisher = getEl<HTMLSelectElement>("publisher");
+  publisher?.addEventListener("change", refreshPublisherUI);
   const publisherOtherWrap = getEl<HTMLElement>("publisherOtherWrap");
   const publisherOther = getEl<HTMLInputElement>("publisherOther");
 
