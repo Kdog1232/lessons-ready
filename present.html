@@ -43,139 +43,37 @@ body {
    SLIDE LAYOUT
 ========================= */
 #slide-container {
-  height: 100vh;
-  overflow: hidden;
+  height: calc(100vh - 96px);
+  overflow-y: auto;
+  padding: var(--space-5);
+  padding-bottom: 196px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
-  padding-bottom: 180px;
+  padding-top: clamp(var(--space-4), 6vh, 72px);
+  scrollbar-gutter: stable;
 }
 
 .slide-content {
-  max-width: 720px;
-  margin: 0 auto;
+  max-width: 900px;
   line-height: 1.4;
   word-wrap: break-word;
   overflow-wrap: anywhere;
-  max-height: 65vh;
-  overflow-y: auto;
-  padding-right: 6px;
-}
-
-.slide-content::-webkit-scrollbar {
-  width: 6px;
-}
-
-.slide-content::-webkit-scrollbar-thumb {
-  background: rgba(148,163,184,0.5);
-  border-radius: 6px;
 }
 
 .slide {
   position: relative;
   width: min(1040px, 100%);
-  max-height: calc(100vh - 220px);
-  overflow-y: auto;
-  padding: 48px 64px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 18px;
-  border-radius: 24px;
-  background: linear-gradient(180deg, #0f172a 0%, #020617 100%);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
-  transition: all 0.35s ease;
-}
-
-.slide h1 {
-  font-size: 44px;
-  font-weight: 700;
-  margin-bottom: 16px;
-}
-
-.slide p {
-  font-size: 22px;
-  opacity: 0.9;
-  line-height: 1.5;
-}
-
-.layout-center {
-  text-align: center;
-  align-items: center;
-}
-
-.layout-center h1 {
-  font-size: 52px;
-}
-
-.layout-center p {
-  font-size: 24px;
-  max-width: 800px;
-}
-
-.layout-list ul {
-  display: grid;
-  gap: 12px;
-}
-
-.layout-list li {
-  font-size: clamp(20px, 2.4vw, 26px);
-}
-
-.layout-vocab {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 40px;
-  align-items: center;
-}
-
-.layout-story {
-  max-width: 900px;
-}
-
-.story-text {
-  font-size: 24px;
-  line-height: 1.7;
-  background: rgba(255,255,255,0.04);
-  padding: 28px;
-  border-radius: 18px;
-  border-left: 4px solid #38bdf8;
-}
-
-.layout-question {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.layout-question h2 {
-  font-weight: 800;
-}
-
-.layout-debate {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 32px;
-}
-
-.layout-split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-}
-
-.layout-writing {
-  max-width: 800px;
-}
-
-.layout-exit {
-  text-align: center;
-  align-items: center;
-}
-
-.layout-exit h1 {
-  font-size: 42px;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 22px;
+  padding: clamp(var(--space-4), 4vw, 40px);
+  box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+  animation: slideFade 280ms ease;
+  transition: opacity 200ms ease, transform 200ms ease;
+  will-change: transform, opacity;
+  overflow: hidden;
 }
 
 .slide::before {
@@ -314,14 +212,9 @@ body {
 }
 
 .slide p {
-  font-size: clamp(18px, 2vw, 24px);
-  margin: 0 0 10px;
-  line-height: 1.5;
-}
-
-.slide ul {
-  max-height: 60vh;
-  overflow-y: auto;
+  font-size: clamp(26px, 2.8vw, 32px);
+  margin: 0 0 var(--space-2);
+  line-height: 1.45;
 }
 
 .slideSubtext {
@@ -340,16 +233,8 @@ body {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  opacity: 0.5;
+  opacity: 0.6;
   margin-bottom: var(--space-2);
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(148,163,184,0.15);
-}
-
-.slide:empty {
-  display: none;
 }
 
 /* =========================
@@ -409,7 +294,7 @@ li:hover {
    CONTROLS PANEL
 ========================= */
 #controls {
-  width: var(--dock-panel-width);
+  width: 320px;
   max-height: min(62vh, 520px);
   background: rgba(15, 23, 42, 0.95);
   border: 1px solid rgba(148,163,184,0.2);
@@ -425,13 +310,9 @@ li:hover {
   bottom: 48px;
   z-index: 20;
   display: flex;
-  gap: var(--dock-stack-gap);
+  gap: 12px;
   overflow-x: auto;
-  padding: 0 var(--space-2);
-  scrollbar-gutter: stable both-edges;
-  align-items: flex-end;
-  height: auto;
-  max-height: 55vh;
+  padding: 0 12px;
 }
 
 #controlsHeader {
@@ -461,7 +342,6 @@ li:hover {
   transform: translateY(calc(100% - 48px));
   transition: transform 0.22s ease;
   overflow: hidden;
-  border: 1px solid rgba(148,163,184,0.3);
 }
 
 .dock-panel.is-open {
@@ -469,7 +349,7 @@ li:hover {
 }
 
 .dock-content {
-  padding: var(--space-2);
+  padding: 14px;
   overflow-y: auto;
   max-height: calc(min(62vh, 520px) - 48px);
 }
@@ -847,7 +727,7 @@ button:active {
 
 
 .masteryTracker {
-  width: var(--dock-panel-width);
+  width: 340px;
   max-height: min(62vh, 520px);
   background: rgba(17, 24, 39, 0.94);
   color: #f8fafc;
@@ -874,7 +754,7 @@ button:active {
 
 
 .skillPanel {
-  width: var(--dock-panel-width);
+  width: 340px;
   max-height: min(62vh, 520px);
   background: rgba(15, 23, 42, 0.94);
   color: #e2e8f0;
@@ -898,7 +778,7 @@ button:active {
 
 
 .alignmentPanel {
-  width: var(--dock-panel-width);
+  width: 340px;
   max-height: min(62vh, 520px);
   background: rgba(15, 23, 42, 0.94);
   color: #e2e8f0;
@@ -1179,10 +1059,6 @@ button:active {
   .presentHelp {
     display: none;
   }
-
-  .layout-split {
-    grid-template-columns: 1fr !important;
-  }
 }
 
 .panel { display: none; padding: 14px; color: #e2e8f0; }
@@ -1193,7 +1069,7 @@ button:active {
    PRINT CLEANUP
 ========================= */
 @media print {
-  .dock-container, #controls, #teacher-notes, #footer, #mastery-tracker, #skill-panel, #alignment-proof, #next-slide-preview, .presentHelp, #present-dock, #dock-panel { display: none !important; }
+  .dock-container, #controls, #notes-panel, #footer, #mastery-tracker, #skill-panel, #alignment-proof, #next-slide-preview, .presentHelp, #present-dock, #dock-panel { display: none !important; }
   body { background: white !important; color: #111 !important; }
 }
 </style>
@@ -1212,21 +1088,6 @@ button:active {
     <label class="toggle"><input id="toggle-short30" type="checkbox" /> Shorten to 30 min</label>
     <label class="toggle"><input id="toggle-intervention" type="checkbox" /> Intervention pace</label>
     <label class="toggle"><input id="toggle-coaching" type="checkbox" /> Coaching mode</label>
-    <label class="toggle"><input id="toggle-include-model" type="checkbox" /> Include Model (I Do)</label>
-    <label class="toggle"><input id="toggle-include-compare" type="checkbox" /> Include Compare & Defend</label>
-    <label class="toggle"><input id="toggle-include-exit" type="checkbox" /> Include Exit Ticket</label>
-    <label class="toggle"><input id="toggle-mini15" type="checkbox" /> Reduce to 15-minute mini lesson</label>
-    <label class="toggle"><input id="toggle-rigor" type="checkbox" /> Increase rigor (force DOK 3)</label>
-    <label class="toggle"><input id="toggle-teacher-notes" type="checkbox" checked /> Show teacher notes</label>
-    <label class="toggle" for="theme-select">Theme:
-      <select id="theme-select">
-        <option value="default">Default</option>
-        <option value="fortnite">Fortnite</option>
-        <option value="sports">Sports</option>
-        <option value="real_world">Real World</option>
-        <option value="academic">Academic</option>
-      </select>
-    </label>
 
     <div class="toolbar">
       <button id="btn-start-session" type="button">Start Live Session</button>
@@ -1254,13 +1115,6 @@ button:active {
     </div>
     <div id="slide-thumbnails" class="thumbGrid" aria-label="Slide thumbnails"></div>
     </div>
-  </aside>
-
-  <aside id="teacher-notes" class="dock-panel" aria-label="Teacher notes">
-    <div class="dock-header" data-panel-target="teacher-notes">
-      <h3>🧠 Teacher Notes</h3>
-    </div>
-    <div class="dock-content" id="teacher-notes-content"></div>
   </aside>
 
   <aside id="alignment-proof" class="alignmentPanel dock-panel is-open" aria-label="TEKS alignment proof">
@@ -1311,6 +1165,10 @@ button:active {
     </div>
   </div>
 </div>
+
+<aside id="notes-panel" aria-label="Teacher notes"></aside>
+
+
 
 <aside id="next-slide-preview" class="nextSlidePreview" aria-label="Next slide preview">
   <div class="nextPreviewHeader">Next Slide</div>
