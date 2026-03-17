@@ -2595,10 +2595,10 @@ qsStandard?.addEventListener("change", () => {
   }
 
   refreshPublisherUI();
-  publisher.addEventListener("change", refreshPublisherUI);
+  publisher?.addEventListener("change", refreshPublisherUI);
 
   // ✅ Keep mode access correct if user changes mode
-  mode.addEventListener("change", () => enforceModeAccess());
+  mode?.addEventListener("change", () => enforceModeAccess());
 
   // -------------------------
   // ✅ BUTTON WIRING
