@@ -3059,9 +3059,8 @@ setDisplay(logOutBtn, loggedIn ? "inline-block" : "none");
         downloadPdfBtn.disabled = !lastLessonPlainText.trim();
         if (exportPackBtn) exportPackBtn.disabled = !lastLessonPlainText.trim();
 
-        // ✅ Show Feedback Garage when opening a saved lesson
-        const feedbackGarage = getElOpt<HTMLElement>("feedbackGarage");
-        if (feedbackGarage) feedbackGarage.style.display = "block";
+       const feedbackGarage = getElOpt<HTMLElement>("feedbackGarage");
+       setDisplay(feedbackGarage, "block");
 
         if (action === "pdf") {
           const filename = safeName(
