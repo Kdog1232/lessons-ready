@@ -5,6 +5,7 @@ import { resolveCanonicalStandard } from "./save-lesson";
 // -------------------------
 // ✅ CONFIG
 // -------------------------
+const isGeneratorPage = window.location.pathname.includes("index");
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 
 // ✅ Lesson generation (keep as-is)
@@ -36,19 +37,12 @@ const STRIPE_PUBLISHABLE_KEY =
 // -------------------------
 // Helpers
 // -------------------------
-function getEl<T extends HTMLElement>(id: string): T {
-  const el = document.getElementById(id);
-
-  if (!el) {
-    console.warn(`Missing element: ${id}`);
-    return {} as T; // prevents crash
-  }
-
-  return el as T;
+function getEl<T extends HTMLElement>(id: string): T | null {
+  return document.getElementById(id) as T | null;
 }
 
 function getElOpt<T extends HTMLElement>(id: string): T | null {
-  return (document.getElementById(id) as T) || null;
+  return document.getElementById(id) as T | null;
 }
 
 function escapeHtml(s: string) {
