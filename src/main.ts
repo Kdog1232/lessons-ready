@@ -3400,10 +3400,11 @@ THEME-SPECIFIC FOCUS (${std || "theme"}):
     if (exportPackBtn) exportPackBtn.disabled = true;
 
     // ✅ Hide Feedback Garage until we have a fresh lesson
-    const garage = getElOpt<HTMLElement>("feedbackGarage");
-    if (garage) garage.style.display = "none";
-    const fbStatus = getElOpt<HTMLElement>("feedbackStatus");
-    if (fbStatus) fbStatus.innerHTML = "";
+   const garage = getElOpt<HTMLElement>("feedbackGarage");
+setDisplay(garage, "none");
+
+const fbStatus = getElOpt<HTMLElement>("feedbackStatus");
+if (fbStatus) fbStatus.innerHTML = "";
 
     generateBtn.disabled = true;
     setStatus("Working…");
