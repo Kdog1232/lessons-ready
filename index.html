@@ -1368,9 +1368,9 @@
                 </label>
 
                 <label class="full">
-                  Standard
-                  <input id="qs_standard" value="TEKS 4.8B" placeholder="e.g., TEKS 4.8B" />
-                </label>
+                Standard
+                <select id="qs_standard"></select>
+              </label>
 
                 <label class="full">
                   Curriculum
@@ -1500,7 +1500,7 @@
 
               <label class="full">
                 Standard (label)
-                <input id="standard" value="TEKS 4.8B" placeholder="e.g., TEKS 4.8B" />
+                <select id="standard"></select>
               </label>
 
               <label>
@@ -2220,7 +2220,26 @@
           if (adv && adv.tagName === "DETAILS") adv.open = true;
           adv?.scrollIntoView({ behavior: "smooth", block: "start" });
         });
+        
+        // 🔁 Sync Quick Grade + Subject → Advanced + reload standards
+const qsGrade = document.getElementById("qs_grade");
+const qsSubject = document.getElementById("qs_subject");
 
+qsGrade?.addEventListener("change", () => {
+  const mainGrade = document.getElementById("grade");
+  if (mainGrade) {
+    mainGrade.value = qsGrade.value;
+    mainGrade.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+});
+
+qsSubject?.addEventListener("change", () => {
+  const mainSubject = document.getElementById("subject");
+  if (mainSubject) {
+    mainSubject.value = qsSubject.value;
+    mainSubject.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+});
         document.getElementById("qs_generateBtn")?.addEventListener("click", () => {
           syncQuickGenerateToMain();
           document.getElementById("generateBtn")?.click();
@@ -2237,4 +2256,3 @@
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
-

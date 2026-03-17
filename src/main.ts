@@ -1,6 +1,7 @@
 // ✅ FILE: src/main.ts (COPY/PASTE THIS WHOLE FILE)
 console.log("✅ src/main.ts loaded");
 import { generateDefaultSkillFocus } from "./utils/skillFocus";
+import { resolveCanonicalStandard } from "./save-lesson";
 // -------------------------
 // ✅ CONFIG
 // -------------------------
@@ -78,6 +79,11 @@ function esc(s: any) {
   return escapeHtml(String(s ?? ""));
 }
 
+(window as any).openPresentMode = function (lessonId: string) {
+  if (!lessonId) return;
+  window.location.href = `/present.html?id=${encodeURIComponent(lessonId)}`;
+};
+
 function extractSectionBlocksFromPlainText(text: string) {
   const lines = String(text || "").replaceAll("\r\n", "\n").split("\n");
   const out: Array<{ heading: string; lines: string[] }> = [];
@@ -96,6 +102,324 @@ function extractSectionBlocksFromPlainText(text: string) {
   }
   if (current) out.push(current);
   return out;
+}
+
+type PresentSlideDefinition = {
+  type: "headline" | "split" | "question" | "writing" | "energy" | "discussion";
+  heading: string;
+  subtext?: string;
+  items?: string[];
+  question?: string;
+  prompt?: string;
+  section?: string;
+  notes?: string;
+  durationSeconds?: number;
+  teacherCue?: string;
+};
+
+type StructuredLessonSections = {
+  objective?: string;
+  successCriteria?: string[];
+  vocab?: string[];
+  cfu?: { tier1?: string; tier2?: string; tier3?: string };
+  modeling?: string;
+  guided?: string;
+  independent?: string;
+  exit?: string;
+  rubric?: string;
+  reteach?: string;
+  misconceptions?: string[];
+};
+
+type SlideSupportOptions = {
+  eb: boolean;
+  sped: boolean;
+};
+
+function resolveLessonModeFromPublisher(publisher: string): "bluebonnet" | "amplify" | "generic" {
+  const p = String(publisher || "").toLowerCase();
+  if (p.includes("bluebonnet")) return "bluebonnet";
+  if (p.includes("amplify")) return "amplify";
+  return "generic";
+}
+
+function buildSlideDefinitionsFromLesson(plainText: string, structuredSections?: StructuredLessonSections, supportOptions?: Partial<SlideSupportOptions>): PresentSlideDefinition[] {
+  const text = String(plainText || "").replaceAll("\r\n", "\n");
+  const blocks = extractSectionBlocksFromPlainText(text);
+  const findBlock = (...patterns: RegExp[]) =>
+    blocks.find((b) => patterns.some((p) => p.test(b.heading.toLowerCase())));
+  const blockLines = (block?: { heading: string; lines: string[] }) =>
+    (block?.lines || []).map((line) => line.trim()).filter(Boolean);
+  const firstMeaningfulLine = (lines: string[]) =>
+    lines.find((line) => line && !/^[-•]/.test(line) && !/^tier\s*\d+/i.test(line));
+  const bulletItems = (lines: string[], limit = 4) =>
+    lines
+      .map((line) => line.replace(/^[-•]\s*/, "").replace(/^\d+[\).]\s*/, "").trim())
+      .filter(Boolean)
+      .slice(0, limit);
+
+  const defs: PresentSlideDefinition[] = [];
+  const normalizedSections = (structuredSections && typeof structuredSections === "object") ? structuredSections : {};
+  const sectionObjective = String(normalizedSections.objective || "").trim();
+  const sectionSuccess = Array.isArray(normalizedSections.successCriteria) ? normalizedSections.successCriteria.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const sectionVocab = Array.isArray(normalizedSections.vocab) ? normalizedSections.vocab.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const sectionModeling = String(normalizedSections.modeling || "").trim();
+  const sectionGuided = String(normalizedSections.guided || "").trim();
+  const sectionIndependent = String(normalizedSections.independent || "").trim();
+  const sectionExit = String(normalizedSections.exit || "").trim();
+  const sectionCfu = [normalizedSections.cfu?.tier1, normalizedSections.cfu?.tier2, normalizedSections.cfu?.tier3]
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+
+  const supports: SlideSupportOptions = {
+    eb: supportOptions?.eb !== false,
+    sped: supportOptions?.sped !== false,
+  };
+  const withEbStem = (text: string, stem: string) => supports.eb ? `${text} • Sentence stem: ${stem}` : text;
+  const withSpedChunk = (text: string, chunk: string) => supports.sped ? `${text} • Steps: ${chunk}` : text;
+
+  const addEnergy = (heading: string, subtext: string, section: string, cue: string, durationSeconds = 30) => {
+    defs.push({
+      type: "energy",
+      heading,
+      subtext,
+      section,
+      notes: "Use this transition to reset class attention and pacing.",
+      durationSeconds,
+      teacherCue: cue,
+    });
+  };
+
+  const objectiveBlock = findBlock(/objective|i can/);
+  const objectiveText = sectionObjective || firstMeaningfulLine(blockLines(objectiveBlock)) || "Students will demonstrate the target skill with evidence.";
+  const questionLines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => /^\d+[\).]\s+/.test(l) && /\?$/.test(l))
+    .slice(0, 8);
+  const hookQuestion = questionLines[0]?.replace(/^\d+[\).]\s+/, "").trim() || "What big idea should we prove by the end of class?";
+  const inferenceQuestion = questionLines[1]?.replace(/^\d+[\).]\s+/, "").trim() || "If a character faces fear, what message might the author be building?";
+  const likelyTopic = (objectiveText.match(/theme|courage|fear|friendship|perseverance|kindness/i)?.[0] || "friendship").toLowerCase();
+  const incompleteEvidence = sectionModeling || "She walked into the dark forest even though her hands were shaking.";
+
+  addEnergy("🔥 TODAY'S MISSION", "One goal. One focus. One strong lesson.", "Launch", "Open with confidence and name today's mission in one sentence.");
+
+  defs.push({
+    type: "question",
+    heading: "THEME OR JUST A TOPIC?",
+    question: `Is "${likelyTopic}" a theme or just a topic?`,
+    prompt: withEbStem("No answer yet. Turn and argue.", "I agree/disagree because ___."),
+    section: "Provocation",
+    notes: "Create productive tension before students read.",
+    durationSeconds: 75,
+    teacherCue: withSpedChunk("Push students to justify their side.", "Think 15 sec → turn-and-talk → 2 share-outs."),
+  });
+
+  defs.push({
+    type: "question",
+    heading: "Prediction Pressure",
+    question: inferenceQuestion.slice(0, 220),
+    prompt: withEbStem("Predict now, then hunt for proof while reading.", "The author might be saying ___ because ___."),
+    section: "Pre-Reading",
+    notes: "Set a reading mission before students open the text.",
+    durationSeconds: 75,
+    teacherCue: "Collect 2 predictions and post them for verification later.",
+  });
+
+  defs.push({
+    type: "question",
+    heading: "Incomplete Evidence",
+    question: incompleteEvidence.slice(0, 220),
+    prompt: withEbStem("Does this prove courage or just action? Defend your choice.", "This proves ___ because line ___ shows ___."),
+    section: "Pre-Reading",
+    notes: "Students analyze evidence quality before full reading.",
+    durationSeconds: 90,
+    teacherCue: "Ask: Which exact words in the line support your claim?",
+  });
+
+  defs.push({
+    type: "discussion",
+    heading: "Debate Setup",
+    prompt: withEbStem("Agree or disagree: A theme must be clearly stated in the text.", "I agree/disagree because ___."),
+    section: "Pre-Reading",
+    notes: "Create intellectual posture before the story begins.",
+    durationSeconds: 90,
+    teacherCue: "Move students to a side and cold call both positions.",
+  });
+
+  defs.push({
+    type: "headline",
+    heading: "Objective",
+    subtext: objectiveText.slice(0, 220),
+    section: "Objective",
+    notes: "Now anchor the mission with explicit lesson target.",
+    durationSeconds: 75,
+    teacherCue: "Link objective to the debate: 'Today we prove, not guess.'",
+  });
+
+  addEnergy("🎯 WHAT SUCCESS LOOKS LIKE", "Build quality before students begin.", "Success Setup", "Tell students they will prove learning with evidence, not guesses.");
+
+  const successBlock = findBlock(/success criteria/);
+  const successItems = sectionSuccess.length ? sectionSuccess.slice(0, 5) : bulletItems(blockLines(successBlock), 5);
+  for (const [idx, item] of successItems.entries()) {
+    defs.push({
+      type: "headline",
+      heading: `Success Move ${idx + 1}`,
+      subtext: item.slice(0, 220),
+      section: "Success Criteria",
+      notes: "Keep one thought per slide so students focus on this move only.",
+      durationSeconds: 60,
+      teacherCue: "Ask: 'Show me what this would look like in a strong response.'",
+    });
+  }
+
+  addEnergy("🧠 LET'S THINK", "Predict first, then prove it.", "Engagement", "Give 20 seconds silent think time before partner talk.");
+
+  defs.push({
+    type: "question",
+    heading: "Concept Hook",
+    question: hookQuestion,
+    prompt: withEbStem("Turn and talk: share one answer and one reason.", "I think ___ because ___."),
+    section: "Engagement",
+    notes: "Activate prior knowledge before explicit instruction.",
+    durationSeconds: 75,
+    teacherCue: withSpedChunk("Cold call two students and ask each for their proof.", "Think 15 sec → partner share → whole-class response."),
+  });
+
+  addEnergy("📚 POWER WORDS", "Say it. Use it. Own it.", "Vocabulary", "Choral read each term, then require one term in the next response.");
+  const vocabBlock = findBlock(/academic vocabulary|vocabulary|frontloading/);
+  const vocabItems = sectionVocab.length ? sectionVocab.slice(0, 4) : bulletItems(blockLines(vocabBlock));
+  for (const term of vocabItems) {
+    defs.push({
+      type: "headline",
+      heading: "Power Word",
+      subtext: term.slice(0, 220),
+      section: "Vocabulary",
+      notes: "One vocabulary focus per moment improves retention.",
+      durationSeconds: 45,
+      teacherCue: withEbStem("Ask students to use the word in a sentence with evidence language.", "The author shows ___ when ___."),
+    });
+  }
+
+  const cfuBlock = findBlock(/cfu ladder|checks? for understanding|cfu/);
+  const cfuItems = sectionCfu.length ? sectionCfu.slice(0, 3) : bulletItems(blockLines(cfuBlock), 3);
+  const cfuPrompts = [
+    "Tier 1 checks recall and baseline understanding.",
+    "Tier 2 requires evidence and reasoning debate.",
+    "Tier 3 pushes transfer: create your own example.",
+  ];
+  if (cfuItems[0]) {
+    addEnergy("⚡ QUICK CHECK", "Tier 1: Show what you know.", "CFU Tier 1", "Pause after first answer and ask: 'Where is your proof?'", 25);
+    defs.push({
+      type: "question",
+      heading: "CFU Tier 1",
+      question: cfuItems[0].slice(0, 220),
+      prompt: cfuPrompts[0],
+      section: "Checks for Understanding",
+      notes: "Keep pace tight and verify whole-class readiness.",
+      durationSeconds: 75,
+      teacherCue: withSpedChunk("No-opt-out if needed; expect concise responses.", "Step 1 identify idea, Step 2 state proof."),
+    });
+  }
+
+  addEnergy("👀 WATCH ME", "Model the thinking, not just the answer.", "Modeling", "Narrate the decision-making process explicitly.");
+  const modelingBlock = findBlock(/modeling|mini-lesson|i do/);
+  const modelingText = sectionModeling || firstMeaningfulLine(blockLines(modelingBlock));
+  if (modelingText) {
+    defs.push({
+      type: "question",
+      heading: "Modeling Move",
+      question: modelingText.slice(0, 220),
+      prompt: "Listen for claim → evidence → reasoning in sequence.",
+      section: "I Do",
+      notes: "Think-aloud and annotate your reasoning path.",
+      durationSeconds: 180,
+      teacherCue: "Pause midway and ask students to predict the next reasoning step.",
+    });
+  }
+
+  if (cfuItems[1]) {
+    addEnergy("🗣️ EVIDENCE DEBATE", "Tier 2: Defend your evidence.", "CFU Tier 2", "Push students to justify why one piece of evidence is stronger.", 25);
+    defs.push({
+      type: "discussion",
+      heading: "CFU Tier 2",
+      prompt: cfuItems[1].slice(0, 220),
+      section: "Checks for Understanding",
+      notes: "Students compare and defend evidence quality.",
+      durationSeconds: 90,
+      teacherCue: "Ask: 'Which line proves it best, and why not the other one?'",
+    });
+  }
+
+  addEnergy("🤝 YOUR TURN", "Now practice with support.", "Guided Practice", "Set 60-second partner rehearsal before share-out.");
+  const guidedBlock = findBlock(/guided practice|we do|collaborative practice/);
+  const guidedPrompt = sectionGuided || firstMeaningfulLine(blockLines(guidedBlock));
+  if (guidedPrompt) {
+    defs.push({
+      type: "discussion",
+      heading: "Guided Practice",
+      prompt: withEbStem(guidedPrompt.slice(0, 220), "I claim ___ and the text says ___."),
+      section: "We Do",
+      notes: "Coach students to refine answers with evidence language.",
+      durationSeconds: 180,
+      teacherCue: withSpedChunk("Circulate and prompt with: 'What text detail proves your claim?'", "Whisper rehearse → say to partner → write."),
+    });
+  }
+
+  if (cfuItems[2]) {
+    addEnergy("🚀 PROVE IT", "Tier 3: Create and transfer.", "CFU Tier 3", "Require original example creation, then peer response.", 25);
+    defs.push({
+      type: "writing",
+      heading: "CFU Tier 3 Transfer",
+      subtext: cfuItems[2].slice(0, 220),
+      section: "Checks for Understanding",
+      notes: "Students create an original example and justify it.",
+      durationSeconds: 120,
+      teacherCue: "Ask peers to respond using one agreement or challenge stem.",
+    });
+  }
+
+  addEnergy("🤫 NOW IT'S QUIET", "Independent thinking time.", "Independent Practice", "Set timer, reduce talk, and conference strategically.");
+  const independentBlock = findBlock(/independent practice|you do/);
+  const independentPrompt = sectionIndependent || firstMeaningfulLine(blockLines(independentBlock));
+  defs.push({
+    type: "writing",
+    heading: "Independent Practice",
+    subtext: withSpedChunk(withEbStem((independentPrompt || "Write a complete response using claim, evidence, and reasoning.").slice(0, 220), "The theme is ___ because line ___ says ___."), "Option A paragraph, Option B sentence frame + evidence line."),
+    section: "You Do",
+    notes: "Students produce independent written evidence of mastery.",
+    durationSeconds: 240,
+    teacherCue: "Conference with 2-3 target students and check for explicit evidence.",
+  });
+
+  // Keep question-driven practice as optional reinforcement if present.
+  for (const [idx, line] of questionLines.slice(1, 4).entries()) {
+    defs.push({
+      type: "question",
+      heading: `Practice Check ${idx + 1}`,
+      question: line.replace(/^\d+[\).]\s+/, "").trim().slice(0, 220),
+      prompt: withEbStem("Answer in one claim + one evidence sentence.", "I claim ___ because ___."),
+      section: "Practice",
+      notes: "Use as quick checks to calibrate class readiness.",
+      durationSeconds: 90,
+      teacherCue: "Call on a student and ask them to cite the exact line.",
+    });
+  }
+
+  addEnergy("✅ FINAL CHECK", "Show what you learned.", "Exit Ticket", "Give one minute of silent planning before writing.");
+  const exitBlock = findBlock(/exit ticket|closure/);
+  const exitPrompt = sectionExit || firstMeaningfulLine(blockLines(exitBlock)) || "Summarize the key learning in 2–3 sentences.";
+  defs.push({
+    type: "writing",
+    heading: "Exit Prompt",
+    subtext: withEbStem(exitPrompt.slice(0, 220), "Today the author teaches ___ because ___."),
+    section: "Exit Ticket",
+    notes: "Use exit data to group reteach and extension next lesson.",
+    durationSeconds: 120,
+    teacherCue: "Collect, sort quickly, and name tomorrow's reteach focus.",
+  });
+
+  return defs;
 }
 
 
@@ -1171,11 +1495,24 @@ function stripLegacyCurriculumBridgeHtml(html: string) {
     if (looksLikeLegacy) t.remove();
   }
 
-  return root.innerHTML;
+// 🔥 Remove numbered Curriculum Bridge section headings like:
+// "2) 🗺️ Curriculum Bridge Map"
+const allNodes = Array.from(root.querySelectorAll("*"));
+for (const node of allNodes) {
+  const txt = (node.textContent || "").trim().toLowerCase();
+
+  const looksNumberedBridge =
+    txt.includes("curriculum bridge map") &&
+    (txt.startsWith("2)") ||
+     txt.startsWith("2.") ||
+     txt.match(/^\d+\)/));
+
+  if (looksNumberedBridge) {
+    node.remove();
+  }
 }
-
-
-
+return root.innerHTML;
+}
 
 
 function normalizePublisherForBadge(publisherName: string) {
@@ -1198,12 +1535,22 @@ function normalizePublisherForBadge(publisherName: string) {
   return p;
 }
 
-function buildCurriculumModeBadgeHtml(opts: { publisherName: string; standard: string }) {
+function buildCurriculumModeBadgeHtml(opts: { 
+  publisherName: string; 
+  standard: string;
+  unit?: string;
+  lesson?: string;
+}) {
   const normalized = normalizePublisherForBadge(opts.publisherName);
   if (!normalized) return "";
 
-  const terms = getCurriculumTerms(opts.publisherName);
   const standardLabel = escapeHtml(opts.standard || "Selected standard");
+  const unitLabel = escapeHtml(opts.unit || "");
+  const lessonLabel = escapeHtml(opts.lesson || "");
+
+  const supportsLine = (unitLabel && lessonLabel)
+    ? `Supports Unit ${unitLabel} • Lesson ${lessonLabel} • ${standardLabel}`
+    : `Supports ${standardLabel}`;
 
   return `
     <div style="
@@ -1221,27 +1568,8 @@ function buildCurriculumModeBadgeHtml(opts: { publisherName: string; standard: s
         ${escapeHtml(normalized)} Alignment Mode Active
       </div>
       <div style="font-size:12px; font-weight:700; color:rgba(255,255,255,0.90);">
-        Supports ${escapeHtml(terms.flowWords[0])} • ${escapeHtml(terms.flowWords[2])} • ${standardLabel}
+        ${supportsLine}
       </div>
-    </div>
-  `;
-}
-
-
-
-function buildWalkthroughLookForsHtml(opts: { standard: string; publisherName: string }) {
-  const terms = getCurriculumTerms(opts.publisherName);
-  const standardLabel = escapeHtml(opts.standard || "selected standard");
-  return `
-    <div class="authBox" style="margin:0 0 10px;">
-      <div class="sectionTitle" style="margin-top:0;">👀 Walkthrough Look-Fors Covered</div>
-      <ul class="mList" style="margin-top:0;">
-        <li>✓ Clear objective aligned to ${standardLabel}</li>
-        <li>✓ Student discourse during ${escapeHtml(terms.flowWords[0])} discussion</li>
-        <li>✓ Text-based evidence cited in writing and discussion</li>
-        <li>✓ Academic vocabulary explicitly reinforced</li>
-        <li>✓ CFU ladder with tiered questioning</li>
-      </ul>
     </div>
   `;
 }
@@ -1302,7 +1630,75 @@ function injectBridgeIntoSection2(cleanHtml: string, bridgeHtml: string) {
   }
   return root.innerHTML;
 }
+async function fetchCurriculumAlignment(opts: {
+  publisher: string;
+  standard: string;
+}) {
+  try {
+    // Step 1: Get program_id from publisher name
+    const programRows = await postgrest("GET", "curriculum_programs", {
+      query: `select=id&name=eq.${encodeURIComponent(opts.publisher)}&limit=1`,
+    });
 
+    if (!Array.isArray(programRows) || !programRows.length) return null;
+
+    const programId = programRows[0].id;
+
+    // Step 2: Find lesson linked to this TEK + program
+    const rows = await postgrest("GET", "lesson_standards", {
+      query:
+        `select=` +
+        `lesson_id,` +
+        `standards(standard_label),` +
+        `curriculum_lessons(` +
+          `lesson_code,lesson_order,` +
+          `curriculum_units(unit_code,program_id)` +
+        `)` +
+        `&standards.standard_label=ilike.*${encodeURIComponent(opts.standard)}*` +
+        `&curriculum_lessons.curriculum_units.program_id=eq.${programId}` +
+        `&limit=1`,
+    });
+
+    if (!Array.isArray(rows) || !rows.length) return null;
+
+    const lesson = rows[0].curriculum_lessons;
+    const unit = lesson?.curriculum_units;
+
+    return {
+      unit: unit?.unit_code || null,
+      lesson: lesson?.lesson_code || lesson?.lesson_order || null,
+    };
+  } catch (e) {
+    console.warn("Alignment lookup failed", e);
+    return null;
+  }
+}
+function buildWalkthroughLookForsHtml(publisherName: string, standard: string) {
+  const normalized = normalizePublisherForBadge(publisherName);
+  if (!normalized) return "";
+
+  return `
+    <div style="
+      margin:0 0 12px;
+      padding:10px 12px;
+      border-radius:12px;
+      background:rgba(255,255,255,0.06);
+      border:1px solid rgba(255,255,255,0.08);
+      font-size:12px;
+    ">
+      <div style="font-weight:800; margin-bottom:6px;">
+        👀 Walkthrough Look-Fors Covered
+      </div>
+      <ul style="margin:0; padding-left:16px;">
+        <li>Clear objective aligned to ${escapeHtml(standard)}</li>
+        <li>Student discourse during collaborative discussion</li>
+        <li>Text-based evidence cited in writing and discussion</li>
+        <li>Academic vocabulary explicitly reinforced</li>
+        <li>CFU ladder with tiered questioning</li>
+      </ul>
+    </div>
+  `;
+}
 function renderLessonWithCurriculumBridge(lessonText: string, opts: {
   publisher: string;
   standard: string;
@@ -1316,32 +1712,38 @@ function renderLessonWithCurriculumBridge(lessonText: string, opts: {
       ? buildStudentWorksheetHtml(lessonText, { includeTopSignals: true })
       : formatLessonToHtml(lessonText);
 
-  const publisherSelected = Boolean((opts.publisher || "").trim());
-  if (!publisherSelected) return baseHtml;
-
-  const modeBadge = buildCurriculumModeBadgeHtml({
-    publisherName: opts.publisher,
-    standard: opts.standard,
-  });
-
-  if (audienceView === "student") {
-    return `${modeBadge}${baseHtml}`;
-  }
-
-  const rewiredHtml = stripLegacyCurriculumBridgeHtml(baseHtml);
-  const bridgeHtml = buildCurriculumBridgeHtml(opts);
-  const withBridge = injectBridgeIntoSection2(rewiredHtml, bridgeHtml);
-  const walkthrough = buildWalkthroughLookForsHtml({
-    standard: opts.standard,
-    publisherName: opts.publisher,
-  });
-  const engagement = buildEngagementBoostHtml();
-  const topSignals = `${modeBadge}${walkthrough}${engagement}`;
-  return `${topSignals}${withBridge}`;
-}
-// -------------------------
-// PDF Generation (pdf-lib)
-// -------------------------
+      const publisherSelected = Boolean((opts.publisher || "").trim());
+      if (!publisherSelected) return baseHtml;
+      
+      const modeBadge = buildCurriculumModeBadgeHtml({
+        publisherName: opts.publisher,
+        standard: opts.standard,
+        unit: opts.unit,
+        lesson: opts.lesson,
+      });
+      
+      if (audienceView === "student") {
+        return `${modeBadge}${baseHtml}`;
+      }
+      
+      const rewiredHtml = stripLegacyCurriculumBridgeHtml(baseHtml);
+      const bridgeHtml = buildCurriculumBridgeHtml(opts);
+      const withBridge = injectBridgeIntoSection2(rewiredHtml, bridgeHtml);
+      
+      const walkthrough = buildWalkthroughLookForsHtml(
+        opts.publisher,
+        opts.standard
+      );
+      
+      const engagement = buildEngagementBoostHtml();
+      const topSignals = `${modeBadge}${walkthrough}${engagement}`;
+      
+      return `${topSignals}${withBridge}`;
+    }
+      
+    // -------------------------
+    // PDF Generation (pdf-lib)
+    // -------------------------
 async function downloadTextAsPdf(opts: {
   title: string;
   metaLine: string;
@@ -1846,7 +2248,123 @@ try {
 
   const grade = getEl<HTMLSelectElement>("grade");
   const subject = getEl<HTMLSelectElement>("subject");
-  const standard = getEl<HTMLInputElement>("standard");
+  const standard = getEl<HTMLSelectElement>("standard");
+  function getSelectedStandardDisplay(): string {
+    const select = standard;
+    if (!select) return "";
+    const opt = select.options[select.selectedIndex];
+    return opt?.textContent || select.value;
+  }
+ // ================================
+// 🔹 Standards Dropdown Loader
+// ================================
+
+// 🔒 Prevent race conditions
+let standardsRequestCounter = 0;
+
+async function loadStandardsFor(gradeVal: string, subjectVal: string) {
+  try {
+    const normalizedGrade = gradeVal === "K" ? 0 : Number(gradeVal);
+
+    const anon = getAnonKey();
+
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/standards_canonical?select=standard_label,skill_display_name,canonical_skill&grade=eq.${normalizedGrade}&subject=eq.${encodeURIComponent(subjectVal)}&order=standard_label.asc`,
+      {
+        headers: {
+          apikey: anon,
+          Authorization: `Bearer ${anon}`,
+        },
+      }
+    );
+
+if (!res.ok) throw new Error(await res.text());
+
+const rows = await res.json();
+
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    console.error("loadStandardsFor error", e);
+    return [];
+  }
+}
+
+async function refreshStandardDropdown(): Promise<void> {
+  const requestId = ++standardsRequestCounter;
+
+  const gradeVal = grade?.value;
+  const subjectVal = subject?.value;
+
+  if (!gradeVal || !subjectVal) return;
+
+  const data = await loadStandardsFor(gradeVal, subjectVal);
+
+  // 🚨 Ignore stale async responses
+  if (requestId !== standardsRequestCounter) return;
+
+  const selects = [
+    document.getElementById("standard"),
+    document.getElementById("qs_standard"),
+  ].filter(Boolean) as HTMLSelectElement[];
+
+  selects.forEach((select) => {
+    const previousValue = select.value;
+
+    select.innerHTML = "";
+
+    data.forEach((row: any) => {
+      const opt = document.createElement("option");
+      opt.value = row.standard_label;
+      opt.textContent =
+      opt.textContent =
+      `${row.standard_label} — ${row.description || row.skill_display_name}`;
+      select.appendChild(opt);
+    });
+
+    // Restore selection if still valid
+    if ([...select.options].some(o => o.value === previousValue)) {
+      select.value = previousValue;
+    }
+  });
+}
+
+// Event listeners
+grade?.addEventListener("change", refreshStandardDropdown);
+subject?.addEventListener("change", refreshStandardDropdown);
+
+// ⚠️ Remove this if you still see flicker
+// refreshStandardDropdown();
+// ================================
+// 🔹 Quick Panel Sync → Main Form
+// ================================
+
+const qsGrade = getElOpt<HTMLSelectElement>("qs_grade");
+const qsSubject = getElOpt<HTMLSelectElement>("qs_subject");
+const qsStandard = getElOpt<HTMLSelectElement>("qs_standard");
+
+// Sync Quick → Advanced (Grade)
+qsGrade?.addEventListener("change", () => {
+  if (!grade) return;
+  grade.value = qsGrade.value;
+
+  // 🔥 TRIGGER actual change event
+  grade.dispatchEvent(new Event("change", { bubbles: true }));
+});
+
+// Sync Quick → Advanced (Subject)
+qsSubject?.addEventListener("change", () => {
+  if (!subject) return;
+  subject.value = qsSubject.value;
+
+  // 🔥 TRIGGER actual change event
+  subject.dispatchEvent(new Event("change", { bubbles: true }));
+});
+
+// Sync Quick → Advanced (Standard)
+qsStandard?.addEventListener("change", () => {
+  if (!standard) return;
+  standard.value = qsStandard.value;
+});
   const unit = getEl<HTMLInputElement>("unit");
   const lesson = getEl<HTMLInputElement>("lesson");
   const skillFocus = getElOpt<HTMLTextAreaElement>("skillFocus");
@@ -2370,9 +2888,9 @@ try {
 
     const rows = await postgrest("GET", "lessons", {
       query:
-        "select=id,created_at,grade,subject,standard,curriculum_unit,curriculum_lesson,publisher,state,is_favorite,lesson_text,lesson_html" +
-        "&order=created_at.desc" +
-        "&limit=50",
+     "select=id,created_at,grade,subject,standard_label,curriculum_unit,curriculum_lesson,publisher,state,lesson_text,is_favorite" +
+     "&order=created_at.desc" +
+     "&limit=50",
     });
 
     let data = Array.isArray(rows) ? rows : [];
@@ -2380,7 +2898,7 @@ try {
     if (q) {
       data = data.filter((r: any) => {
         const blob = [
-          r.standard,
+          r.standard_label,
           r.subject,
           r.curriculum_unit,
           r.curriculum_lesson,
@@ -2401,7 +2919,7 @@ try {
 
     libraryList.innerHTML = data
       .map((r: any) => {
-        const title = `Grade ${r.grade ?? "?"} • ${r.subject ?? ""} • ${r.standard ?? ""}`.trim();
+        const title = `Grade ${r.grade ?? "?"} • ${r.subject ?? ""} • ${r.standard_label ?? ""}`.trim();
         const metaTxt =
           `${r.publisher ?? ""}${r.state ? ` • ${r.state}` : ""} • ${r.curriculum_unit ?? ""} ${r.curriculum_lesson ?? ""}`.trim();
         const star = r.is_favorite ? "★" : "☆";
@@ -2416,6 +2934,7 @@ try {
               <div class="libraryBtns">
                 <button class="smallBtn" data-action="star" type="button">${star} Favorite</button>
                 <button class="smallBtn" data-action="open" type="button">Open</button>
+                <button class="smallBtn present-btn" data-action="present" data-id="${esc(r.id)}" onclick="openPresentMode('${esc(r.id)}')" type="button">🎥 Present Mode</button>
                 <button class="smallBtn" data-action="pdf" type="button">PDF</button>
                 <button class="smallBtn danger" data-action="delete" type="button">Delete</button>
               </div>
@@ -2458,7 +2977,7 @@ try {
       if (action === "open" || action === "pdf") {
         const rows = await postgrest("GET", "lessons", {
           query:
-            "select=id,is_favorite,lesson_text,lesson_html,grade,subject,standard,curriculum_unit,curriculum_lesson" +
+            "select=id,is_favorite,lesson_text,lesson_html,grade,subject,standard_label,curriculum_unit,curriculum_lesson" +
             `&id=eq.${encodeURIComponent(lessonId)}` +
             "&limit=1",
         });
@@ -2474,10 +2993,12 @@ try {
         favoriteBtn.textContent = lastLessonFavorite ? "★ Favorited" : "☆ Favorite";
 
         output.innerHTML = renderLessonWithCurriculumBridge(data.lesson_text || "", {
-          publisher: publisher.value === "Other" ? (publisherOther.value.trim() || "Other") : publisher.value,
-          standard: standard.value.trim(),
-          unit: unit.value.trim(),
-          lesson: lesson.value.trim(),
+          publisher: publisher.value === "Other"
+            ? (publisherOther.value.trim() || "Other")
+            : publisher.value,
+          standard: data.standard_label || "",
+          unit: data.curriculum_unit || "",
+          lesson: data.curriculum_lesson || "",
           audienceView: (audienceView?.value as OutputAudienceView) || "teacher",
         });
         lastLessonPlainText = htmlToPlainText(output.innerHTML);
@@ -2499,6 +3020,13 @@ try {
             filename,
           });
         }
+        return;
+      }
+
+
+      if (action === "present") {
+        const presentLessonId = btnEl.getAttribute("data-id") || lessonId;
+        (window as any).openPresentMode(presentLessonId);
         return;
       }
 
@@ -2984,12 +3512,14 @@ Include:
 
       const contentType = (res.headers.get("content-type") || "").toLowerCase();
       let lessonText = "";
+      let lessonSections: StructuredLessonSections | undefined;
 
       if (wantsStream && contentType.includes("text/event-stream")) {
         let liveText = "";
         let lastChunk = "";
         let lastRendered = "";
         let finalLessonText = "";
+        let finalLessonSections: StructuredLessonSections | undefined;
 
         output.classList.add("typing");
         output.textContent = " ";
@@ -3023,6 +3553,13 @@ Include:
               if (typeof candidate === "string" && candidate.trim()) {
                 finalLessonText = candidate;
               }
+              const candidateSections =
+                obj?.sections ??
+                obj?.data?.sections ??
+                obj?.result?.sections;
+              if (candidateSections && typeof candidateSections === "object") {
+                finalLessonSections = candidateSections as StructuredLessonSections;
+              }
             },
 
             onError: (obj) => {
@@ -3036,6 +3573,7 @@ Include:
         output.classList.remove("typing");
 
         lessonText = (finalLessonText || liveText) as string;
+        lessonSections = finalLessonSections;
         output.innerHTML = renderLessonWithCurriculumBridge(lessonText, {
           publisher: pub,
           standard: standard.value.trim(),
@@ -3053,17 +3591,18 @@ Include:
         }
         if (!data.ok) throw new Error(data.error || "Unknown error");
         lessonText = (data.lesson_plan || data.prompt_preview || "") as string;
+        if (data.sections && typeof data.sections === "object") lessonSections = data.sections as StructuredLessonSections;
       }
 
       lessonText = dedupeWholeTextIfRepeated(lessonText);
-
-      output.innerHTML = renderLessonWithCurriculumBridge(lessonText, {
-        publisher: pub,
-        standard: standard.value.trim(),
-        unit: unit.value.trim(),
-        lesson: lesson.value.trim(),
-        audienceView: (audienceView?.value as OutputAudienceView) || "teacher",
-      });
+      // Render lesson + curriculum bridge
+    output.innerHTML = renderLessonWithCurriculumBridge(lessonText, {
+     publisher: pub,
+     standard: getSelectedStandardDisplay(),
+    unit: unit.value.trim() || "",
+    lesson: lesson.value.trim() || "",
+});
+      
       lastLessonPlainText = htmlToPlainText(output.innerHTML);
       downloadPdfBtn.disabled = !lastLessonPlainText.trim();
       if (exportPackBtn) exportPackBtn.disabled = !lastLessonPlainText.trim();
@@ -3071,25 +3610,88 @@ Include:
       // ✅ Show Feedback Garage after output renders
       if (garage) garage.style.display = "block";
 
-      const row = {
+      const slideDefs = buildSlideDefinitionsFromLesson(lessonText, lessonSections, {
+        eb: ebSupport ? !!ebSupport.checked : true,
+        sped: spedSupport ? !!spedSupport.checked : true,
+      });
+      const lessonModeForRow = resolveLessonModeFromPublisher(pub);
+      
+ // 🔹 CANONICAL RESOLUTION (STRICT MATCH)
+const standardLabel = standard.value.trim();
+const subjectValue = subject.value.trim();
+
+const canonicalQuery =
+  `standard_label=eq.${encodeURIComponent(standardLabel)}` +
+  `&grade=eq.${gradeValue}` +
+  `&subject=ilike.${encodeURIComponent(subjectValue)}`+
+  `&select=canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name` +
+  `&limit=1`;
+
+const canonicalRows = await postgrest("GET", "standards_canonical", {
+  query: canonicalQuery,
+});
+
+if (!Array.isArray(canonicalRows) || !canonicalRows.length) {
+  throw new Error(
+    `Canonical mapping not found for ${standardLabel} (grade ${gradeValue}, subject ${subjectValue})`
+  );
+}
+
+const canonical = canonicalRows[0];
+const row = {
         user_id: session.user.id,
         publisher: pub,
         publisher_other: pub === "Other" ? pubOther || null : null,
         state: st || null,
         grade: grade.value || null,
         subject: subject.value.trim() || null,
-        standard: standard.value.trim() || null,
+        standard_label: standard.value.trim() || null,
+        canonical_skill: canonical.canonical_skill,
+        cognitive_verb: canonical.cognitive_verb || null,
+        dok_target: canonical.dok_target || null,
+        staar_priority: canonical.staar_priority || null,
+        skill_display_name: canonical.skill_display_name || null,
         curriculum_unit: unit.value.trim() || null,
         curriculum_lesson: lesson.value.trim() || null,
         lesson_text: lessonText || "(empty)",
         lesson_html: output.innerHTML || null,
+        structured_sections: lessonSections || null,
+        slide_definitions: slideDefs,
+        lesson_mode: lessonModeForRow,
         is_favorite: false,
       };
 
-      const inserted = await postgrest("POST", "lessons", {
-        body: row,
-        preferReturn: "representation",
-      });
+      let inserted: any;
+      try {
+        inserted = await postgrest("POST", "lessons", {
+          body: row,
+          preferReturn: "representation",
+        });
+      } catch (e: any) {
+        const msg = String(e?.message || e || "").toLowerCase();
+        const missingSlideCols =
+          (msg.includes("slide_definitions") || msg.includes("lesson_mode") || msg.includes("structured_sections")) &&
+          (msg.includes("does not exist") || msg.includes("42703") || msg.includes("column"));
+
+        if (!missingSlideCols) throw e;
+
+        console.warn("lessons insert fallback (missing slide columns):", {
+          lesson_mode: lessonModeForRow,
+          slide_count: Array.isArray(slideDefs) ? slideDefs.length : 0,
+        });
+
+        const fallbackRow = {
+          ...row,
+          structured_sections: undefined,
+          slide_definitions: undefined,
+          lesson_mode: undefined,
+        };
+
+        inserted = await postgrest("POST", "lessons", {
+          body: fallbackRow,
+          preferReturn: "representation",
+        });
+      }
 
       const saved = Array.isArray(inserted) ? inserted[0] : inserted;
       lastLessonId = saved?.id || null;
@@ -3109,7 +3711,7 @@ try {
       state: st || null,
       grade: grade.value || null,
       subject: subject.value.trim() || null,
-      standard: standard.value.trim() || null,
+      standard_label: standard.value.trim() || null,
     },
     preferReturn: "minimal",
   });

@@ -3016,6 +3016,19 @@ function adjustSlideText() {
   }
 }
 
+function adjustSlideText() {
+  const slide = document.querySelector(".slide-content") as HTMLElement | null;
+  if (!slide) return;
+
+  let fontSize = 48;
+  slide.style.fontSize = `${fontSize}px`;
+
+  while (slide.scrollHeight > slide.clientHeight && fontSize > 24) {
+    fontSize -= 2;
+    slide.style.fontSize = `${fontSize}px`;
+  }
+}
+
 function preferredStageDuration(stageType?: SlideType): number {
   if (stageType === "objective_lock") return 90;
   if (stageType === "verb_definition") return 75;
@@ -3191,8 +3204,88 @@ function renderSlide() {
   const extraClass = `${stageClass(slide.stageType)}${String(slide.section || "").toLowerCase().includes("coaching") ? " slide--coaching" : ""}`;
 
   try {
-    const html = buildRenderedSlideHtml(slide, layoutClass, extraClass, stage, coachingTag, coachLine, alignment);
-    container.innerHTML = html;
+  if (slide.type === "splash") {
+    container.innerHTML = `
+      <div class="slide slide-content slide--splash${extraClass}">
+        <div class="brandMark">LR</div>
+        <div class="brandKicker">Instruction Launch</div>
+        <h1>${escHtml(slide.heading || "Lessons-Ready")}</h1>
+        <p class="splashSubtext">${escHtml(slide.subtext || "")}</p>
+        <div class="splashMeta">${escHtml(slide.notes || "")}</div>
+      </div>
+    `;
+  } else if (slide.type === "headline") {
+    container.innerHTML = `<div class="slide slide-content slide--headline${extraClass}">${stage}${coachingTag}<div class="sectionTag">${escHtml(slide.section || "")}</div><h1>${escHtml(slide.heading)}</h1><p>${escHtml(slide.subtext)}</p>${coachLine}${alignment}</div>`;
+  } else if (slide.type === "split") {
+    const items = slide.items || [];
+    const visibleCount = revealStep > 0 ? Math.min(revealStep, items.length) : Math.min(1, items.length);
+    container.innerHTML = `
+      <div class="slide slide-content slide--split${extraClass}">
+        ${stage}${coachingTag}
+        <h2>${escHtml(slide.heading)}</h2>
+        <p class="slideSubtext">${escHtml(slide.subtext)}</p>
+        <ul>${items.slice(0, visibleCount).map((item) => `<li>${escHtml(item)}</li>`).join("")}</ul>
+        ${coachLine}${alignment}
+      </div>
+    `;
+  } else if (slide.type === "question") {
+    const choices =
+      slide.answerChoices && slide.answerChoices.length
+        ? `<ul class="mcChoices">${slide.answerChoices
+            .map((c, i) => `<li class="mcChoice${revealStep > 0 && i === slide.correctIndex ? " mcChoice--correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
+            .join("")}</ul>`
+        : "";
+
+    const rationale =
+      revealStep > 0 && slide.distractorRationale
+        ? `<div class="whyWinsTitle">Why This Answer Wins</div><div class="rationaleGrid">${slide.distractorRationale
+            .map((r, i) => `<div class="rationaleCard${i === slide.correctIndex ? " rationaleCard--correct" : ""}"><strong>${String.fromCharCode(65 + i)}</strong> ${escHtml(r)}</div>`)
+            .join("")}</div>`
+        : "";
+
+    container.innerHTML = `
+      <div class="slide slide-content slide--question${extraClass}">
+        ${stage}${coachingTag}<h2>${escHtml(slide.heading)}</h2>
+        <p class="promptPrimary">${escHtml(slide.question)}</p>
+        <p>${escHtml(slide.prompt)}</p>
+        ${choices}
+        ${rationale}
+        ${coachLine}${alignment}
+      </div>
+    `;
+  } else if (slide.type === "writing") {
+    const cerFrame = revealStep > 0 ? `<p class="cerFrame">CER: Claim → Evidence → Reasoning</p>` : "";
+    const model =
+      revealStep > 1
+        ? `<p class="revealBlock">${escHtml(currentSkillType === "context_clues" ? "Model paragraph reveal: The word \"obscured\" means hidden because the nearby detail says thick fog blocked visibility." : "Model paragraph reveal: Explain your claim with direct evidence and reasoning from the text.")}</p>`
+        : "";
+    container.innerHTML = `
+      <div class="slide slide-content slide--writing${extraClass}">
+        ${stage}${coachingTag}<h2>${escHtml(slide.heading)}</h2>
+        <p class="promptPrimary">${escHtml(slide.subtext)}</p>
+        <div class="cerScaffold"><div>Claim</div><div>Evidence</div><div>Reasoning</div></div>
+        ${cerFrame}
+        ${model}
+        ${coachLine}${alignment}
+      </div>
+    `;
+  } else if (slide.type === "energy") {
+    const contrastClass = currentIndex % 4 === 0 ? " slide--contrast" : "";
+    container.innerHTML = `<div class="slide slide-content slide--energy${contrastClass}${extraClass}">${stage}${coachingTag}<h1>${escHtml(slide.heading)}</h1><p>${escHtml(slide.subtext || "")}</p>${coachLine}${alignment}</div>`;
+  } else if (slide.type === "discussion") {
+    const stem = revealStep > 0 ? `<p class="revealBlock">Sentence stem reveal: "I agree because the text says..."</p>` : "";
+    container.innerHTML = `
+      <div class="slide slide-content slide--discussion${extraClass}">
+        ${stage}${coachingTag}<h2>${escHtml(slide.heading || "Discuss")}</h2>
+        <p class="promptPrimary">${escHtml(slide.prompt || "Discuss with your partner.")}</p>
+        ${stem}
+        ${coachLine}${alignment}
+      </div>
+    `;
+  } else {
+    container.innerHTML = `<div class="slide slide-content${extraClass}">${stage}${coachingTag}<h2>${escHtml(slide.heading || "Slide")}</h2>${coachLine}${alignment}</div>`;
+  }
+
   } catch (e: any) {
     container.innerHTML = `<div class="slide slide-content"><h2>Slide render error</h2><p>${escHtml(e?.message || e)}</p></div>`;
   }
@@ -3206,7 +3299,6 @@ function renderSlide() {
   }
 
   adjustSlideText();
-  renderLiveQuestionResults(latestLiveSnapshot || undefined);
 
   const section = slide.section ? ` • ${slide.section}` : "";
   const stageDuration = slide.durationSeconds || preferredStageDuration(slide.stageType);
@@ -3237,12 +3329,8 @@ function renderSlide() {
     </div>
   `;
 
-  if (settings.showTeacherNotes) {
-    if (slide.stageType === "model_think_aloud") notesOpen = true;
-    if (slide.stageType === "independent_transfer" || slide.stageType === "exit_ticket") notesOpen = false;
-  } else {
-    notesOpen = false;
-  }
+  if (slide.stageType === "model_think_aloud") notesOpen = true;
+  if (slide.stageType === "independent_transfer" || slide.stageType === "exit_ticket") notesOpen = false;
   localStorage.setItem(LS_PRESENT_NOTES_KEY, notesOpen ? "1" : "0");
 
   if (notesPanel) {
@@ -3317,7 +3405,6 @@ function downloadPresentPdf() {
 function bindControls() {
   const panelStates: Record<string, boolean> = {
     controls: true,
-    "teacher-notes": notesOpen,
     "alignment-proof": true,
     "skill-panel": true,
     "mastery-tracker": true,
@@ -3335,10 +3422,6 @@ function bindControls() {
       const id = String((button as HTMLElement).dataset.panelTarget || "");
       if (!id || !(id in panelStates)) return;
       panelStates[id] = !panelStates[id];
-      if (id === "teacher-notes") {
-        notesOpen = panelStates[id];
-        localStorage.setItem(LS_PRESENT_NOTES_KEY, notesOpen ? "1" : "0");
-      }
       refreshPanelVisibility();
     });
   });
