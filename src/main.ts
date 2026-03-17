@@ -44,6 +44,11 @@ function getEl<T extends HTMLElement>(id: string): T | null {
 function getElOpt<T extends HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
 }
+// ✅ ADD IT RIGHT HERE
+function setDisplay(el: HTMLElement | null, value: string) {
+  if (!el) return;
+  el.style.display = value;
+}
 
 function escapeHtml(s: string) {
   return (s || "")
@@ -2519,11 +2524,9 @@ qsStandard?.addEventListener("change", () => {
     metaLineEl.textContent = text;
   }
 
-  function setView(isLoggedIn: boolean) {
-  if (!landingView || !appView) return;
-
-  if (landingView) landingView.style.display = "none";
-  if (appView) appView.style.display = "block";
+ function setView(isLoggedIn: boolean) {
+  if (landingView) setDisplay(landingView, "none");
+  if (appView) setDisplay(appView, "block");
 
   if (isLoggedIn) {
     document.body.classList.add("logged-in");
@@ -2531,15 +2534,20 @@ qsStandard?.addEventListener("change", () => {
     document.body.classList.remove("logged-in");
   }
 }
-  function refreshPublisherUI() {
-    publisherOtherWrap.style.display = publisher.value === "Other" ? "block" : "none";
-  }
+ function refreshPublisherUI() {
+  if (!publisherOtherWrap || !publisher) return;
+  setDisplay(
+    publisherOtherWrap,
+    publisher.value === "Other" ? "block" : "none"
+  );
+}
 
-  function showLibrary(show: boolean) {
-    outputView.style.display = show ? "none" : "block";
-    libraryView.style.display = show ? "block" : "none";
-    openLibraryBtn.style.display = show ? "none" : "inline-block";
-    closeLibraryBtn.style.display = show ? "inline-block" : "none";
+   function showLibrary(show: boolean) {
+  setDisplay(outputView, show ? "none" : "block");
+  setDisplay(libraryView, show ? "block" : "none");
+  setDisplay(openLibraryBtn, show ? "none" : "inline-block");
+  setDisplay(closeLibraryBtn, show ? "inline-block" : "none");
+}
   }
 
   async function refreshBillingUI(forceStatus = false) {
@@ -2553,28 +2561,28 @@ qsStandard?.addEventListener("change", () => {
       enforceModeAccess();
     }
 
-    // Landing view subscribe button (only when logged OUT)
-    if (billingBtnSubscribe) {
-      billingBtnSubscribe.style.display = loggedIn ? "none" : "inline-block";
-    }
+    // -------------------------
+// Billing UI (SAFE VERSION)
+// -------------------------
+function refreshBillingUI(loggedIn: boolean) {
+  // Landing subscribe button (only when logged OUT)
+  setDisplay(billingBtnSubscribe, loggedIn ? "none" : "inline-block");
 
-    // ✅ Hide legacy button
-    if (billingBtn) {
-      billingBtn.style.display = "none";
-    }
+  // Hide legacy button
+  setDisplay(billingBtn, "none");
 
-    // ✅ Single source of truth: billingBtn_app
-    if (billingBtnApp) {
-      billingBtnApp.style.display = loggedIn ? "inline-block" : "none";
-      billingBtnApp.textContent = isSubscribed() ? "Manage Subscription" : "Subscribe";
-    }
+  // Main app billing button
+  setDisplay(billingBtnApp, loggedIn ? "inline-block" : "none");
 
-    // ✅ Always hide duplicate (if it exists)
-    if (billingBtnApp2) {
-      billingBtnApp2.style.display = "none";
-    }
+  if (billingBtnApp) {
+    billingBtnApp.textContent = isSubscribed()
+      ? "Manage Subscription"
+      : "Subscribe";
   }
 
+  // Always hide duplicate
+  setDisplay(billingBtnApp2, "none");
+}
   function refreshAuthUI() {
     const s = getSavedSession();
     const loggedIn = Boolean(s?.access_token);
