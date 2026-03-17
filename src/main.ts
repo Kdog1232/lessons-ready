@@ -37,8 +37,23 @@ const STRIPE_PUBLISHABLE_KEY =
 // -------------------------
 // Helpers
 // -------------------------
-function getEl<T extends HTMLElement>(id: string): T | null {
-  return document.getElementById(id) as T | null;
+function getEl<T extends HTMLElement>(id: string): T {
+  const el = document.getElementById(id);
+
+  if (!el) {
+    console.warn(`Missing element: ${id}`);
+
+    // Safe fallback element to prevent crashes
+    return {
+      style: {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      value: "",
+      textContent: "",
+    } as unknown as T;
+  }
+
+  return el as T;
 }
 
 function getElOpt<T extends HTMLElement>(id: string): T | null {
