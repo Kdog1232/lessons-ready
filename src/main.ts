@@ -2426,10 +2426,10 @@ qsStandard?.addEventListener("change", () => {
   }
 
   // Auto-fill when user changes inputs
-  standard.addEventListener("change", autoFillSkillFocusIfBlank);
-  grade.addEventListener("change", autoFillSkillFocusIfBlank);
-  subject.addEventListener("change", autoFillSkillFocusIfBlank);
-  state.addEventListener("change", autoFillSkillFocusIfBlank);
+  standard?.addEventListener("change", autoFillSkillFocusIfBlank);
+  grade?.addEventListener("change", autoFillSkillFocusIfBlank);
+  subject?.addEventListener("change", autoFillSkillFocusIfBlank);
+  state?.addEventListener("change", autoFillSkillFocusIfBlank);
 
   // ✅ Campus / Program (DB-powered accuracy) — optional inputs/hidden fields
   const campusId = getElOpt<HTMLInputElement>("campusId"); // hidden or input (not present in your HTML, safe)
