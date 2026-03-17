@@ -73,6 +73,11 @@ type GenerateLessonPayload = {
   stream: boolean;
 };
 
+type SavedSession = {
+  access_token?: string;
+  refresh_token?: string;
+};
+
 type LiveSessionRow = {
   id: string;
   join_code: string;
@@ -306,8 +311,61 @@ function getSavedToken(): string {
   try {
     const raw = localStorage.getItem(LS_SESSION_KEY);
     if (!raw) return "";
-    const parsed = JSON.parse(raw) as { access_token?: string };
+    const parsed = JSON.parse(raw) as SavedSession;
     return String(parsed?.access_token || "");
+  } catch {
+    return "";
+  }
+}
+
+function getSavedSession(): SavedSession | null {
+  try {
+    const raw = localStorage.getItem(LS_SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as SavedSession;
+  } catch {
+    return null;
+  }
+}
+
+function setSavedSession(session: SavedSession | null) {
+  if (!session) {
+    localStorage.removeItem(LS_SESSION_KEY);
+    return;
+  }
+  localStorage.setItem(LS_SESSION_KEY, JSON.stringify(session));
+}
+
+function isJwtExpiredError(status: number, body: string): boolean {
+  if (status !== 401) return false;
+  const text = String(body || "").toLowerCase();
+  return text.includes("jwt expired") || text.includes("pgrst303") || text.includes("invalid jwt");
+}
+
+async function refreshTokenIfPossible(): Promise<string> {
+  const session = getSavedSession();
+  const refreshToken = String(session?.refresh_token || "").trim();
+  if (!refreshToken) return "";
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    const text = await res.text();
+    if (!res.ok) return "";
+    const parsed = JSON.parse(text) as SavedSession;
+    const next: SavedSession = {
+      access_token: String(parsed?.access_token || ""),
+      refresh_token: String(parsed?.refresh_token || refreshToken),
+    };
+    if (!next.access_token) return "";
+    setSavedSession(next);
+    return next.access_token;
   } catch {
     return "";
   }
@@ -1751,6 +1809,10 @@ async function fetchLessonRow(lessonId: string, headers: Record<string, string>)
 
     lastErrorMessage = `Failed to load slides (${res.status}): ${body.slice(0, 120)}`;
 
+    if (isJwtExpiredError(res.status, body)) {
+      throw new Error("SESSION_EXPIRED");
+    }
+
     const isMissingColumn =
       res.status === 400 &&
       (body.includes("canonical_skill") ||
@@ -1848,6 +1910,17 @@ async function loadSlides() {
       row = await fetchLessonRow(lessonId, headers);
     } catch (e: any) {
       lessonLookupError = String(e?.message || e || "");
+      if (lessonLookupError === "SESSION_EXPIRED") {
+        const refreshedToken = await refreshTokenIfPossible();
+        if (refreshedToken) {
+          headers.Authorization = `Bearer ${refreshedToken}`;
+          row = await fetchLessonRow(lessonId, headers);
+          lessonLookupError = "";
+        } else {
+          setSavedSession(null);
+          throw new Error("Session expired. Please return to the main page, sign in again, and reopen Present mode.");
+        }
+      }
     }
   }
 
@@ -2736,40 +2809,6 @@ function renderSlide() {
   }
 }
 
-function bindControlsDrag() {
-  const panel = document.getElementById("controls") as HTMLElement | null;
-  const handle = document.getElementById("controlsHeader") as HTMLElement | null;
-  if (!panel || !handle) return;
-
-  let dragging = false;
-  let offsetX = 0;
-  let offsetY = 0;
-
-  handle.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    panel.setPointerCapture?.(e.pointerId);
-    const rect = panel.getBoundingClientRect();
-    offsetX = e.clientX - rect.left;
-    offsetY = e.clientY - rect.top;
-  });
-
-  window.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    const maxX = Math.max(0, window.innerWidth - panel.offsetWidth);
-    const maxY = Math.max(0, window.innerHeight - panel.offsetHeight);
-    const nextLeft = Math.min(maxX, Math.max(0, e.clientX - offsetX));
-    const nextTop = Math.min(maxY, Math.max(0, e.clientY - offsetY));
-    panel.style.left = `${nextLeft}px`;
-    panel.style.top = `${nextTop}px`;
-  });
-
-  const stop = () => {
-    dragging = false;
-  };
-  window.addEventListener("pointerup", stop);
-  window.addEventListener("pointercancel", stop);
-}
-
 function downloadPresentPdf() {
   if (!slides.length) {
     window.alert("No slides available to export yet.");
@@ -2825,6 +2864,30 @@ function downloadPresentPdf() {
 }
 
 function bindControls() {
+  const panelStates: Record<string, boolean> = {
+    controls: true,
+    "alignment-proof": true,
+    "skill-panel": true,
+    "mastery-tracker": true,
+  };
+
+  const refreshPanelVisibility = () => {
+    Object.entries(panelStates).forEach(([id, isOpen]) => {
+      const panel = document.getElementById(id);
+      if (panel) panel.classList.toggle("is-open", isOpen);
+    });
+  };
+
+  document.querySelectorAll("[data-panel-target]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = String((button as HTMLElement).dataset.panelTarget || "");
+      if (!id || !(id in panelStates)) return;
+      panelStates[id] = !panelStates[id];
+      refreshPanelVisibility();
+    });
+  });
+  refreshPanelVisibility();
+
   const bindToggle = (id: string, key: keyof PresentSettings) => {
     const el = document.getElementById(id) as HTMLInputElement | null;
     if (!el) return;
@@ -2915,7 +2978,6 @@ function bindControls() {
     renderSlide();
   });
 
-  bindControlsDrag();
 }
 
 function bindKeys() {
