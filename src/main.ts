@@ -2522,8 +2522,8 @@ qsStandard?.addEventListener("change", () => {
   function setView(isLoggedIn: boolean) {
   if (!landingView || !appView) return;
 
-  landingView.style.display = isLoggedIn ? "none" : "block";
-  appView.style.display = isLoggedIn ? "block" : "none";
+  if (landingView) landingView.style.display = "none";
+  if (appView) appView.style.display = "block";
 
   if (isLoggedIn) {
     document.body.classList.add("logged-in");
