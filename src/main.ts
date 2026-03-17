@@ -38,7 +38,12 @@ const STRIPE_PUBLISHABLE_KEY =
 // -------------------------
 function getEl<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
-  if (!el) throw new Error(`Missing element with id="${id}" in index.html`);
+
+  if (!el) {
+    console.warn(`Missing element: ${id}`);
+    return {} as T; // prevents crash
+  }
+
   return el as T;
 }
 
