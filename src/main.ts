@@ -2351,7 +2351,6 @@ async function refreshStandardDropdown(): Promise<void> {
       const opt = document.createElement("option");
       opt.value = row.standard_label;
       opt.textContent =
-      opt.textContent =
       `${row.standard_label} — ${row.description || row.skill_display_name}`;
       select.appendChild(opt);
     });
