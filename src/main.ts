@@ -2520,7 +2520,8 @@ qsStandard?.addEventListener("change", () => {
   }
 
   function activeMessageEl(): HTMLElement {
-    const appIsVisible = appView ? appView.style.display !== "none" : false;
+    const appIsVisible =
+  appView && window.getComputedStyle(appView).display !== "none";
     if (appIsVisible && messageApp) return messageApp;
     return message;
   }
@@ -2602,11 +2603,10 @@ qsStandard?.addEventListener("change", () => {
       ? `Logged in: ${s?.user?.email || s?.user?.id}`
       : "Not logged in";
 
-    signUpBtn.style.display = loggedIn ? "none" : "inline-block";
-    logInBtn.style.display = loggedIn ? "none" : "inline-block";
-    if (forgotPwBtn) forgotPwBtn.style.display = loggedIn ? "none" : "inline-block";
-    logOutBtn.style.display = loggedIn ? "inline-block" : "none";
-
+  setDisplay(signUpBtn, loggedIn ? "none" : "inline-block");
+setDisplay(logInBtn, loggedIn ? "none" : "inline-block");
+setDisplay(forgotPwBtn, loggedIn ? "none" : "inline-block");
+setDisplay(logOutBtn, loggedIn ? "inline-block" : "none");
     setView(loggedIn);
     favoriteBtn.disabled = !loggedIn || !lastLessonId;
 
