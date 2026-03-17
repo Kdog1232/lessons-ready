@@ -38,6 +38,13 @@ type PresentSettings = {
   short30: boolean;
   interventionPace: boolean;
   coachingMode: boolean;
+  includeModel: boolean;
+  includeCompareDefend: boolean;
+  includeExitTicket: boolean;
+  mini15: boolean;
+  increaseRigor: boolean;
+  theme: "default" | "fortnite" | "sports" | "real_world" | "academic";
+  showTeacherNotes: boolean;
 };
 
 type SkillType = string;
@@ -199,6 +206,7 @@ let liveRealtimeHeartbeat: number | null = null;
 let liveRealtimeRef = 1;
 const AUTO_RETEACH_THRESHOLD = 0.6;
 let activeDockPanel: "responses" | "reteach" | "notes" = "responses";
+let latestLiveSnapshot: LiveResultsSnapshot | null = null;
 
 
 const stageSignals: Record<string, string[]> = {
@@ -288,6 +296,13 @@ const settings: PresentSettings = {
   short30: false,
   interventionPace: false,
   coachingMode: false,
+  includeModel: true,
+  includeCompareDefend: true,
+  includeExitTicket: true,
+  mini15: false,
+  increaseRigor: false,
+  theme: "default",
+  showTeacherNotes: true,
 };
 
 function escHtml(value: unknown) {
@@ -430,7 +445,7 @@ function accentForSkill(skillType: SkillType) {
   return "";
 }
 
-function applyTheme() {
+function applyPresentationTheme() {
   const t = themeForMode(lessonMode);
   const root = document.documentElement;
   const skillAccent = accentForSkill(currentSkillType);
@@ -1673,13 +1688,243 @@ function normalizeSlides(deck: SlideDefinition[]) {
   return [...splash, ...ordered, ...nonStaged];
 }
 
+const STAGE_ORDER: SlideType[] = [
+  "objective_lock",
+  "verb_definition",
+  "strategy_formula",
+  "model_think_aloud",
+  "guided_dok_ladder",
+  "compare_defend",
+  "independent_transfer",
+  "exit_ticket",
+];
+
+function dedupeSlides(deck: SlideDefinition[]): SlideDefinition[] {
+  const seen = new Set<string>();
+  return deck.filter((slide) => {
+    const key = [
+      slide.stageType || "",
+      String(slide.heading || "").trim().toLowerCase(),
+      String(slide.question || "").trim().toLowerCase(),
+      String(slide.prompt || "").trim().toLowerCase(),
+      Array.isArray(slide.items) ? slide.items.map((i) => String(i || "").trim().toLowerCase()).join("|") : "",
+    ].join("||");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function stripJunkSlides(deck: SlideDefinition[]): SlideDefinition[] {
+  return deck.filter((slide) => {
+    const text = [slide.heading, slide.subtext, slide.question, slide.prompt, slide.notes]
+      .map((t) => String(t || ""))
+      .join(" ")
+      .toLowerCase()
+      .trim();
+
+    if (!text) return false;
+    if (text.includes("practice question") && text.length < 25) return false;
+    if (text.includes("_id:")) return false;
+    if (text.includes("correctindex")) return false;
+    return true;
+  });
+}
+
+function sortSlides(deck: SlideDefinition[]): SlideDefinition[] {
+  const orderOf = (stage?: SlideType) => {
+    const idx = STAGE_ORDER.indexOf(stage as SlideType);
+    return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+  };
+  return [...deck].sort((a, b) => orderOf(a.stageType) - orderOf(b.stageType));
+}
+
+function capSlides(deck: SlideDefinition[], max = 12): SlideDefinition[] {
+  return deck.slice(0, max);
+}
+
+function buildSlidesFinal(rawSlides: SlideDefinition[]): SlideDefinition[] {
+  return capSlides(sortSlides(dedupeSlides(stripJunkSlides(rawSlides))), 12);
+}
+
 function validateDeck(deck: SlideDefinition[]) {
   return deck.filter((slide): slide is SlideDefinition => Boolean(slide && slide.type));
+}
+
+function applyTeacherToggles(deck: SlideDefinition[], opts: PresentSettings): SlideDefinition[] {
+  let next = deck.map(cloneSlide);
+
+  if (!opts.includeModel) {
+    next = next.filter((slide) => slide.stageType !== "model_think_aloud");
+  }
+  if (!opts.includeCompareDefend) {
+    next = next.filter((slide) => slide.stageType !== "compare_defend");
+  }
+  if (!opts.includeExitTicket) {
+    next = next.filter((slide) => slide.stageType !== "exit_ticket");
+  }
+
+  if (opts.increaseRigor) {
+    next = next.map((slide) => {
+      if (slide.type !== "question" && slide.type !== "discussion" && slide.type !== "writing") return slide;
+      const promptBits = [slide.question || "", slide.prompt || ""].join(" ").toLowerCase();
+      const rigorSuffix = promptBits.includes("justify") ? "" : " Justify with two pieces of evidence (DOK 3).";
+      return {
+        ...slide,
+        prompt: `${slide.prompt || ""}${rigorSuffix}`.trim(),
+        teacherCue: `${slide.teacherCue || ""} Push students to compare evidence quality.`.trim(),
+      };
+    });
+  }
+
+  if (opts.mini15) {
+    const total = next.reduce((sum, s) => sum + (s.durationSeconds || 90), 0);
+    const scale = total > 0 ? 900 / total : 1;
+    next = next.map((slide) => ({
+      ...slide,
+      durationSeconds: Math.max(15, Math.round((slide.durationSeconds || 90) * scale)),
+    }));
+  }
+
+  return next;
+}
+
+function applyTheme(deck: SlideDefinition[], theme: PresentSettings["theme"]): SlideDefinition[] {
+  if (theme === "default") return deck;
+
+  const replacements: Record<PresentSettings["theme"], Array<[RegExp, string]>> = {
+    default: [],
+    fortnite: [
+      [/\bstorm\b/gi, "storm circle"],
+      [/\bchallenge\b/gi, "quest"],
+      [/\bstrategy\b/gi, "loadout strategy"],
+    ],
+    sports: [
+      [/\bstorm\b/gi, "defensive pressure"],
+      [/\bchallenge\b/gi, "play"],
+      [/\bstrategy\b/gi, "game plan"],
+    ],
+    real_world: [
+      [/\bstorm\b/gi, "real-world pressure"],
+      [/\bchallenge\b/gi, "real scenario"],
+      [/\bstrategy\b/gi, "decision path"],
+    ],
+    academic: [
+      [/\bstorm\b/gi, "complexity"],
+      [/\bchallenge\b/gi, "cognitive demand"],
+      [/\bstrategy\b/gi, "analytical method"],
+    ],
+  };
+
+  const injectTone = (value?: string): string | undefined => {
+    if (!value) return value;
+    let next = value;
+    for (const [pattern, replacement] of replacements[theme]) {
+      next = next.replace(pattern, replacement);
+    }
+    return next;
+  };
+
+  const themeLabel: Record<PresentSettings["theme"], string> = {
+    default: "",
+    fortnite: "🎮 Fortnite Mode",
+    sports: "🏈 Sports Mode",
+    real_world: "🌍 Real-World Mode",
+    academic: "🎓 Academic Mode",
+  };
+
+  return deck.map((slide) => ({
+    ...slide,
+    heading: injectTone(slide.heading),
+    subtext: injectTone(slide.subtext),
+    question: injectTone(slide.question),
+    prompt: injectTone(slide.prompt),
+    notes: injectTone(slide.notes),
+    teacherCue: injectTone(slide.teacherCue),
+    items: Array.isArray(slide.items) ? slide.items.map((item) => injectTone(item) || item) : slide.items,
+    section: theme !== "default" ? `${slide.section || "Lesson"} • ${themeLabel[theme]}` : slide.section,
+  }));
+}
+
+function insertEngagementSlides(deck: SlideDefinition[]): SlideDefinition[] {
+  const next: SlideDefinition[] = [];
+  let injected = 0;
+  for (const slide of deck) {
+    next.push(slide);
+    if (slide.type !== "question" || slide.stageType !== "guided_dok_ladder") continue;
+    if (injected === 0) {
+      next.push({
+        type: "discussion",
+        stageType: "guided_dok_ladder",
+        heading: "🗣 Turn & Talk",
+        prompt: "Share your answer with a partner, then upgrade one sentence using stronger evidence.",
+        section: "Engagement",
+        durationSeconds: 60,
+        teacherCue: "Listen for evidence language and cold-call one pair.",
+      });
+      injected += 1;
+      continue;
+    }
+    if (injected === 1) {
+      next.push({
+        type: "writing",
+        stageType: "independent_transfer",
+        heading: "✍️ Quick Write",
+        subtext: "In 2-3 sentences, explain your answer with claim + evidence + reasoning.",
+        section: "Engagement",
+        durationSeconds: 90,
+        teacherCue: "Have students box the claim and underline evidence.",
+      });
+      next.push({
+        type: "discussion",
+        stageType: "compare_defend",
+        heading: "🤝 Partner Task",
+        prompt: "Swap responses and identify the strongest evidence your partner used.",
+        section: "Engagement",
+        durationSeconds: 75,
+        teacherCue: "Prompt students to defend why one response is strongest.",
+      });
+      injected += 1;
+    }
+  }
+  return next;
+}
+
+function insertEnergyMoments(deck: SlideDefinition[]): SlideDefinition[] {
+  const next = [...deck];
+  const hasEnergy = next.some((slide) => slide.type === "energy");
+  if (hasEnergy) return next;
+  const anchor = next.findIndex((slide) => slide.stageType === "guided_dok_ladder");
+  const insertAt = anchor >= 0 ? anchor + 1 : Math.min(2, next.length);
+  next.splice(insertAt, 0,
+    {
+      type: "energy",
+      stageType: "guided_dok_ladder",
+      heading: "⚡ Lightning Round",
+      subtext: "Speed Round: You have 20 seconds to justify your choice with one text detail.",
+      section: "Challenge Mode",
+      durationSeconds: 45,
+      teacherCue: "Celebrate fast, evidence-based responses.",
+    },
+    {
+      type: "energy",
+      stageType: "guided_dok_ladder",
+      heading: "🧠 Brain Boost",
+      subtext: "Challenge Mode: Revise one weak answer into a high-rigor response.",
+      section: "Energy",
+      durationSeconds: 60,
+      teacherCue: "Ask what changed and why the revision is stronger.",
+    },
+  );
+  return next;
 }
 
 function normalizeSlidesForSettings() {
   let next = baseSlides.map(cloneSlide);
   next = injectCoachingInsight(next);
+  next = applyTheme(next, settings.theme);
+  next = insertEngagementSlides(next);
+  next = insertEnergyMoments(next);
 
   if (settings.moreDiscussion) {
     const withDiscussion: SlideDefinition[] = [];
@@ -1742,7 +1987,8 @@ function normalizeSlidesForSettings() {
     }));
   }
 
-  slides = normalizeSlides(validateDeck(next).map(sanitizeQuestionSlide));
+  const toggled = applyTeacherToggles(next, settings);
+  slides = buildSlidesFinal(normalizeSlides(validateDeck(toggled).map(sanitizeQuestionSlide)));
   if (currentIndex >= slides.length) currentIndex = Math.max(0, slides.length - 1);
 }
 
@@ -1958,6 +2204,7 @@ async function loadSlides() {
   currentTek = tekDescription;
   const grade = normalizeGrade(row.grade_level ?? row.grade ?? row.grade_band);
   currentSkillType = skillType;
+  applyPresentationTheme();
 
   const selectedMode = String(params.get("instruction_mode") || "core").toLowerCase();
   const skillPlaybook = await fetchSkillPlaybook(skillType, headers);
@@ -2046,9 +2293,8 @@ if (!assessmentExists) {
     section: "Assessment",
     durationSeconds: 150
   });
-  normalizeSlidesForSettings();
 }
-slides = baseSlides;
+normalizeSlidesForSettings();
 currentIndex = 0;
 renderSlide();
 }
@@ -2396,6 +2642,34 @@ function renderLiveSessionPanel(message?: string, snapshot?: LiveResultsSnapshot
   refreshDockVisibility();
 }
 
+function renderLiveQuestionResults(snapshot?: LiveResultsSnapshot) {
+  const host = document.getElementById("live-question-results");
+  const slide = slides[currentIndex];
+  if (!host || !slide || slide.type !== "question") return;
+
+  if (!liveSessionId) {
+    host.innerHTML = "";
+    return;
+  }
+
+  const counts = snapshot?.counts || [0, 0, 0, 0];
+  const answeredCount = snapshot?.answeredCount || 0;
+  const choices = Array.isArray(slide.answerChoices) ? slide.answerChoices : ["A", "B", "C", "D"];
+  const letters = ["A", "B", "C", "D"];
+  const total = Math.max(1, answeredCount);
+
+  const rows = letters
+    .map((letter, i) => {
+      if (i >= choices.length) return "";
+      const pct = answeredCount ? Math.round((counts[i] / total) * 100) : 0;
+      return `<div>${letter}: ${"█".repeat(Math.max(1, Math.round((pct / 100) * 10)))} ${pct}%</div>`;
+    })
+    .filter(Boolean)
+    .join("");
+
+  host.innerHTML = `<div class="notesTitle" style="margin-top:10px;">Live Student Results</div>${rows || "<div>No responses yet.</div>"}`;
+}
+
 async function getLiveResults(questionId: string): Promise<LiveResultsSnapshot> {
   if (!liveSessionId) return { counts: [0, 0, 0, 0], answeredCount: 0, studentCount: 0, studentNames: [] };
 
@@ -2440,9 +2714,12 @@ async function refreshLiveResults() {
 
   try {
     const snapshot = await getLiveResults(currentQuestionId());
+    latestLiveSnapshot = snapshot;
     renderLiveSessionPanel(undefined, snapshot);
+    renderLiveQuestionResults(snapshot);
   } catch (e: any) {
     renderLiveSessionPanel(e?.message || "Unable to load live results.");
+    renderLiveQuestionResults();
   }
 }
 
@@ -2618,19 +2895,125 @@ function stageClass(stageType?: SlideType): string {
 }
 
 const stageLabels: Record<string, string> = {
-  objective_lock: "Objective",
-  verb_definition: "Academic Verb",
-  strategy_formula: "Strategy",
-  model_think_aloud: "Model (I Do)",
-  guided_dok_ladder: "Guided Practice",
-  compare_defend: "Compare & Defend",
-  independent_transfer: "Independent Practice",
-  exit_ticket: "Exit Ticket",
+  objective_lock: "🎯 Objective",
+  verb_definition: "🧠 Skill",
+  strategy_formula: "🛠 Strategy",
+  model_think_aloud: "👀 I Do",
+  guided_dok_ladder: "🤝 We Do",
+  compare_defend: "⚖️ Debate",
+  independent_transfer: "✍️ You Do",
+  exit_ticket: "🚪 Exit Ticket",
 };
 
 function stageBadge(stageType?: SlideType): string {
   if (!stageType) return "";
-  return `<div class="stageBadge">${escHtml(stageLabels[stageType] || "")}</div>`;
+  return `<div class="stageBadge stage-chip">${escHtml(stageLabels[stageType] || "")}</div>`;
+}
+
+function getLayoutClass(stageType: string): string {
+  const stageLayouts: Record<string, string> = {
+    objective_lock: "layout-center",
+    verb_definition: "layout-vocab",
+    strategy_formula: "layout-center",
+    model_think_aloud: "layout-story",
+    guided_dok_ladder: "layout-question",
+    compare_defend: "layout-debate",
+    independent_transfer: "layout-writing",
+    exit_ticket: "layout-exit",
+  };
+  return stageLayouts[stageType] || "layout-default";
+}
+
+function cleanText(text: string): string {
+  return String(text || "")
+    .replace(/_id:.*$/gm, "")
+    .replace(/correctIndex:.*$/gm, "")
+    .replace(/STAGE:.*$/gm, "")
+    .replace(/TEACHER CUE:.*$/gm, "")
+    .replace(/choices:/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function cleanItems(items: unknown): string[] {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => cleanText(String(item || ""))).filter(Boolean);
+}
+
+function limitText(text: string, maxLength = 220): string {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, maxLength).trimEnd()}...`;
+}
+
+function splitContent(text: string): string[] {
+  const cleaned = cleanText(text);
+  if (!cleaned) return [];
+  const chunks = cleaned.match(/.{1,220}(\s|$)/g) || [];
+  return chunks.map((t) => t.trim()).filter(Boolean);
+}
+
+function cleanHeading(text: string): string {
+  return String(text || "").replace(/Practice Question/gi, "").trim();
+}
+
+function limitItems(items: string[], max = 4): string[] {
+  return items.slice(0, max);
+}
+
+function renderMultipleChoice(
+  slide: SlideDefinition,
+  extraClass: string,
+  layoutClass: string,
+  stage: string,
+  coachingTag: string,
+  coachLine: string,
+  alignment: string,
+): string {
+  const choicesRaw = Array.isArray(slide.answerChoices)
+    ? slide.answerChoices
+    : Array.isArray((slide as any).choices)
+      ? ((slide as any).choices as string[])
+      : [];
+  const choicesClean = cleanItems(choicesRaw);
+  const choices = choicesClean.length
+    ? `<ul class="mcChoices answers fade-in" style="animation-delay:0.25s">${choicesClean
+        .map((c, i) => `<li class="mcChoice answer${revealStep > 0 && i === slide.correctIndex ? " mcChoice--correct correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
+        .join("")}</ul>`
+    : "";
+
+  const rationale =
+    revealStep > 0 && slide.distractorRationale
+      ? `<div class="whyWinsTitle fade-in" style="animation-delay:0.3s">Why This Answer Wins</div><div class="rationaleGrid fade-in" style="animation-delay:0.35s">${slide.distractorRationale
+          .map((r, i) => `<div class="rationaleCard${i === slide.correctIndex ? " rationaleCard--correct" : ""}"><strong>${String.fromCharCode(65 + i)}</strong> ${escHtml(cleanText(r))}</div>`)
+          .join("")}</div>`
+      : "";
+
+  return `
+    <div class="slide slide-content ${layoutClass} slide--question${extraClass}">
+      ${stage}${coachingTag}<h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 80)) || "Question")}</h2>
+      <p class="promptPrimary fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.question || "")), 260))}</p>
+      <p class="fade-in" style="animation-delay:0.2s">${escHtml(limitText(cleanText(String(slide.prompt || "")), 220))}</p>
+      ${choices}
+      <div id="live-question-results" class="liveQuestionResults"></div>
+      ${rationale}
+      ${coachLine}${alignment}
+    </div>
+  `;
+}
+
+function adjustSlideText() {
+  const slide = document.querySelector(".slide-content") as HTMLElement | null;
+  if (!slide) return;
+
+  let fontSize = 48;
+  slide.style.fontSize = `${fontSize}px`;
+
+  while (slide.scrollHeight > slide.clientHeight && fontSize > 24) {
+    fontSize -= 2;
+    slide.style.fontSize = `${fontSize}px`;
+  }
 }
 
 function adjustSlideText() {
@@ -2656,6 +3039,127 @@ function preferredStageDuration(stageType?: SlideType): number {
   if (stageType === "independent_transfer") return 180;
   if (stageType === "exit_ticket") return 120;
   return 90;
+}
+
+function buildRenderedSlideHtml(
+  slide: SlideDefinition,
+  layoutClass: string,
+  extraClass: string,
+  stage: string,
+  coachingTag: string,
+  coachLine: string,
+  alignment: string,
+): string {
+  if (slide.stageType === "model_think_aloud") {
+    const modelSource = [
+      cleanHeading(String(slide.heading || "")),
+      String(slide.subtext || ""),
+      String(slide.prompt || ""),
+      String(slide.question || ""),
+      cleanItems(slide.items || []).join(" "),
+      String(slide.notes || ""),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const parts = splitContent(modelSource).slice(0, 3);
+    const content = parts.length ? parts : ["Model the reasoning in short, explicit steps and narrate evidence use."];
+    return `
+      <div class="slide slide-content ${layoutClass} slide--headline${extraClass}">
+        ${stage}${coachingTag}
+        ${content
+          .map(
+            (part, i) => `<div class="sectionTag fade-in" style="animation-delay:${0.08 + i * 0.08}s">Model (${i + 1}/${content.length})</div><div class="story-text fade-in" style="animation-delay:${0.14 + i * 0.08}s">${escHtml(limitText(part, 220))}</div>`,
+          )
+          .join("")}
+        ${coachLine}${alignment}
+      </div>
+    `;
+  }
+
+  if (slide.type === "splash") {
+    return `
+      <div class="slide slide-content ${layoutClass} slide--splash${extraClass}">
+        <div class="brandMark">LR</div>
+        <div class="brandKicker">Instruction Launch</div>
+        <h1 class="fade-in" style="animation-delay:0.05s">${escHtml(limitText(cleanText(String(slide.heading || "Lessons-Ready")), 80))}</h1>
+        <p class="splashSubtext fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.subtext || "")), 220))}</p>
+        <div class="splashMeta fade-in" style="animation-delay:0.25s">${escHtml(limitText(cleanText(String(slide.notes || "")), 180))}</div>
+      </div>
+    `;
+  }
+
+  if (slide.type === "headline") {
+    const headlineBody =
+      slide.stageType === "verb_definition"
+        ? `<div class="vocab-box interactive fade-in" style="animation-delay:0.05s"><h2>${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 90)) || "Skill Focus")}</h2><p>${escHtml(limitText(cleanText(String(slide.subtext || "")), 240))}</p></div><div class="vocab-box interactive fade-in" style="animation-delay:0.15s"><h2>Student-Friendly Move</h2><p>Say the verb in your own words, then name the evidence you need.</p></div>`
+        : `<div class="sectionTag fade-in" style="animation-delay:0.05s">${escHtml(limitText(cleanText(String(slide.section || "")), 40))}</div><h1 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 90)) || "Lesson Focus")}</h1><p class="fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.subtext || "")), 240))}</p>`;
+
+    return `<div class="slide slide-content ${layoutClass} slide--headline${extraClass}">${stage}${coachingTag}${headlineBody}${coachLine}${alignment}</div>`;
+  }
+
+  if (slide.type === "split") {
+    const items = limitItems(cleanItems(slide.items || []), 4);
+    const visibleCount = revealStep > 0 ? Math.min(revealStep, items.length) : Math.min(1, items.length);
+    return `
+      <div class="slide slide-content ${layoutClass} slide--split${extraClass}">
+        ${stage}${coachingTag}
+        <h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 80)) || "Key Ideas")}</h2>
+        <p class="slideSubtext fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.subtext || "")), 220))}</p>
+        <ul class="fade-in" style="animation-delay:0.25s">${items.slice(0, visibleCount).map((item) => `<li>${escHtml(limitText(item, 120))}</li>`).join("")}</ul>
+        ${coachLine}${alignment}
+      </div>
+    `;
+  }
+
+  if (slide.type === "question") {
+    return renderMultipleChoice(slide, extraClass, layoutClass, stage, coachingTag, coachLine, alignment);
+  }
+
+  if (slide.type === "writing") {
+    const cerFrame = revealStep > 0 ? `<p class="cerFrame">CER: Claim → Evidence → Reasoning</p>` : "";
+    const model =
+      revealStep > 1
+        ? `<p class="revealBlock">${escHtml(currentSkillType === "context_clues" ? "Model paragraph reveal: The word \"obscured\" means hidden because the nearby detail says thick fog blocked visibility." : "Model paragraph reveal: Explain your claim with direct evidence and reasoning from the text.")}</p>`
+        : "";
+
+    return `
+      <div class="slide slide-content ${layoutClass} slide--writing${extraClass}">
+        ${stage}${coachingTag}<h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 80)) || "Writing")}</h2>
+        <div class="${slide.stageType === "exit_ticket" ? "question-box" : "writing-box"} interactive fade-in" style="animation-delay:0.15s">
+          <p class="promptPrimary">${escHtml(limitText(cleanText(String(slide.subtext || "")), 240))}</p>
+          <div class="cerScaffold"><div>Claim</div><div>Evidence</div><div>Reasoning</div></div>
+          ${cerFrame}
+          ${model}
+        </div>
+        ${coachLine}${alignment}
+      </div>
+    `;
+  }
+
+  if (slide.type === "energy") {
+    const contrastClass = currentIndex % 4 === 0 ? " slide--contrast" : "";
+    return `<div class="slide slide-content ${layoutClass} slide--energy${contrastClass}${extraClass}">${stage}${coachingTag}<h1 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 80)) || "Energy Break")}</h1><p class="fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.subtext || "")), 200))}</p>${coachLine}${alignment}</div>`;
+  }
+
+  if (slide.type === "discussion") {
+    const stem = revealStep > 0 ? `<p class="revealBlock">Sentence stem reveal: "I agree because the text says..."</p>` : "";
+    const promptClean = escHtml(limitText(cleanText(String(slide.prompt || "Discuss with your partner.")), 220));
+    const discussionBody =
+      slide.stageType === "compare_defend"
+        ? `<div class="debate-box interactive fade-in" style="animation-delay:0.15s"><h3>Option A</h3><p>${promptClean}</p></div><div class="debate-box interactive fade-in" style="animation-delay:0.25s"><h3>Option B</h3><p>Defend the stronger answer with evidence.</p></div>`
+        : `<p class="promptPrimary fade-in" style="animation-delay:0.15s">${promptClean}</p>`;
+
+    return `
+      <div class="slide slide-content ${layoutClass} slide--discussion${extraClass}">
+        ${stage}${coachingTag}<h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "Discuss")), 80)) || "Discuss")}</h2>
+        ${discussionBody}
+        ${stem}
+        ${coachLine}${alignment}
+      </div>
+    `;
+  }
+
+  return `<div class="slide slide-content ${layoutClass}${extraClass}">${stage}${coachingTag}<h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "Slide")), 80)) || "Slide")}</h2>${coachLine}${alignment}</div>`;
 }
 
 function renderSlide() {
@@ -2690,9 +3194,12 @@ function renderSlide() {
     renderLiveSessionPanel();
   }
 
-  const coachLine = slide.teacherCue ? `<div class="coachLine">Coach: ${escHtml(slide.teacherCue)}</div>` : "";
+  const coachLine = settings.showTeacherNotes && slide.teacherCue
+    ? `<div class="coachLine">Coach: ${escHtml(cleanText(slide.teacherCue))}</div>`
+    : "";
   const alignment = `<div class="alignmentChip">${escHtml(alignmentChip(slide))}</div>`;
   const stage = stageBadge(slide.stageType);
+  const layoutClass = getLayoutClass(String(slide.stageType || ""));
   const coachingTag = String(slide.section || "").toLowerCase().includes("coaching") ? `<div class="coachingTag">Coaching Insight</div>` : "";
   const extraClass = `${stageClass(slide.stageType)}${String(slide.section || "").toLowerCase().includes("coaching") ? " slide--coaching" : ""}`;
 
@@ -2937,6 +3444,23 @@ function bindControls() {
   bindToggle("toggle-short30", "short30");
   bindToggle("toggle-intervention", "interventionPace");
   bindToggle("toggle-coaching", "coachingMode");
+  bindToggle("toggle-include-model", "includeModel");
+  bindToggle("toggle-include-compare", "includeCompareDefend");
+  bindToggle("toggle-include-exit", "includeExitTicket");
+  bindToggle("toggle-mini15", "mini15");
+  bindToggle("toggle-rigor", "increaseRigor");
+  bindToggle("toggle-teacher-notes", "showTeacherNotes");
+
+  const themeSelect = document.getElementById("theme-select") as HTMLSelectElement | null;
+  if (themeSelect) {
+    themeSelect.value = settings.theme;
+    themeSelect.addEventListener("change", () => {
+      settings.theme = themeSelect.value as PresentSettings["theme"];
+      normalizeSlidesForSettings();
+      revealStep = 0;
+      renderSlide();
+    });
+  }
 
   document.getElementById("btn-reveal")?.addEventListener("click", () => {
     revealStep += 1;
