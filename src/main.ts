@@ -62,6 +62,7 @@ function getElOpt<T extends HTMLElement>(id: string): T | null {
 // ✅ ADD IT RIGHT HERE
 function setDisplay(el: HTMLElement | null, value: string) {
   if (!el) return;
+  el.style.display = value;
 }
 
 function escapeHtml(s: string) {
