@@ -3663,7 +3663,7 @@ Include:
       if (exportPackBtn) exportPackBtn.disabled = !lastLessonPlainText.trim();
 
       // ✅ Show Feedback Garage after output renders
-      if (garage) garage.style.display = "block";
+      setDisplay(garage, "block");
 
       const slideDefs = buildSlideDefinitionsFromLesson(lessonText, lessonSections, {
         eb: ebSupport ? !!ebSupport.checked : true,
