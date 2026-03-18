@@ -1,3 +1,4 @@
+console.log("🔥 NEW BUILD LOADED");
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
 const LS_SESSION_KEY = "lr_supabase_session_v1"; // legacy auth session key for optional Supabase calls
