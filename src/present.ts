@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
 const LS_SESSION_KEY = "lr_supabase_session_v1";
 const LS_PRESENT_NOTES_KEY = "lr_present_notes_open_v1";
-const LIVE_JOIN_BASE = `${window.location.origin}/join`;
+const LIVE_JOIN_BASE = `${window.location.origin}/join.html`;
 
 type SlideType =
   | "objective_lock"
@@ -3001,19 +3001,6 @@ function renderMultipleChoice(
       ${coachLine}${alignment}
     </div>
   `;
-}
-
-function adjustSlideText() {
-  const slide = document.querySelector(".slide-content") as HTMLElement | null;
-  if (!slide) return;
-
-  let fontSize = 48;
-  slide.style.fontSize = `${fontSize}px`;
-
-  while (slide.scrollHeight > slide.clientHeight && fontSize > 24) {
-    fontSize -= 2;
-    slide.style.fontSize = `${fontSize}px`;
-  }
 }
 
 function adjustSlideText() {
