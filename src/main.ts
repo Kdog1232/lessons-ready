@@ -6,18 +6,11 @@ import { resolveCanonicalStandard } from "./save-lesson";
 // ✅ CONFIG
 // -------------------------
 const path = window.location.pathname;
+const isGeneratorPage =
+  path === "/" ||
+  path.includes("index");
 
-// ✅ ONLY exact presenter page
-const isPresenterPage =
-  path === "/present.html";
-
-// ✅ EVERYTHING else = generator
-const isGeneratorPage = !isPresenterPage;
-
-// 🔍 Debug log
-console.log("PATH:", path);
-console.log("isPresenterPage:", isPresenterPage);
-console.log("isGeneratorPage:", isGeneratorPage);
+const isPresenterPage = path.includes("present");
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 
 // ✅ Lesson generation (keep as-is)
@@ -2203,7 +2196,9 @@ async function openPortal(
 // -------------------------
 // App
 // -------------------------
-function initGenerator() {
+if (isPresenterPage) {
+  console.log("🎥 Presenter page detected — skipping generator init");
+} else {
 try {
   // Views
   const landingView = getElOpt<HTMLElement>("landingView");
@@ -2530,8 +2525,13 @@ function clearMessage() {
 }
 
  function setView(isLoggedIn: boolean) {
-  if (landingView) setDisplay(landingView, "none");
-  if (appView) setDisplay(appView, "block");
+  if (landingView) {
+    setDisplay(landingView, isLoggedIn ? "none" : "block");
+  }
+
+  if (appView) {
+    setDisplay(appView, isLoggedIn ? "block" : "none");
+  }
 
   if (isLoggedIn) {
     document.body.classList.add("logged-in");
@@ -2605,8 +2605,10 @@ function showLibrary(show: boolean) {
     favoriteBtn.disabled = !loggedIn || !lastLessonId;
   }
 
+   setView(loggedIn); // ✅ THIS IS KEY
   // billing UI is async (status call)
   refreshBillingUI(false).catch(() => {});
+   
 }
 
   if (isGeneratorPage) {
@@ -2684,6 +2686,8 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
   setCachedSubStatus("unknown", "unknown");
   enforceModeAccess();
   refreshAuthUI();
+    
+  setView(false);
 }
 
   addOnce(logOutBtn, "logout", doLogout);
@@ -3872,11 +3876,4 @@ setStatus("Done");
   console.error("❌ main.ts crashed:", err);
   alert(String(err?.message || err));
 }
-}
-
-if (isPresenterPage) {
-  console.log("🎥 Presenter page detected — skipping generator init");
-} else {
-  console.log("🧠 Generator page detected — initializing...");
-  initGenerator();
 }
