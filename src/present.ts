@@ -2,22 +2,7 @@ const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
 const LS_SESSION_KEY = "lr_supabase_session_v1"; // legacy auth session key for optional Supabase calls
 const LS_PRESENT_NOTES_KEY = "lr_present_notes_open_v1";
-const LR_CURRENT_LESSON_KEY = "lr_current_lesson";
 const LIVE_JOIN_BASE = `${window.location.origin}/join.html`;
-
-function getSavedLesson(): (LessonRow & { slide_definitions?: any[]; slides?: any[]; questions?: any[]; id?: string }) | null {
-  const savedLessonRaw = localStorage.getItem("lr_current_lesson");
-  if (!savedLessonRaw) return null;
-
-  try {
-    return JSON.parse(savedLessonRaw) as LessonRow & { slide_definitions?: any[]; slides?: any[]; questions?: any[]; id?: string };
-  } catch (error) {
-    console.error("Failed to parse saved lesson", error);
-    return null;
-  }
-}
-
-let prefetchedLessonRow: LessonRow | null = null;
 
 type SlideType =
   | "objective_lock"
@@ -2155,6 +2140,7 @@ async function loadLesson(lessonId: string): Promise<LessonRow | null> {
   const lesson = await fetchLessonRow(lessonId, headers);
   if (lesson) {
     localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(lesson));
+    savedLesson = lesson as LessonRow & { slide_definitions?: any[]; id?: string };
   }
   return lesson;
 }
@@ -2175,7 +2161,7 @@ async function fetchGeneratedLessonRow(payload: GenerateLessonPayload, headers: 
 
 async function loadSlides(incomingSlides: any[] = []) {
   const params = new URLSearchParams(window.location.search);
-  const lessonId = getLessonId();
+  const lessonId = String(params.get("lessonId") || params.get("id") || "").trim();
   lessonIdGlobal = lessonId;
 
   if (incomingSlides.length > 0) {
@@ -2189,7 +2175,7 @@ async function loadSlides(incomingSlides: any[] = []) {
     return;
   }
 
-  let row: LessonRow | null = getSavedLesson() as LessonRow | null;
+  let row: LessonRow | null = savedLesson as LessonRow | null;
 
   const token = getSavedToken();
   const headers: Record<string, string> = {
@@ -2206,6 +2192,7 @@ async function loadSlides(incomingSlides: any[] = []) {
       row = await fetchLessonRow(lessonId, headers);
       if (row) {
         localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(row));
+        savedLesson = row as LessonRow & { slide_definitions?: any[]; id?: string };
       }
     } catch (e: any) {
       lessonLookupError = String(e?.message || e || "");
@@ -2216,6 +2203,7 @@ async function loadSlides(incomingSlides: any[] = []) {
           row = await fetchLessonRow(lessonId, headers);
           if (row) {
             localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(row));
+            savedLesson = row as LessonRow & { slide_definitions?: any[]; id?: string };
           }
           lessonLookupError = "";
         } else {
@@ -3632,31 +3620,12 @@ function bindKeys() {
 
 async function boot() {
   console.log("🚀 boot starting");
-
   const lessonId = getLessonId();
   console.log("lessonId:", lessonId);
-
-  const savedLesson = localStorage.getItem("lr_current_lesson")
-    ? JSON.parse(localStorage.getItem("lr_current_lesson")!)
-    : null;
-
-  let lesson: any = null;
-
-  if (lessonId) {
-    lesson = await loadLesson(lessonId);
-  } else if (savedLesson) {
-    lesson = savedLesson;
-  }
-
-  if (!lesson) {
-    console.error("❌ No lesson available");
-    return;
-  }
-
+  const lesson = lessonId ? await loadLesson(lessonId) : savedLesson;
   prefetchedLessonRow = lesson as LessonRow | null;
-  const lessonSlides = lesson.slides || lesson.questions || lesson.slide_definitions || [];
-  console.log("lesson:", lesson);
-  console.log("slides:", lessonSlides);
+  console.log("lesson from DB:", lesson);
+  console.log("slides:", (lesson as { slides?: unknown; slide_definitions?: unknown } | null)?.slides || (lesson as { slide_definitions?: unknown } | null)?.slide_definitions);
 
   slideContainerEl = document.getElementById("slide-container") as HTMLElement | null;
   if (slideContainerEl) {
@@ -3669,7 +3638,7 @@ async function boot() {
 
   try {
     if (slides.length === 0) {
-      await loadSlides(lessonSlides);
+      await loadSlides(savedLesson?.slide_definitions || []);
     }
     bindControls();
     bindKeys();
