@@ -2538,7 +2538,6 @@ function clearMessage() {
   setDisplay(openLibraryBtn, show ? "none" : "inline-block");
   setDisplay(closeLibraryBtn, show ? "inline-block" : "none");
 }
-  }
 
   async function refreshBillingUI(forceStatus = false) {
     const s = getSavedSession();
