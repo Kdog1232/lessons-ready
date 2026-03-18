@@ -2122,6 +2122,29 @@ function coerceLessonRow(input: unknown): LessonRow | null {
   return row;
 }
 
+function getLessonId(): string {
+  const params = new URLSearchParams(window.location.search);
+  return String(params.get("lessonId") || params.get("id") || "").trim();
+}
+
+async function loadLesson(lessonId: string): Promise<LessonRow | null> {
+  if (!lessonId) return null;
+
+  const token = getSavedToken();
+  const headers: Record<string, string> = {
+    apikey: SUPABASE_ANON_KEY,
+    "Content-Type": "application/json",
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const lesson = await fetchLessonRow(lessonId, headers);
+  if (lesson) {
+    localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(lesson));
+    savedLesson = lesson as LessonRow & { slide_definitions?: any[]; id?: string };
+  }
+  return lesson;
+}
+
 async function fetchGeneratedLessonRow(payload: GenerateLessonPayload, headers: Record<string, string>): Promise<LessonRow | null> {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/generate-lesson`, {
     method: "POST",
@@ -2162,7 +2185,9 @@ async function loadSlides(incomingSlides: any[] = []) {
   if (token) headers.Authorization = `Bearer ${token}`;
 
   let lessonLookupError = "";
-  if (lessonId) {
+  if (lessonId && prefetchedLessonRow) {
+    row = prefetchedLessonRow;
+  } else if (lessonId) {
     try {
       row = await fetchLessonRow(lessonId, headers);
       if (row) {
@@ -3189,7 +3214,10 @@ function buildRenderedSlideHtml(
 function renderSlide() {
   const slide = slides[currentIndex];
   const container = slideContainerEl;
-  if (!container) return;
+  if (!container) {
+    console.error("❌ slide-container not found");
+    return;
+  }
   const counter = document.getElementById("slide-counter");
   const notesPanel = document.getElementById("teacher-notes");
 
@@ -3591,6 +3619,14 @@ function bindKeys() {
 }
 
 async function boot() {
+  console.log("🚀 boot starting");
+  const lessonId = getLessonId();
+  console.log("lessonId:", lessonId);
+  const lesson = lessonId ? await loadLesson(lessonId) : savedLesson;
+  prefetchedLessonRow = lesson as LessonRow | null;
+  console.log("lesson from DB:", lesson);
+  console.log("slides:", (lesson as { slides?: unknown; slide_definitions?: unknown } | null)?.slides || (lesson as { slide_definitions?: unknown } | null)?.slide_definitions);
+
   slideContainerEl = document.getElementById("slide-container") as HTMLElement | null;
   if (slideContainerEl) {
     slideContainerEl.innerHTML = `
