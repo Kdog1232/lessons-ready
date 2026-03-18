@@ -5,6 +5,12 @@ import { resolveCanonicalStandard } from "./save-lesson";
 // -------------------------
 // ✅ CONFIG
 // -------------------------
+const path = window.location.pathname;
+const isGeneratorPage =
+  path === "/" ||
+  path.includes("index");
+
+const isPresenterPage = path.includes("present");
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 
 // ✅ Lesson generation (keep as-is)
@@ -2190,8 +2196,9 @@ async function openPortal(
 // -------------------------
 // App
 // -------------------------
-function initGenerator() {
-  console.log("🚀 Generator initialized");
+if (isPresenterPage) {
+  console.log("🎥 Presenter page detected — skipping generator init");
+} else {
 try {
   // Views
   const landingView = getElOpt<HTMLElement>("landingView");
@@ -2518,8 +2525,13 @@ function clearMessage() {
 }
 
  function setView(isLoggedIn: boolean) {
-  if (landingView) setDisplay(landingView, "none");
-  if (appView) setDisplay(appView, "block");
+  if (landingView) {
+    setDisplay(landingView, isLoggedIn ? "none" : "block");
+  }
+
+  if (appView) {
+    setDisplay(appView, isLoggedIn ? "block" : "none");
+  }
 
   if (isLoggedIn) {
     document.body.classList.add("logged-in");
@@ -2593,12 +2605,16 @@ function showLibrary(show: boolean) {
     favoriteBtn.disabled = !loggedIn || !lastLessonId;
   }
 
+   setView(loggedIn); // ✅ THIS IS KEY
   // billing UI is async (status call)
   refreshBillingUI(false).catch(() => {});
+   
 }
 
-  refreshPublisherUI();
-  publisher?.addEventListener("change", refreshPublisherUI);
+  if (isGeneratorPage) {
+    refreshPublisherUI();
+    publisher?.addEventListener("change", refreshPublisherUI);
+  }
 
   // ✅ Keep mode access correct if user changes mode
   mode?.addEventListener("change", () => enforceModeAccess());
@@ -2670,6 +2686,8 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
   setCachedSubStatus("unknown", "unknown");
   enforceModeAccess();
   refreshAuthUI();
+    
+  setView(false);
 }
 
   addOnce(logOutBtn, "logout", doLogout);
@@ -2733,6 +2751,7 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
   } catch {}
 
   if (
+    isGeneratorPage &&
     state &&
     publisher &&
     publisherOtherWrap &&
@@ -3858,5 +3877,3 @@ setStatus("Done");
   alert(String(err?.message || err));
 }
 }
-
-initGenerator();
