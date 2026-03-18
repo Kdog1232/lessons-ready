@@ -1,6 +1,6 @@
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
-const LS_SESSION_KEY = "lr_supabase_session_v1";
+const LS_SESSION_KEY = "lr_supabase_session_v1"; // legacy auth session key for optional Supabase calls
 const LS_PRESENT_NOTES_KEY = "lr_present_notes_open_v1";
 const LIVE_JOIN_BASE = `${window.location.origin}/join.html`;
 
@@ -174,7 +174,7 @@ type ExecutionConfig = {
 };
 
 let baseSlides: SlideDefinition[] = [];
-let slides: SlideDefinition[] = [];
+let slides: any[] = [];
 let currentIndex = 0;
 let lessonIdGlobal = "";
 let lessonMode: "bluebonnet" | "amplify" | "generic" = "generic";
@@ -2136,11 +2136,23 @@ async function fetchGeneratedLessonRow(payload: GenerateLessonPayload, headers: 
   return nested;
 }
 
-async function loadSlides() {
+async function loadSlides(incomingSlides: any[] = []) {
   const params = new URLSearchParams(window.location.search);
-  const lessonId = String(params.get("id") || "").trim();
+  const lessonId = String(params.get("lessonId") || params.get("id") || "").trim();
   lessonIdGlobal = lessonId;
-  assertSupabaseConfigured();
+
+  if (incomingSlides.length > 0) {
+    baseSlides = incomingSlides.map(cloneSlide);
+    slides = incomingSlides;
+    if (!lessonIdGlobal) {
+      lessonIdGlobal = "local_storage_lesson";
+    }
+    normalizeSlidesForSettings();
+    currentIndex = 0;
+    return;
+  }
+
+  let row: LessonRow | null = savedLesson as LessonRow | null;
 
   const token = getSavedToken();
   const headers: Record<string, string> = {
@@ -2149,11 +2161,14 @@ async function loadSlides() {
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  let row: LessonRow | null = null;
   let lessonLookupError = "";
   if (lessonId) {
     try {
       row = await fetchLessonRow(lessonId, headers);
+      if (row) {
+        localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(row));
+        savedLesson = row as LessonRow & { slide_definitions?: any[]; id?: string };
+      }
     } catch (e: any) {
       lessonLookupError = String(e?.message || e || "");
       if (lessonLookupError === "SESSION_EXPIRED") {
@@ -2161,6 +2176,10 @@ async function loadSlides() {
         if (refreshedToken) {
           headers.Authorization = `Bearer ${refreshedToken}`;
           row = await fetchLessonRow(lessonId, headers);
+          if (row) {
+            localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(row));
+            savedLesson = row as LessonRow & { slide_definitions?: any[]; id?: string };
+          }
           lessonLookupError = "";
         } else {
           setSavedSession(null);
@@ -2171,6 +2190,7 @@ async function loadSlides() {
   }
 
   if (!row) {
+    assertSupabaseConfigured();
     const payload = buildGenerateLessonPayload(params);
     if (!payload) {
       const fallbackHint = lessonLookupError ? ` Lesson lookup failed: ${lessonLookupError}` : "";
@@ -2206,6 +2226,20 @@ async function loadSlides() {
   currentSkillType = skillType;
   applyPresentationTheme();
 
+  const storedSlideDefinitions = Array.isArray((row as LessonRow & { slide_definitions?: unknown }).slide_definitions)
+    ? ((row as LessonRow & { slide_definitions?: SlideDefinition[] }).slide_definitions || []).map(cloneSlide)
+    : [];
+
+  if (storedSlideDefinitions.length > 0) {
+    currentExecutionConfig = null;
+    renderSkillPanel();
+    renderAlignmentProof(row);
+    baseSlides = storedSlideDefinitions;
+    normalizeSlidesForSettings();
+    currentIndex = 0;
+    return;
+  }
+
   const selectedMode = String(params.get("instruction_mode") || "core").toLowerCase();
   const skillPlaybook = await fetchSkillPlaybook(skillType, headers);
   const instructionMode = await fetchInstructionMode(selectedMode, headers);
@@ -2221,16 +2255,17 @@ async function loadSlides() {
   renderSkillPanel();
   renderAlignmentProof(row);
 
-  const lockedTemplateSlides = buildSkillLockedDeck(
-    skillType,
-    tekDescription,
-    dok,
-    grade,
-    verb,
-    priority,
-    executionConfig,
-  );
-  baseSlides = lockedTemplateSlides.map(cloneSlide);
+  {
+    const lockedTemplateSlides = buildSkillLockedDeck(
+      skillType,
+      tekDescription,
+      dok,
+      grade,
+      verb,
+      priority,
+      executionConfig,
+    );
+    baseSlides = lockedTemplateSlides.map(cloneSlide);
 
 baseSlides = enforceSkillLock(baseSlides, skillType);
 
@@ -2272,6 +2307,8 @@ if (row.lesson_text) {
     });
 
   }
+
+}
 
 }
 
@@ -3564,7 +3601,9 @@ async function boot() {
   }
 
   try {
-    await loadSlides();
+    if (slides.length === 0) {
+      await loadSlides(savedLesson?.slide_definitions || []);
+    }
     bindControls();
     bindKeys();
     refreshDockVisibility();
@@ -3572,7 +3611,7 @@ async function boot() {
   } catch (e: any) {
     const container = document.getElementById("slide-container");
     if (container) {
-      container.innerHTML = `<div class="slide slide-content"><h2>Present mode unavailable</h2><p>${escHtml(e?.message || e)}</p></div>`;
+      container.innerHTML = `<div class="slide slide-content"><h2>Loading lesson...</h2><p>${escHtml(e?.message || e)}</p></div>`;
     }
   }
 }
