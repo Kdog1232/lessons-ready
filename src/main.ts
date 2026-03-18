@@ -1940,18 +1940,20 @@ async function ensureLoggedInForBilling(
   authEmail: HTMLInputElement,
   authPassword: HTMLInputElement,
 ) {
-  const s = getSavedSession();
-  if (s?.access_token) return s;
+ const s = getSavedSession();
+if (s?.access_token) return s;
 
-  const email = authEmail.value.trim();
-  const pw = authPassword.value.trim();
-  if (!email || !pw) throw new Error("Enter email + password first, then retry.");
+const email = authEmail?.value?.trim();
+const pw = authPassword?.value?.trim();
 
-  try {
-    return await logIn(email, pw);
-  } catch {
-    return await signUp(email, pw);
-  }
+if (!email || !pw) {
+  throw new Error("Enter email + password first, then retry.");
+}
+
+try {
+  return await logIn(email, pw);
+} catch {
+  return await signUp(email, pw);
 }
 
 // -------------------------
