@@ -5,7 +5,12 @@ import { resolveCanonicalStandard } from "./save-lesson";
 // -------------------------
 // ✅ CONFIG
 // -------------------------
-const isGeneratorPage = window.location.pathname.includes("index");
+const path = window.location.pathname;
+const isGeneratorPage =
+  path === "/" ||
+  path.includes("index");
+
+const isPresenterPage = path.includes("present");
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 
 // ✅ Lesson generation (keep as-is)
@@ -662,8 +667,13 @@ function getPortalReturnUrl() {
 function addOnce(el: HTMLElement | null, key: string, fn: () => void) {
   if (!el) return;
 
-  el.removeEventListener("click", fn); // remove old if exists
-  el.addEventListener("click", fn);    // always attach fresh
+  const anyEl = el as any;
+  anyEl.__lr_listeners = anyEl.__lr_listeners || {};
+
+  if (anyEl.__lr_listeners[key]) return;
+
+  anyEl.__lr_listeners[key] = true;
+  el.addEventListener("click", fn);
 }
 
 /**
@@ -805,10 +815,7 @@ function isJwtForCurrentProject(token: string): boolean {
 function getSessionIfValidForCurrentProject(): Session | null {
   const s = getSavedSession();
   if (!s?.access_token) return null;
-  if (!isJwtForCurrentProject(s.access_token)) {
-    setSavedSession(null);
-    return null;
-  }
+  // TEMP FIX: disable strict project validation
   return s;
 }
 
@@ -1940,21 +1947,21 @@ async function ensureLoggedInForBilling(
   authEmail: HTMLInputElement,
   authPassword: HTMLInputElement,
 ) {
- const s = getSavedSession();
-if (s?.access_token) return s;
+  const s = getSavedSession();
+  if (s?.access_token) return s;
 
-const email = authEmail?.value?.trim();
-const pw = authPassword?.value?.trim();
+  const email = authEmail?.value?.trim();
+  const pw = authPassword?.value?.trim();
 
-if (!email || !pw) {
-  throw new Error("Enter email + password first, then retry.");
-}
+  if (!email || !pw) {
+    throw new Error("Enter email + password first, then retry.");
+  }
 
-try {
-  return await logIn(email, pw);
-} catch {
-  return await signUp(email, pw);
-}
+  try {
+    return await logIn(email, pw);
+  } catch {
+    return await signUp(email, pw);
+  }
 }
 // -------------------------
 // ✅ Subscription state (cached) FIXED (no duplicate types, caches raw status)
@@ -2189,6 +2196,9 @@ async function openPortal(
 // -------------------------
 // App
 // -------------------------
+if (isPresenterPage) {
+  console.log("🎥 Presenter page detected — skipping generator init");
+} else {
 try {
   // Views
   const landingView = getElOpt<HTMLElement>("landingView");
@@ -2263,15 +2273,14 @@ function enforceModeAccess() {
 
   const outputStyle = getElOpt<HTMLSelectElement>("outputStyle");
   const audienceView = getElOpt<HTMLSelectElement>("audienceView");
-  const state = getEl<HTMLSelectElement>("state");
+  const state = getElOpt<HTMLSelectElement>("state");
   const publisher = getElOpt<HTMLSelectElement>("publisher");
-  publisher?.addEventListener("change", refreshPublisherUI);
-  const publisherOtherWrap = getEl<HTMLElement>("publisherOtherWrap");
-  const publisherOther = getEl<HTMLInputElement>("publisherOther");
+  const publisherOtherWrap = getElOpt<HTMLElement>("publisherOtherWrap");
+  const publisherOther = getElOpt<HTMLInputElement>("publisherOther");
 
-  const grade = getEl<HTMLSelectElement>("grade");
-  const subject = getEl<HTMLSelectElement>("subject");
-  const standard = getEl<HTMLSelectElement>("standard");
+  const grade = getElOpt<HTMLSelectElement>("grade");
+  const subject = getElOpt<HTMLSelectElement>("subject");
+  const standard = getElOpt<HTMLSelectElement>("standard");
   function getSelectedStandardDisplay(): string {
     const select = standard;
     if (!select) return "";
@@ -2387,8 +2396,8 @@ qsStandard?.addEventListener("change", () => {
   if (!standard) return;
   standard.value = qsStandard.value;
 });
-  const unit = getEl<HTMLInputElement>("unit");
-  const lesson = getEl<HTMLInputElement>("lesson");
+  const unit = getElOpt<HTMLInputElement>("unit");
+  const lesson = getElOpt<HTMLInputElement>("lesson");
   const skillFocus = getElOpt<HTMLTextAreaElement>("skillFocus");
   const supportingStandards = getElOpt<HTMLInputElement>("supportingStandards");
   const lessonLength = getElOpt<HTMLInputElement>("lessonLength");
@@ -2447,26 +2456,26 @@ qsStandard?.addEventListener("change", () => {
   const loadPresetBtn = getElOpt<HTMLButtonElement>("loadPresetBtn");
   const deletePresetBtn = getElOpt<HTMLButtonElement>("deletePresetBtn");
 
-  const testMode = getEl<HTMLInputElement>("testMode");
+  const testMode = getElOpt<HTMLInputElement>("testMode");
 
-  const generateBtn = getEl<HTMLButtonElement>("generateBtn");
-  const openLibraryBtn = getEl<HTMLButtonElement>("openLibraryBtn");
-  const closeLibraryBtn = getEl<HTMLButtonElement>("closeLibraryBtn");
+  const generateBtn = getElOpt<HTMLButtonElement>("generateBtn");
+  const openLibraryBtn = getElOpt<HTMLButtonElement>("openLibraryBtn");
+  const closeLibraryBtn = getElOpt<HTMLButtonElement>("closeLibraryBtn");
 
   // Output actions
-  const outputView = getEl<HTMLElement>("outputView");
-  const libraryView = getEl<HTMLElement>("libraryView");
-  const librarySearch = getEl<HTMLInputElement>("librarySearch");
-  const libraryList = getEl<HTMLElement>("libraryList");
+  const outputView = getElOpt<HTMLElement>("outputView");
+  const libraryView = getElOpt<HTMLElement>("libraryView");
+  const librarySearch = getElOpt<HTMLInputElement>("librarySearch");
+  const libraryList = getElOpt<HTMLElement>("libraryList");
 
-  const favoriteBtn = getEl<HTMLButtonElement>("favoriteBtn");
-  const copyBtn = getEl<HTMLButtonElement>("copyBtn");
+  const favoriteBtn = getElOpt<HTMLButtonElement>("favoriteBtn");
+  const copyBtn = getElOpt<HTMLButtonElement>("copyBtn");
   const copyDocsBtn = getElOpt<HTMLButtonElement>("copyDocsBtn");
   const printBtn = getElOpt<HTMLButtonElement>("printBtn");
-  const downloadPdfBtn = getEl<HTMLButtonElement>("downloadPdfBtn");
+  const downloadPdfBtn = getElOpt<HTMLButtonElement>("downloadPdfBtn");
   const exportPackBtn = getElOpt<HTMLButtonElement>("exportPackBtn");
 
-  const output = getEl<HTMLElement>("output");
+  const output = getElOpt<HTMLElement>("output");
 
   // Feedback Garage (HTML has it — but backend endpoint/table might not yet exist, so it’s optional/safe)
   const submitFeedbackBtn = getElOpt<HTMLButtonElement>("submitFeedbackBtn");
@@ -2478,6 +2487,7 @@ qsStandard?.addEventListener("change", () => {
   let activeStreamAbort: AbortController | null = null;
   let lastLessonId: string | null = null;
   let lastLessonFavorite = false;
+
 
   // -------------------------
   // UI helpers
@@ -2532,13 +2542,12 @@ function clearMessage() {
   );
 }
 
-   function showLibrary(show: boolean) {
+function showLibrary(show: boolean) {
   setDisplay(outputView, show ? "none" : "block");
   setDisplay(libraryView, show ? "block" : "none");
   setDisplay(openLibraryBtn, show ? "none" : "inline-block");
   setDisplay(closeLibraryBtn, show ? "inline-block" : "none");
 }
-  }
 
   async function refreshBillingUI(forceStatus = false) {
     const s = getSavedSession();
@@ -2595,8 +2604,10 @@ function clearMessage() {
   refreshBillingUI(false).catch(() => {});
 }
 
-  refreshPublisherUI();
-  publisher?.addEventListener("change", refreshPublisherUI);
+  if (isGeneratorPage) {
+    refreshPublisherUI();
+    publisher?.addEventListener("change", refreshPublisherUI);
+  }
 
   // ✅ Keep mode access correct if user changes mode
   mode?.addEventListener("change", () => enforceModeAccess());
@@ -2626,8 +2637,8 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
   addOnce(logInBtn, "login", async () => {
     try {
       clearMessage();
-      const email = authEmail.value.trim();
-      const pw = authPassword.value.trim();
+      const email = authEmail?.value?.trim();
+      const pw = authPassword?.value?.trim();
       if (!email || !pw) return showMessage("Enter email + password.", false);
 
       await logIn(email, pw);
@@ -2645,7 +2656,7 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
     addOnce(forgotPwBtn, "forgot", async () => {
       try {
         clearMessage();
-        const email = authEmail.value.trim();
+        const email = authEmail?.value?.trim();
         if (!email) return showMessage("Enter your email first.", false);
         await supabaseAuthPOST("recover", { email });
         showMessage("Password reset email sent ✅ Check your inbox.", true);
@@ -2660,8 +2671,10 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
   showMessage("Logged out ✅", true);
   lastLessonId = null;
   lastLessonFavorite = false;
-  favoriteBtn.textContent = "☆ Favorite";
-  favoriteBtn.disabled = true;
+  if (favoriteBtn) {
+    favoriteBtn.textContent = "☆ Favorite";
+    favoriteBtn.disabled = true;
+  }
 
   setCachedSubStatus("unknown", "unknown");
   enforceModeAccess();
@@ -2728,6 +2741,30 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
     }
   } catch {}
 
+  if (
+    isGeneratorPage &&
+    state &&
+    publisher &&
+    publisherOtherWrap &&
+    publisherOther &&
+    grade &&
+    subject &&
+    standard &&
+    unit &&
+    lesson &&
+    testMode &&
+    generateBtn &&
+    openLibraryBtn &&
+    closeLibraryBtn &&
+    outputView &&
+    libraryView &&
+    librarySearch &&
+    libraryList &&
+    favoriteBtn &&
+    copyBtn &&
+    downloadPdfBtn &&
+    output
+  ) {
   // -------------------------
   // Presets
   // -------------------------
@@ -3815,6 +3852,9 @@ setStatus("Done");
     });
   }
 
+
+  }
+
   // ✅ Load subscription cache ASAP so UI doesn’t flash “unknown”
   loadCachedSubStatus(60_000);
 
@@ -3826,4 +3866,5 @@ setStatus("Done");
 } catch (err: any) {
   console.error("❌ main.ts crashed:", err);
   alert(String(err?.message || err));
+}
 }
