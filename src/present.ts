@@ -3653,4 +3653,6 @@ async function boot() {
   }
 }
 
-boot()
+document.addEventListener("DOMContentLoaded", () => {
+  boot();
+});
