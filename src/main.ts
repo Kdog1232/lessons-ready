@@ -1955,7 +1955,7 @@ try {
 } catch {
   return await signUp(email, pw);
 }
-
+}
 // -------------------------
 // ✅ Subscription state (cached) FIXED (no duplicate types, caches raw status)
 // -------------------------
