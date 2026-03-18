@@ -2,19 +2,7 @@ const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
 const LS_SESSION_KEY = "lr_supabase_session_v1"; // legacy auth session key for optional Supabase calls
 const LS_PRESENT_NOTES_KEY = "lr_present_notes_open_v1";
-const LR_CURRENT_LESSON_KEY = "lr_current_lesson";
 const LIVE_JOIN_BASE = `${window.location.origin}/join.html`;
-
-const saved = localStorage.getItem(LR_CURRENT_LESSON_KEY);
-let savedLesson: (LessonRow & { slide_definitions?: any[]; id?: string }) | null = null;
-
-if (saved) {
-  try {
-    savedLesson = JSON.parse(saved) as LessonRow & { slide_definitions?: any[]; id?: string };
-  } catch (error) {
-    console.error("Failed to parse saved lesson", error);
-  }
-}
 
 type SlideType =
   | "objective_lock"
