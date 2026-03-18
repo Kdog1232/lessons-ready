@@ -6,6 +6,7 @@ import { resolveCanonicalStandard } from "./save-lesson";
 // ✅ CONFIG
 // -------------------------
 const path = window.location.pathname;
+<<<<<<< codex/fix-multiple-issues-in-main.ts-3i9guy
 
 // ✅ ONLY presenter if explicitly present page
 const isPresenterPage =
@@ -21,6 +22,13 @@ const isGeneratorPage =
 console.log("PATH:", path);
 console.log("isPresenterPage:", isPresenterPage);
 console.log("isGeneratorPage:", isGeneratorPage);
+=======
+const isGeneratorPage =
+  path === "/" ||
+  path.includes("index");
+
+const isPresenterPage = path.includes("present");
+>>>>>>> main
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 
 // ✅ Lesson generation (keep as-is)
@@ -2206,7 +2214,13 @@ async function openPortal(
 // -------------------------
 // App
 // -------------------------
+<<<<<<< codex/fix-multiple-issues-in-main.ts-3i9guy
 function initGenerator() {
+=======
+if (isPresenterPage) {
+  console.log("🎥 Presenter page detected — skipping generator init");
+} else {
+>>>>>>> main
 try {
   // Views
   const landingView = getElOpt<HTMLElement>("landingView");
@@ -2533,8 +2547,13 @@ function clearMessage() {
 }
 
  function setView(isLoggedIn: boolean) {
-  if (landingView) setDisplay(landingView, "none");
-  if (appView) setDisplay(appView, "block");
+  if (landingView) {
+    setDisplay(landingView, isLoggedIn ? "none" : "block");
+  }
+
+  if (appView) {
+    setDisplay(appView, isLoggedIn ? "block" : "none");
+  }
 
   if (isLoggedIn) {
     document.body.classList.add("logged-in");
@@ -2608,8 +2627,10 @@ function showLibrary(show: boolean) {
     favoriteBtn.disabled = !loggedIn || !lastLessonId;
   }
 
+   setView(loggedIn); // ✅ THIS IS KEY
   // billing UI is async (status call)
   refreshBillingUI(false).catch(() => {});
+   
 }
 
   if (isGeneratorPage) {
@@ -2687,6 +2708,8 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
   setCachedSubStatus("unknown", "unknown");
   enforceModeAccess();
   refreshAuthUI();
+    
+  setView(false);
 }
 
   addOnce(logOutBtn, "logout", doLogout);
@@ -3876,6 +3899,7 @@ setStatus("Done");
   alert(String(err?.message || err));
 }
 }
+<<<<<<< codex/fix-multiple-issues-in-main.ts-3i9guy
 
 if (isPresenterPage) {
   console.log("🎥 Presenter page detected — skipping generator init");
@@ -3886,3 +3910,5 @@ if (isPresenterPage) {
   console.log("⚠️ Unknown route — defaulting to generator");
   initGenerator();
 }
+=======
+>>>>>>> main
