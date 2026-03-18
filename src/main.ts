@@ -2516,29 +2516,36 @@ qsStandard?.addEventListener("change", () => {
   // UI helpers
   // -------------------------
   function setStatus(text: string) {
-    statusPill.textContent = text;
-  }
+  if (!statusPill) return;
+  statusPill.textContent = text;
+}
 
-  function activeMessageEl(): HTMLElement {
-    const appIsVisible =
-  appView && window.getComputedStyle(appView).display !== "none";
-    if (appIsVisible && messageApp) return messageApp;
-    return message;
-  }
+  function activeMessageEl(): HTMLElement | null {
+  const appIsVisible = appView ? appView.style.display !== "none" : false;
 
-  function showMessage(html: string, ok = true) {
-    const target = activeMessageEl();
-    target.innerHTML = `<div class="${ok ? "ok" : "error"}">${html}</div>`;
-  }
+  if (appIsVisible && messageApp) return messageApp;
+  if (message) return message;
 
-  function clearMessage() {
-    message.innerHTML = "";
-    if (messageApp) messageApp.innerHTML = "";
-  }
+  return null; // ✅ prevents crash
+}
+
+ function showMessage(html: string, ok = true) {
+  const target = activeMessageEl();
+
+  if (!target) return; // ✅ prevents crash
+
+  target.innerHTML = `<div class="${ok ? "ok" : "error"}">${html}</div>`;
+}
+
+function clearMessage() {
+  if (message) message.innerHTML = "";
+  if (messageApp) messageApp.innerHTML = "";
+}
 
   function setMeta(text: string) {
-    metaLineEl.textContent = text;
-  }
+  if (!metaLineEl) return;
+  metaLineEl.textContent = text;
+}
 
  function setView(isLoggedIn: boolean) {
   if (landingView) setDisplay(landingView, "none");
