@@ -6,21 +6,11 @@ import { resolveCanonicalStandard } from "./save-lesson";
 // ✅ CONFIG
 // -------------------------
 const path = window.location.pathname;
-
-// ✅ ONLY presenter if explicitly present page
-const isPresenterPage =
-  path === "/present.html" ||
-  path.startsWith("/present");
-
-// ✅ ONLY generator if root or index
 const isGeneratorPage =
   path === "/" ||
-  path === "/index.html";
+  path.includes("index");
 
-// 🔍 Debug log
-console.log("PATH:", path);
-console.log("isPresenterPage:", isPresenterPage);
-console.log("isGeneratorPage:", isGeneratorPage);
+const isPresenterPage = path.includes("present");
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 
 // ✅ Lesson generation (keep as-is)
@@ -2206,7 +2196,9 @@ async function openPortal(
 // -------------------------
 // App
 // -------------------------
-function initGenerator() {
+if (isPresenterPage) {
+  console.log("🎥 Presenter page detected — skipping generator init");
+} else {
 try {
   // Views
   const landingView = getElOpt<HTMLElement>("landingView");
@@ -2533,8 +2525,13 @@ function clearMessage() {
 }
 
  function setView(isLoggedIn: boolean) {
-  if (landingView) setDisplay(landingView, "none");
-  if (appView) setDisplay(appView, "block");
+  if (landingView) {
+    setDisplay(landingView, isLoggedIn ? "none" : "block");
+  }
+
+  if (appView) {
+    setDisplay(appView, isLoggedIn ? "block" : "none");
+  }
 
   if (isLoggedIn) {
     document.body.classList.add("logged-in");
@@ -2608,8 +2605,10 @@ function showLibrary(show: boolean) {
     favoriteBtn.disabled = !loggedIn || !lastLessonId;
   }
 
+   setView(loggedIn); // ✅ THIS IS KEY
   // billing UI is async (status call)
   refreshBillingUI(false).catch(() => {});
+   
 }
 
   if (isGeneratorPage) {
@@ -2687,6 +2686,8 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
   setCachedSubStatus("unknown", "unknown");
   enforceModeAccess();
   refreshAuthUI();
+    
+  setView(false);
 }
 
   addOnce(logOutBtn, "logout", doLogout);
@@ -3875,14 +3876,4 @@ setStatus("Done");
   console.error("❌ main.ts crashed:", err);
   alert(String(err?.message || err));
 }
-}
-
-if (isPresenterPage) {
-  console.log("🎥 Presenter page detected — skipping generator init");
-} else if (isGeneratorPage) {
-  console.log("🧠 Generator page detected — initializing...");
-  initGenerator();
-} else {
-  console.log("⚠️ Unknown route — defaulting to generator");
-  initGenerator();
 }
