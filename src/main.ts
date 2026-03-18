@@ -659,14 +659,11 @@ function getPortalReturnUrl() {
   return window.location.origin + window.location.pathname;
 }
 
-/** Prevent duplicate listeners when refreshAuthUI runs */
 function addOnce(el: HTMLElement | null, key: string, fn: () => void) {
   if (!el) return;
-  const anyEl = el as any;
-  anyEl.__lr_listeners = anyEl.__lr_listeners || {};
-  if (anyEl.__lr_listeners[key]) return;
-  anyEl.__lr_listeners[key] = true;
-  el.addEventListener("click", fn);
+
+  el.removeEventListener("click", fn); // remove old if exists
+  el.addEventListener("click", fn);    // always attach fresh
 }
 
 /**
