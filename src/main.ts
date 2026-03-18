@@ -2208,38 +2208,6 @@ const authStatusPill = getElOpt<HTMLElement>("authStatusPill");
 const message = getElOpt<HTMLElement>("message");
 const messageApp = getElOpt<HTMLElement>("message_app");
 
-// -------------------------
-// Safe Event Listeners
-// -------------------------
-signUpBtn?.addEventListener("click", () => {
-  const email = authEmail?.value?.trim();
-  const password = authPassword?.value?.trim();
-
-  if (!email || !password) return;
-
-  console.log("Sign up:", email);
-});
-
-logInBtn?.addEventListener("click", () => {
-  const email = authEmail?.value?.trim();
-  const password = authPassword?.value?.trim();
-
-  if (!email || !password) return;
-
-  console.log("Log in:", email);
-});
-
-logOutBtn?.addEventListener("click", () => {
-  console.log("Log out");
-});
-
-forgotPwBtn?.addEventListener("click", () => {
-  const email = authEmail?.value?.trim();
-  if (!email) return;
-
-  console.log("Reset password for:", email);
-});
-
   // Billing + top buttons (SAFE)
 const billingBtnSubscribe = getElOpt<HTMLButtonElement>("billingBtn_subscribe");
 const billingBtn = getElOpt<HTMLButtonElement>("billingBtn");
