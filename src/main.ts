@@ -2515,8 +2515,13 @@ function clearMessage() {
 }
 
  function setView(isLoggedIn: boolean) {
-  if (landingView) setDisplay(landingView, "none");
-  if (appView) setDisplay(appView, "block");
+  if (landingView) {
+    setDisplay(landingView, isLoggedIn ? "none" : "block");
+  }
+
+  if (appView) {
+    setDisplay(appView, isLoggedIn ? "block" : "none");
+  }
 
   if (isLoggedIn) {
     document.body.classList.add("logged-in");
