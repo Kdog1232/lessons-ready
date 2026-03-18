@@ -2595,8 +2595,10 @@ function clearMessage() {
     favoriteBtn.disabled = !loggedIn || !lastLessonId;
   }
 
+   setView(loggedIn); // ✅ THIS IS KEY
   // billing UI is async (status call)
   refreshBillingUI(false).catch(() => {});
+   
 }
 
   refreshPublisherUI();
