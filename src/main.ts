@@ -2665,6 +2665,8 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
   setCachedSubStatus("unknown", "unknown");
   enforceModeAccess();
   refreshAuthUI();
+    
+  setView(false);
 }
 
   addOnce(logOutBtn, "logout", doLogout);
