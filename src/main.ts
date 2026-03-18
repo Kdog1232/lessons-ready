@@ -2593,33 +2593,40 @@ function clearMessage() {
   // Main app billing button
   setDisplay(billingBtnApp, loggedIn ? "inline-block" : "none");
 
-  if (billingBtnApp) {
-    billingBtnApp.textContent = isSubscribed()
-      ? "Manage Subscription"
-      : "Subscribe";
-  }
+ if (billingBtnApp) {
+  billingBtnApp.textContent = isSubscribed()
+    ? "Manage Subscription"
+    : "Subscribe";
+}
 
   // Always hide duplicate
   setDisplay(billingBtnApp2, "none");
 }
-  function refreshAuthUI() {
-    const s = getSavedSession();
-    const loggedIn = Boolean(s?.access_token);
+ function refreshAuthUI() {
+  const s = getSavedSession();
+  const loggedIn = Boolean(s?.access_token);
 
+  // ✅ SAFE
+  if (authStatusPill) {
     authStatusPill.textContent = loggedIn
       ? `Logged in: ${s?.user?.email || s?.user?.id}`
       : "Not logged in";
-
-  setDisplay(signUpBtn, loggedIn ? "none" : "inline-block");
-setDisplay(logInBtn, loggedIn ? "none" : "inline-block");
-setDisplay(forgotPwBtn, loggedIn ? "none" : "inline-block");
-setDisplay(logOutBtn, loggedIn ? "inline-block" : "none");
-    setView(loggedIn);
-    favoriteBtn.disabled = !loggedIn || !lastLessonId;
-
-    // billing UI is async (status call)
-    refreshBillingUI(false).catch(() => {});
   }
+
+  // ✅ SAFE (already good)
+  setDisplay(signUpBtn, loggedIn ? "none" : "inline-block");
+  setDisplay(logInBtn, loggedIn ? "none" : "inline-block");
+  setDisplay(forgotPwBtn, loggedIn ? "none" : "inline-block");
+  setDisplay(logOutBtn, loggedIn ? "inline-block" : "none");
+
+  // ✅ SAFE
+  if (favoriteBtn) {
+    favoriteBtn.disabled = !loggedIn || !lastLessonId;
+  }
+
+  // billing UI is async (status call)
+  refreshBillingUI(false).catch(() => {});
+}
 
   refreshPublisherUI();
   publisher?.addEventListener("change", refreshPublisherUI);
@@ -2633,9 +2640,10 @@ setDisplay(logOutBtn, loggedIn ? "inline-block" : "none");
   addOnce(signUpBtn, "signup", async () => {
     try {
       clearMessage();
-      const email = authEmail.value.trim();
-      const pw = authPassword.value.trim();
-      if (!email || !pw) return showMessage("Enter email + password.", false);
+      const email = authEmail?.value?.trim();
+const pw = authPassword?.value?.trim();
+
+if (!email || !pw) return showMessage("Enter email + password.", false);
 
       await signUp(email, pw);
       showMessage("Account created ✅ Logged in.", true);
