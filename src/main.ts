@@ -104,8 +104,11 @@ function esc(s: any) {
 }
 
 (window as any).openPresentMode = function (lessonId: string) {
-  if (!lessonId) return;
-  window.location.href = `/present.html?id=${encodeURIComponent(lessonId)}`;
+  if (!lessonId) {
+    window.location.href = "/present.html";
+    return;
+  }
+  window.location.href = `/present.html?lessonId=${encodeURIComponent(lessonId)}`;
 };
 
 function extractSectionBlocksFromPlainText(text: string) {
@@ -3692,10 +3695,6 @@ Include:
       // ✅ Show Feedback Garage after output renders
       setDisplay(garage, "block");
 
-      const slideDefs = buildSlideDefinitionsFromLesson(lessonText, lessonSections, {
-        eb: ebSupport ? !!ebSupport.checked : true,
-        sped: spedSupport ? !!spedSupport.checked : true,
-      });
       const lessonModeForRow = resolveLessonModeFromPublisher(pub);
       
  // 🔹 CANONICAL RESOLUTION (STRICT MATCH)
@@ -3738,7 +3737,7 @@ const row = {
         lesson_text: lessonText || "(empty)",
         lesson_html: output.innerHTML || null,
         structured_sections: lessonSections || null,
-        slide_definitions: slideDefs,
+        slide_definitions: undefined,
         lesson_mode: lessonModeForRow,
         is_favorite: false,
       };
@@ -3759,7 +3758,7 @@ const row = {
 
         console.warn("lessons insert fallback (missing slide columns):", {
           lesson_mode: lessonModeForRow,
-          slide_count: Array.isArray(slideDefs) ? slideDefs.length : 0,
+          slide_count: 0,
         });
 
         const fallbackRow = {
@@ -3776,6 +3775,14 @@ const row = {
       }
 
       const saved = Array.isArray(inserted) ? inserted[0] : inserted;
+      localStorage.setItem(
+        "lr_current_lesson",
+        JSON.stringify({
+          ...row,
+          ...(saved || {}),
+          slide_definitions: undefined,
+        }),
+      );
       lastLessonId = saved?.id || null;
       lastLessonFavorite = false;
 
