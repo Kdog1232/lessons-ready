@@ -50,13 +50,14 @@ body {
   padding: 60px 80px;
   padding-bottom: 196px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   scrollbar-gutter: stable;
 }
 
 .slide-content {
   max-width: 900px;
+  width: 100%;
   line-height: 1.4;
   word-wrap: break-word;
   overflow-wrap: anywhere;
@@ -74,7 +75,9 @@ body {
   animation: slideFade 280ms ease;
   transition: opacity 200ms ease, transform 200ms ease;
   will-change: transform, opacity;
-  overflow: hidden;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .slide::before {
