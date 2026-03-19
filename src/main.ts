@@ -3456,14 +3456,9 @@ const row = {
       }
 
       const saved = Array.isArray(inserted) ? inserted[0] : inserted;
-      localStorage.setItem(
-        "lr_current_lesson",
-        JSON.stringify({
-          ...row,
-          ...(saved || {}),
-          slide_definitions: undefined,
-        }),
-      );
+      localStorage.setItem("lr_current_lesson", JSON.stringify({
+        slide_definitions: slideDefs,
+      }));
       lastLessonId = saved?.id || null;
       lastLessonFavorite = false;
 
