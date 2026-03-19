@@ -104,8 +104,11 @@ function esc(s: any) {
 }
 
 (window as any).openPresentMode = function (lessonId: string) {
-  if (!lessonId) return;
-  window.location.href = `/present.html?id=${encodeURIComponent(lessonId)}`;
+  if (!lessonId) {
+    window.location.href = "/present.html";
+    return;
+  }
+  window.location.href = `/present.html?lessonId=${encodeURIComponent(lessonId)}`;
 };
 
 function extractSectionBlocksFromPlainText(text: string) {
@@ -3776,6 +3779,14 @@ const row = {
       }
 
       const saved = Array.isArray(inserted) ? inserted[0] : inserted;
+      localStorage.setItem(
+        "lr_current_lesson",
+        JSON.stringify({
+          ...row,
+          ...(saved || {}),
+          slide_definitions: slideDefs,
+        }),
+      );
       lastLessonId = saved?.id || null;
       lastLessonFavorite = false;
 
