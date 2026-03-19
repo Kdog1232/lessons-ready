@@ -104,8 +104,11 @@ function esc(s: any) {
 }
 
 (window as any).openPresentMode = function (lessonId: string) {
-  if (!lessonId) return;
-  window.location.href = `/present.html?id=${encodeURIComponent(lessonId)}`;
+  if (!lessonId) {
+    window.location.href = "/present.html";
+    return;
+  }
+  window.location.href = `/present.html?lessonId=${encodeURIComponent(lessonId)}`;
 };
 
 function extractSectionBlocksFromPlainText(text: string) {
@@ -128,325 +131,6 @@ function extractSectionBlocksFromPlainText(text: string) {
   return out;
 }
 
-type PresentSlideDefinition = {
-  type: "headline" | "split" | "question" | "writing" | "energy" | "discussion";
-  heading: string;
-  subtext?: string;
-  items?: string[];
-  question?: string;
-  prompt?: string;
-  section?: string;
-  notes?: string;
-  durationSeconds?: number;
-  teacherCue?: string;
-};
-
-type StructuredLessonSections = {
-  objective?: string;
-  successCriteria?: string[];
-  vocab?: string[];
-  cfu?: { tier1?: string; tier2?: string; tier3?: string };
-  modeling?: string;
-  guided?: string;
-  independent?: string;
-  exit?: string;
-  rubric?: string;
-  reteach?: string;
-  misconceptions?: string[];
-};
-
-type SlideSupportOptions = {
-  eb: boolean;
-  sped: boolean;
-};
-
-function resolveLessonModeFromPublisher(publisher: string): "bluebonnet" | "amplify" | "generic" {
-  const p = String(publisher || "").toLowerCase();
-  if (p.includes("bluebonnet")) return "bluebonnet";
-  if (p.includes("amplify")) return "amplify";
-  return "generic";
-}
-
-function buildSlideDefinitionsFromLesson(plainText: string, structuredSections?: StructuredLessonSections, supportOptions?: Partial<SlideSupportOptions>): PresentSlideDefinition[] {
-  const text = String(plainText || "").replaceAll("\r\n", "\n");
-  const blocks = extractSectionBlocksFromPlainText(text);
-  const findBlock = (...patterns: RegExp[]) =>
-    blocks.find((b) => patterns.some((p) => p.test(b.heading.toLowerCase())));
-  const blockLines = (block?: { heading: string; lines: string[] }) =>
-    (block?.lines || []).map((line) => line.trim()).filter(Boolean);
-  const firstMeaningfulLine = (lines: string[]) =>
-    lines.find((line) => line && !/^[-•]/.test(line) && !/^tier\s*\d+/i.test(line));
-  const bulletItems = (lines: string[], limit = 4) =>
-    lines
-      .map((line) => line.replace(/^[-•]\s*/, "").replace(/^\d+[\).]\s*/, "").trim())
-      .filter(Boolean)
-      .slice(0, limit);
-
-  const defs: PresentSlideDefinition[] = [];
-  const normalizedSections = (structuredSections && typeof structuredSections === "object") ? structuredSections : {};
-  const sectionObjective = String(normalizedSections.objective || "").trim();
-  const sectionSuccess = Array.isArray(normalizedSections.successCriteria) ? normalizedSections.successCriteria.map((x) => String(x || "").trim()).filter(Boolean) : [];
-  const sectionVocab = Array.isArray(normalizedSections.vocab) ? normalizedSections.vocab.map((x) => String(x || "").trim()).filter(Boolean) : [];
-  const sectionModeling = String(normalizedSections.modeling || "").trim();
-  const sectionGuided = String(normalizedSections.guided || "").trim();
-  const sectionIndependent = String(normalizedSections.independent || "").trim();
-  const sectionExit = String(normalizedSections.exit || "").trim();
-  const sectionCfu = [normalizedSections.cfu?.tier1, normalizedSections.cfu?.tier2, normalizedSections.cfu?.tier3]
-    .map((x) => String(x || "").trim())
-    .filter(Boolean);
-
-  const supports: SlideSupportOptions = {
-    eb: supportOptions?.eb !== false,
-    sped: supportOptions?.sped !== false,
-  };
-  const withEbStem = (text: string, stem: string) => supports.eb ? `${text} • Sentence stem: ${stem}` : text;
-  const withSpedChunk = (text: string, chunk: string) => supports.sped ? `${text} • Steps: ${chunk}` : text;
-
-  const addEnergy = (heading: string, subtext: string, section: string, cue: string, durationSeconds = 30) => {
-    defs.push({
-      type: "energy",
-      heading,
-      subtext,
-      section,
-      notes: "Use this transition to reset class attention and pacing.",
-      durationSeconds,
-      teacherCue: cue,
-    });
-  };
-
-  const objectiveBlock = findBlock(/objective|i can/);
-  const objectiveText = sectionObjective || firstMeaningfulLine(blockLines(objectiveBlock)) || "Students will demonstrate the target skill with evidence.";
-  const questionLines = text
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => /^\d+[\).]\s+/.test(l) && /\?$/.test(l))
-    .slice(0, 8);
-  const hookQuestion = questionLines[0]?.replace(/^\d+[\).]\s+/, "").trim() || "What big idea should we prove by the end of class?";
-  const inferenceQuestion = questionLines[1]?.replace(/^\d+[\).]\s+/, "").trim() || "If a character faces fear, what message might the author be building?";
-  const likelyTopic = (objectiveText.match(/theme|courage|fear|friendship|perseverance|kindness/i)?.[0] || "friendship").toLowerCase();
-  const incompleteEvidence = sectionModeling || "She walked into the dark forest even though her hands were shaking.";
-
-  addEnergy("🔥 TODAY'S MISSION", "One goal. One focus. One strong lesson.", "Launch", "Open with confidence and name today's mission in one sentence.");
-
-  defs.push({
-    type: "question",
-    heading: "THEME OR JUST A TOPIC?",
-    question: `Is "${likelyTopic}" a theme or just a topic?`,
-    prompt: withEbStem("No answer yet. Turn and argue.", "I agree/disagree because ___."),
-    section: "Provocation",
-    notes: "Create productive tension before students read.",
-    durationSeconds: 75,
-    teacherCue: withSpedChunk("Push students to justify their side.", "Think 15 sec → turn-and-talk → 2 share-outs."),
-  });
-
-  defs.push({
-    type: "question",
-    heading: "Prediction Pressure",
-    question: inferenceQuestion.slice(0, 220),
-    prompt: withEbStem("Predict now, then hunt for proof while reading.", "The author might be saying ___ because ___."),
-    section: "Pre-Reading",
-    notes: "Set a reading mission before students open the text.",
-    durationSeconds: 75,
-    teacherCue: "Collect 2 predictions and post them for verification later.",
-  });
-
-  defs.push({
-    type: "question",
-    heading: "Incomplete Evidence",
-    question: incompleteEvidence.slice(0, 220),
-    prompt: withEbStem("Does this prove courage or just action? Defend your choice.", "This proves ___ because line ___ shows ___."),
-    section: "Pre-Reading",
-    notes: "Students analyze evidence quality before full reading.",
-    durationSeconds: 90,
-    teacherCue: "Ask: Which exact words in the line support your claim?",
-  });
-
-  defs.push({
-    type: "discussion",
-    heading: "Debate Setup",
-    prompt: withEbStem("Agree or disagree: A theme must be clearly stated in the text.", "I agree/disagree because ___."),
-    section: "Pre-Reading",
-    notes: "Create intellectual posture before the story begins.",
-    durationSeconds: 90,
-    teacherCue: "Move students to a side and cold call both positions.",
-  });
-
-  defs.push({
-    type: "headline",
-    heading: "Objective",
-    subtext: objectiveText.slice(0, 220),
-    section: "Objective",
-    notes: "Now anchor the mission with explicit lesson target.",
-    durationSeconds: 75,
-    teacherCue: "Link objective to the debate: 'Today we prove, not guess.'",
-  });
-
-  addEnergy("🎯 WHAT SUCCESS LOOKS LIKE", "Build quality before students begin.", "Success Setup", "Tell students they will prove learning with evidence, not guesses.");
-
-  const successBlock = findBlock(/success criteria/);
-  const successItems = sectionSuccess.length ? sectionSuccess.slice(0, 5) : bulletItems(blockLines(successBlock), 5);
-  for (const [idx, item] of successItems.entries()) {
-    defs.push({
-      type: "headline",
-      heading: `Success Move ${idx + 1}`,
-      subtext: item.slice(0, 220),
-      section: "Success Criteria",
-      notes: "Keep one thought per slide so students focus on this move only.",
-      durationSeconds: 60,
-      teacherCue: "Ask: 'Show me what this would look like in a strong response.'",
-    });
-  }
-
-  addEnergy("🧠 LET'S THINK", "Predict first, then prove it.", "Engagement", "Give 20 seconds silent think time before partner talk.");
-
-  defs.push({
-    type: "question",
-    heading: "Concept Hook",
-    question: hookQuestion,
-    prompt: withEbStem("Turn and talk: share one answer and one reason.", "I think ___ because ___."),
-    section: "Engagement",
-    notes: "Activate prior knowledge before explicit instruction.",
-    durationSeconds: 75,
-    teacherCue: withSpedChunk("Cold call two students and ask each for their proof.", "Think 15 sec → partner share → whole-class response."),
-  });
-
-  addEnergy("📚 POWER WORDS", "Say it. Use it. Own it.", "Vocabulary", "Choral read each term, then require one term in the next response.");
-  const vocabBlock = findBlock(/academic vocabulary|vocabulary|frontloading/);
-  const vocabItems = sectionVocab.length ? sectionVocab.slice(0, 4) : bulletItems(blockLines(vocabBlock));
-  for (const term of vocabItems) {
-    defs.push({
-      type: "headline",
-      heading: "Power Word",
-      subtext: term.slice(0, 220),
-      section: "Vocabulary",
-      notes: "One vocabulary focus per moment improves retention.",
-      durationSeconds: 45,
-      teacherCue: withEbStem("Ask students to use the word in a sentence with evidence language.", "The author shows ___ when ___."),
-    });
-  }
-
-  const cfuBlock = findBlock(/cfu ladder|checks? for understanding|cfu/);
-  const cfuItems = sectionCfu.length ? sectionCfu.slice(0, 3) : bulletItems(blockLines(cfuBlock), 3);
-  const cfuPrompts = [
-    "Tier 1 checks recall and baseline understanding.",
-    "Tier 2 requires evidence and reasoning debate.",
-    "Tier 3 pushes transfer: create your own example.",
-  ];
-  if (cfuItems[0]) {
-    addEnergy("⚡ QUICK CHECK", "Tier 1: Show what you know.", "CFU Tier 1", "Pause after first answer and ask: 'Where is your proof?'", 25);
-    defs.push({
-      type: "question",
-      heading: "CFU Tier 1",
-      question: cfuItems[0].slice(0, 220),
-      prompt: cfuPrompts[0],
-      section: "Checks for Understanding",
-      notes: "Keep pace tight and verify whole-class readiness.",
-      durationSeconds: 75,
-      teacherCue: withSpedChunk("No-opt-out if needed; expect concise responses.", "Step 1 identify idea, Step 2 state proof."),
-    });
-  }
-
-  addEnergy("👀 WATCH ME", "Model the thinking, not just the answer.", "Modeling", "Narrate the decision-making process explicitly.");
-  const modelingBlock = findBlock(/modeling|mini-lesson|i do/);
-  const modelingText = sectionModeling || firstMeaningfulLine(blockLines(modelingBlock));
-  if (modelingText) {
-    defs.push({
-      type: "question",
-      heading: "Modeling Move",
-      question: modelingText.slice(0, 220),
-      prompt: "Listen for claim → evidence → reasoning in sequence.",
-      section: "I Do",
-      notes: "Think-aloud and annotate your reasoning path.",
-      durationSeconds: 180,
-      teacherCue: "Pause midway and ask students to predict the next reasoning step.",
-    });
-  }
-
-  if (cfuItems[1]) {
-    addEnergy("🗣️ EVIDENCE DEBATE", "Tier 2: Defend your evidence.", "CFU Tier 2", "Push students to justify why one piece of evidence is stronger.", 25);
-    defs.push({
-      type: "discussion",
-      heading: "CFU Tier 2",
-      prompt: cfuItems[1].slice(0, 220),
-      section: "Checks for Understanding",
-      notes: "Students compare and defend evidence quality.",
-      durationSeconds: 90,
-      teacherCue: "Ask: 'Which line proves it best, and why not the other one?'",
-    });
-  }
-
-  addEnergy("🤝 YOUR TURN", "Now practice with support.", "Guided Practice", "Set 60-second partner rehearsal before share-out.");
-  const guidedBlock = findBlock(/guided practice|we do|collaborative practice/);
-  const guidedPrompt = sectionGuided || firstMeaningfulLine(blockLines(guidedBlock));
-  if (guidedPrompt) {
-    defs.push({
-      type: "discussion",
-      heading: "Guided Practice",
-      prompt: withEbStem(guidedPrompt.slice(0, 220), "I claim ___ and the text says ___."),
-      section: "We Do",
-      notes: "Coach students to refine answers with evidence language.",
-      durationSeconds: 180,
-      teacherCue: withSpedChunk("Circulate and prompt with: 'What text detail proves your claim?'", "Whisper rehearse → say to partner → write."),
-    });
-  }
-
-  if (cfuItems[2]) {
-    addEnergy("🚀 PROVE IT", "Tier 3: Create and transfer.", "CFU Tier 3", "Require original example creation, then peer response.", 25);
-    defs.push({
-      type: "writing",
-      heading: "CFU Tier 3 Transfer",
-      subtext: cfuItems[2].slice(0, 220),
-      section: "Checks for Understanding",
-      notes: "Students create an original example and justify it.",
-      durationSeconds: 120,
-      teacherCue: "Ask peers to respond using one agreement or challenge stem.",
-    });
-  }
-
-  addEnergy("🤫 NOW IT'S QUIET", "Independent thinking time.", "Independent Practice", "Set timer, reduce talk, and conference strategically.");
-  const independentBlock = findBlock(/independent practice|you do/);
-  const independentPrompt = sectionIndependent || firstMeaningfulLine(blockLines(independentBlock));
-  defs.push({
-    type: "writing",
-    heading: "Independent Practice",
-    subtext: withSpedChunk(withEbStem((independentPrompt || "Write a complete response using claim, evidence, and reasoning.").slice(0, 220), "The theme is ___ because line ___ says ___."), "Option A paragraph, Option B sentence frame + evidence line."),
-    section: "You Do",
-    notes: "Students produce independent written evidence of mastery.",
-    durationSeconds: 240,
-    teacherCue: "Conference with 2-3 target students and check for explicit evidence.",
-  });
-
-  // Keep question-driven practice as optional reinforcement if present.
-  for (const [idx, line] of questionLines.slice(1, 4).entries()) {
-    defs.push({
-      type: "question",
-      heading: `Practice Check ${idx + 1}`,
-      question: line.replace(/^\d+[\).]\s+/, "").trim().slice(0, 220),
-      prompt: withEbStem("Answer in one claim + one evidence sentence.", "I claim ___ because ___."),
-      section: "Practice",
-      notes: "Use as quick checks to calibrate class readiness.",
-      durationSeconds: 90,
-      teacherCue: "Call on a student and ask them to cite the exact line.",
-    });
-  }
-
-  addEnergy("✅ FINAL CHECK", "Show what you learned.", "Exit Ticket", "Give one minute of silent planning before writing.");
-  const exitBlock = findBlock(/exit ticket|closure/);
-  const exitPrompt = sectionExit || firstMeaningfulLine(blockLines(exitBlock)) || "Summarize the key learning in 2–3 sentences.";
-  defs.push({
-    type: "writing",
-    heading: "Exit Prompt",
-    subtext: withEbStem(exitPrompt.slice(0, 220), "Today the author teaches ___ because ___."),
-    section: "Exit Ticket",
-    notes: "Use exit data to group reteach and extension next lesson.",
-    durationSeconds: 120,
-    teacherCue: "Collect, sort quickly, and name tomorrow's reteach focus.",
-  });
-
-  return defs;
-}
-
-
 function resolveEngagementTemplate(skillFocus: string, subjectValue: string): "neutral" | "sports" | "gaming" | "real-world" | "holiday" {
   const text = `${skillFocus || ""} ${subjectValue || ""}`.toLowerCase();
   if (/(football|basketball|soccer|sports|athlete)/.test(text)) return "sports";
@@ -462,6 +146,12 @@ function resolveLessonMode(plainText: string): "bluebonnet" | "amplify" | "gener
   if (t.includes("bluebonnet")) return "bluebonnet";
   if (t.includes("amplify")) return "amplify";
   return "generic";
+}
+
+function resolveLessonModeFromPublisher(publisher: string): "standard" {
+  if (!publisher) return "standard";
+  if (publisher.toLowerCase().includes("bluebonnet")) return "standard";
+  return "standard";
 }
 
 function toLessonExportPayload(opts: {
@@ -3692,10 +3382,6 @@ Include:
       // ✅ Show Feedback Garage after output renders
       setDisplay(garage, "block");
 
-      const slideDefs = buildSlideDefinitionsFromLesson(lessonText, lessonSections, {
-        eb: ebSupport ? !!ebSupport.checked : true,
-        sped: spedSupport ? !!spedSupport.checked : true,
-      });
       const lessonModeForRow = resolveLessonModeFromPublisher(pub);
       
  // 🔹 CANONICAL RESOLUTION (STRICT MATCH)
@@ -3738,7 +3424,7 @@ const row = {
         lesson_text: lessonText || "(empty)",
         lesson_html: output.innerHTML || null,
         structured_sections: lessonSections || null,
-        slide_definitions: slideDefs,
+        slide_definitions: undefined,
         lesson_mode: lessonModeForRow,
         is_favorite: false,
       };
@@ -3759,7 +3445,7 @@ const row = {
 
         console.warn("lessons insert fallback (missing slide columns):", {
           lesson_mode: lessonModeForRow,
-          slide_count: Array.isArray(slideDefs) ? slideDefs.length : 0,
+          slide_count: 0,
         });
 
         const fallbackRow = {
@@ -3776,6 +3462,14 @@ const row = {
       }
 
       const saved = Array.isArray(inserted) ? inserted[0] : inserted;
+      localStorage.setItem(
+        "lr_current_lesson",
+        JSON.stringify({
+          ...row,
+          ...(saved || {}),
+          slide_definitions: undefined,
+        }),
+      );
       lastLessonId = saved?.id || null;
       lastLessonFavorite = false;
 
