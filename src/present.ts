@@ -1,27 +1,12 @@
 console.log("🔥 NEW BUILD LOADED");
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
-const LR_CURRENT_LESSON_KEY = "lr_current_lesson";
 const LS_SESSION_KEY = "lr_supabase_session_v1"; // legacy auth session key for optional Supabase calls
 const LS_PRESENT_NOTES_KEY = "lr_present_notes_open_v1";
 const LIVE_JOIN_BASE = `${window.location.origin}/join.html`;
+const LR_CURRENT_LESSON_KEY = "lr_current_lesson"
 
-function getSavedLessonSafe(): (LessonRow & { slide_definitions?: any[]; slides?: any[]; questions?: any[]; id?: string }) | null {
-  try {
-    const raw = localStorage.getItem("lr_current_lesson");
-    if (!raw) {
-      console.warn("⚠️ No saved lesson found in localStorage");
-      return null;
-    }
-
-    const storedLesson = JSON.parse(raw) as LessonRow & { slide_definitions?: any[]; slides?: any[]; questions?: any[]; id?: string };
-    console.log("✅ Loaded saved lesson from localStorage:", storedLesson);
-    return storedLesson;
-  } catch (e) {
-    console.error("❌ Failed to parse saved lesson:", e);
-    return null;
-  }
-}
+let savedLesson: (LessonRow & { slide_definitions?: any[]; id?: string }) | null = null;
 
 let prefetchedLessonRow: LessonRow | null = null;
 
@@ -566,30 +551,6 @@ function normalizeInjectedItems(items: string[]): string[] {
     .slice(0, 5);
 }
 
-function isValidQuestion(q: any) {
-  return (
-    q &&
-    typeof q.question === "string" &&
-    Array.isArray(q.choices) &&
-    q.choices.length === 4 &&
-    typeof q.correctIndex === "number"
-  );
-}
-
-function buildQuestionSlide(q: any): SlideDefinition {
-  return {
-    type: "question",
-    stageType: "guided_dok_ladder",
-    heading: "STAAR Check",
-    question: trimInjectedText(String(q.question || "Practice Question"), 180),
-    answerChoices: normalizeInjectedItems((q.choices || []).slice(0, 4)),
-    correctIndex: Number.isInteger(q.correctIndex) ? Number(q.correctIndex) : 0,
-    prompt: trimInjectedText(cleanText(String(q.prompt || "")), 180),
-    section: "Assessment",
-    durationSeconds: 150,
-  };
-}
-
 
 function parseQuestionBlock(rawQuestion: string): { question: string; choices: string[] } {
   const lines = String(rawQuestion || "")
@@ -647,17 +608,10 @@ function applyLessonTextToDeck(deck: SlideDefinition[], lessonText?: string): Sl
 
   for (let i = 0; i < parsed.questions.length && i < questionIndexes.length; i += 1) {
     const deckIndex = questionIndexes[i];
-    const parsedQuestion = parsed.questions[i].question
-      ? {
-          question: trimInjectedText(String(parsed.questions[i].question || "Practice Question"), 180),
-          choices: normalizeInjectedItems((parsed.questions[i].choices || []).slice(0, 4)),
-          correctIndex: Number.isInteger(parsed.questions[i].correctIndex) ? Number(parsed.questions[i].correctIndex) : undefined,
-        }
-      : parseQuestionBlock(parsed.questions[i].raw);
+    const parsedQuestion = parseQuestionBlock(parsed.questions[i].raw);
     const current = next[deckIndex];
     current.question = parsedQuestion.question;
     current.answerChoices = parsedQuestion.choices;
-    current.correctIndex = parsedQuestion.correctIndex;
     current.prompt = shortPassage ? trimInjectedText(shortPassage, 180) : current.prompt;
   }
   return next;
@@ -2280,7 +2234,8 @@ async function loadLesson(lessonId: string): Promise<LessonRow | null> {
 
   const lesson = await fetchLessonRow(lessonId, headers);
   if (lesson) {
-    localStorage.setItem("lr_current_lesson", JSON.stringify(lesson));
+    localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(lesson));
+    savedLesson = lesson as LessonRow & { slide_definitions?: any[]; id?: string };
   }
   return lesson;
 }
@@ -2301,7 +2256,7 @@ async function fetchGeneratedLessonRow(payload: GenerateLessonPayload, headers: 
 
 async function loadSlides(incomingSlides: any[] = []) {
   const params = new URLSearchParams(window.location.search);
-  const lessonId = getLessonId();
+  const lessonId = String(params.get("lessonId") || params.get("id") || "").trim();
   lessonIdGlobal = lessonId;
 
   if (incomingSlides.length > 0) {
@@ -2315,7 +2270,7 @@ async function loadSlides(incomingSlides: any[] = []) {
     return;
   }
 
-  let row: LessonRow | null = getSavedLessonSafe() as LessonRow | null;
+  let row: LessonRow | null = savedLesson as LessonRow | null;
 
   const token = getSavedToken();
   const headers: Record<string, string> = {
@@ -2331,7 +2286,8 @@ async function loadSlides(incomingSlides: any[] = []) {
     try {
       row = await fetchLessonRow(lessonId, headers);
       if (row) {
-        localStorage.setItem("lr_current_lesson", JSON.stringify(row));
+        localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(row));
+        savedLesson = row as LessonRow & { slide_definitions?: any[]; id?: string };
       }
     } catch (e: any) {
       lessonLookupError = String(e?.message || e || "");
@@ -2341,7 +2297,8 @@ async function loadSlides(incomingSlides: any[] = []) {
           headers.Authorization = `Bearer ${refreshedToken}`;
           row = await fetchLessonRow(lessonId, headers);
           if (row) {
-            localStorage.setItem("lr_current_lesson", JSON.stringify(row));
+            localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(row));
+            savedLesson = row as LessonRow & { slide_definitions?: any[]; id?: string };
           }
           lessonLookupError = "";
         } else {
@@ -2389,6 +2346,20 @@ async function loadSlides(incomingSlides: any[] = []) {
   currentSkillType = skillType;
   applyPresentationTheme();
 
+  const storedSlideDefinitions = Array.isArray((row as LessonRow & { slide_definitions?: unknown }).slide_definitions)
+    ? ((row as LessonRow & { slide_definitions?: SlideDefinition[] }).slide_definitions || []).map(cloneSlide)
+    : [];
+
+  if (storedSlideDefinitions.length > 0) {
+    currentExecutionConfig = null;
+    renderSkillPanel();
+    renderAlignmentProof(row);
+    baseSlides = storedSlideDefinitions;
+    normalizeSlidesForSettings();
+    currentIndex = 0;
+    return;
+  }
+
   const selectedMode = String(params.get("instruction_mode") || "core").toLowerCase();
   const skillPlaybook = await fetchSkillPlaybook(skillType, headers);
   const instructionMode = await fetchInstructionMode(selectedMode, headers);
@@ -2404,15 +2375,34 @@ async function loadSlides(incomingSlides: any[] = []) {
   renderSkillPanel();
   renderAlignmentProof(row);
 
-  baseSlides = buildSkillLockedDeck(
-    skillType,
-    tekDescription,
-    dok,
-    grade,
-    verb,
-    priority,
-    executionConfig,
-  ).map(cloneSlide);
+  {
+    const lockedTemplateSlides = buildSkillLockedDeck(
+      skillType,
+      tekDescription,
+      dok,
+      grade,
+      verb,
+      priority,
+      executionConfig,
+    );
+    baseSlides = lockedTemplateSlides.map(cloneSlide);
+
+baseSlides = enforceSkillLock(baseSlides, skillType);
+
+baseSlides.unshift(buildBrandedSplashSlide(
+  tekDescription,
+  grade,
+  priority,
+  dok
+));
+
+
+// Inject lesson content LAST
+if (row.lesson_text) {
+
+  const parsed = parseLessonTextBlocks(row.lesson_text);
+
+  console.log("Parsed lesson text:", parsed);
 
   baseSlides = enforceSkillLock(baseSlides, skillType);
   baseSlides.unshift(buildBrandedSplashSlide(
@@ -2423,40 +2413,33 @@ async function loadSlides(incomingSlides: any[] = []) {
   ));
 
   if (row.lesson_text) {
-    const parsedLesson = parseLessonTextBlocks(row.lesson_text);
     baseSlides = applyLessonTextToDeck(baseSlides, row.lesson_text);
-
-    if (parsedLesson.questions.length > 0) {
-      const validQuestions = parsedLesson.questions
-        .map((question) => {
-          if (question.question) {
-            return {
-              question: question.question,
-              choices: question.choices || [],
-              correctIndex: question.correctIndex,
-              prompt: parsedLesson.passage,
-            };
-          }
-
-          const parsedQuestion = parseQuestionBlock(question.raw);
-          return {
-            question: parsedQuestion.question,
-            choices: parsedQuestion.choices,
-            correctIndex: Number.isInteger(question.correctIndex) ? Number(question.correctIndex) : 0,
-            prompt: parsedLesson.passage,
-          };
-        })
-        .filter(isValidQuestion);
-
-      const questionSlides = validQuestions.slice(0, 2).map(buildQuestionSlide);
-      baseSlides.splice(2, 0, ...questionSlides);
-    }
   }
 
   const assessmentExists = baseSlides.some((slide) => slide.type === "question");
   if (!assessmentExists) {
     const mc = generateSkillAlignedMCQ(skillType);
     const insertIndex = resolveAssessmentInsertIndex(baseSlides);
+
+    baseSlides.splice(insertIndex, 0, {
+      type: "question",
+      stageType: "guided_dok_ladder",
+      heading: "Check for Understanding",
+      question: mc.question,
+      answerChoices: mc.answerChoices,
+      correctIndex: mc.correctIndex,
+      section: "Assessment",
+      durationSeconds: 150,
+    });
+  }
+
+}
+
+}
+
+const assessmentExists = baseSlides.some(slide => slide.type === "question");
+
+if (!assessmentExists) {
 
     baseSlides.splice(insertIndex, 0, {
       type: "question",
@@ -3743,42 +3726,12 @@ function bindKeys() {
 
 async function boot() {
   console.log("🚀 boot starting");
-
   const lessonId = getLessonId();
   console.log("lessonId:", lessonId);
-
-  const storedLesson = getSavedLessonSafe();
-
-  if (!storedLesson && !lessonId) {
-    const container = document.getElementById("slide-container");
-    if (container) {
-      container.innerHTML = `
-        <div class="slide slide-content">
-          <h2>No lesson found</h2>
-          <p>Go generate a lesson first.</p>
-        </div>
-      `;
-    }
-    return;
-  }
-
-  let lesson: any = null;
-
-  if (lessonId) {
-    lesson = await loadLesson(lessonId);
-  } else if (storedLesson) {
-    lesson = storedLesson;
-  }
-
-  if (!lesson) {
-    console.error("❌ No lesson available");
-    return;
-  }
-
+  const lesson = lessonId ? await loadLesson(lessonId) : savedLesson;
   prefetchedLessonRow = lesson as LessonRow | null;
-  const lessonSlides = lesson.slides || lesson.questions || lesson.slide_definitions || [];
-  console.log("lesson:", lesson);
-  console.log("slides:", lessonSlides);
+  console.log("lesson from DB:", lesson);
+  console.log("slides:", (lesson as { slides?: unknown; slide_definitions?: unknown } | null)?.slides || (lesson as { slide_definitions?: unknown } | null)?.slide_definitions);
 
   slideContainerEl = document.getElementById("slide-container") as HTMLElement | null;
   if (slideContainerEl) {
@@ -3790,7 +3743,9 @@ async function boot() {
   }
 
   try {
-    await loadSlides();
+    if (slides.length === 0) {
+      await loadSlides(savedLesson?.slide_definitions || []);
+    }
     bindControls();
     bindKeys();
     refreshDockVisibility();
