@@ -1,7 +1,7 @@
 // ✅ FILE: src/main.ts (COPY/PASTE THIS WHOLE FILE)
 console.log("✅ src/main.ts loaded");
 import { generateDefaultSkillFocus } from "./utils/skillFocus";
-import { resolveCanonicalStandard } from "./save-lesson";
+import { resolveCanonicalStandard } from "./save-lessons";
 // -------------------------
 // ✅ CONFIG
 // -------------------------
