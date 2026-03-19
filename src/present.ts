@@ -1,8 +1,29 @@
+console.log("🔥 NEW BUILD LOADED");
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
-const LS_SESSION_KEY = "lr_supabase_session_v1";
+const LR_CURRENT_LESSON_KEY = "lr_current_lesson";
+const LS_SESSION_KEY = "lr_supabase_session_v1"; // legacy auth session key for optional Supabase calls
 const LS_PRESENT_NOTES_KEY = "lr_present_notes_open_v1";
-const LIVE_JOIN_BASE = `${window.location.origin}/join`;
+const LIVE_JOIN_BASE = `${window.location.origin}/join.html`;
+
+function getSavedLessonSafe(): (LessonRow & { slide_definitions?: any[]; slides?: any[]; questions?: any[]; id?: string }) | null {
+  try {
+    const raw = localStorage.getItem("lr_current_lesson");
+    if (!raw) {
+      console.warn("⚠️ No saved lesson found in localStorage");
+      return null;
+    }
+
+    const storedLesson = JSON.parse(raw) as LessonRow & { slide_definitions?: any[]; slides?: any[]; questions?: any[]; id?: string };
+    console.log("✅ Loaded saved lesson from localStorage:", storedLesson);
+    return storedLesson;
+  } catch (e) {
+    console.error("❌ Failed to parse saved lesson:", e);
+    return null;
+  }
+}
+
+let prefetchedLessonRow: LessonRow | null = null;
 
 type SlideType =
   | "objective_lock"
@@ -174,7 +195,7 @@ type ExecutionConfig = {
 };
 
 let baseSlides: SlideDefinition[] = [];
-let slides: SlideDefinition[] = [];
+let slides: any[] = [];
 let currentIndex = 0;
 let lessonIdGlobal = "";
 let lessonMode: "bluebonnet" | "amplify" | "generic" = "generic";
@@ -496,28 +517,90 @@ correctIndex: 1
 `;
 
 console.log("TEST PARSER RESULT:", parseLessonTextBlocks(TEST_LESSON));
+
+function buildPassageBullets(passage: string): string[] {
+  return String(passage || "")
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => cleanText(part))
+    .filter(Boolean)
+    .slice(0, 5)
+    .map((part) => trimInjectedText(part, 120));
+}
+
+function trimInjectedText(text: string, max = 120): string {
+  return text.length > max ? `${text.slice(0, max).trimEnd()}...` : text;
+}
+
+function normalizeInjectedItems(items: string[]): string[] {
+  return items
+    .map((item) => cleanText(item))
+    .filter(Boolean)
+    .map((item) => trimInjectedText(item, 120))
+    .slice(0, 5);
+}
+
+
+function parseQuestionBlock(rawQuestion: string): { question: string; choices: string[] } {
+  const lines = String(rawQuestion || "")
+    .split("\n")
+    .map((line) => cleanText(line))
+    .filter(Boolean);
+
+  const questionLine =
+    lines.find((line) => /^question\s*:/i.test(line)) ||
+    lines.find((line) => /\?$/.test(line)) ||
+    lines[0] ||
+    "Practice Question";
+
+  const question = trimInjectedText(questionLine.replace(/^question\s*:/i, "").trim() || "Practice Question", 180);
+  const choices = lines
+    .filter((line) => /^[A-D][).:]/i.test(line))
+    .map((line) => line.replace(/^[A-D][).:]\s*/i, "").trim())
+    .filter(Boolean)
+    .map((choice) => trimInjectedText(choice, 90))
+    .slice(0, 4);
+
+  return { question, choices };
+}
+
 function applyLessonTextToDeck(deck: SlideDefinition[], lessonText?: string): SlideDefinition[] {
   console.log("Applying lesson text to deck:", lessonText);
   const parsed = parseLessonTextBlocks(String(lessonText || ""));
   if (!parsed.passage && !parsed.questions.length) return deck;
 
   const next = deck.map(cloneSlide);
+  const passageBullets = buildPassageBullets(parsed.passage);
+  const shortPassage = trimInjectedText(cleanText(parsed.passage), 220);
+
+  next.forEach((slide) => {
+    if (slide.type === "question") return;
+
+    if (!String(slide.subtext || "").trim() && shortPassage) {
+      slide.subtext = trimInjectedText(shortPassage, 220);
+    }
+
+    if ((!slide.items || slide.items.length === 0) && passageBullets.length > 0) {
+      slide.items = normalizeInjectedItems(passageBullets);
+    }
+  });
+
   const questionIndexes = next
-  .map((slide, idx) => ({ slide, idx }))
-  .filter(({ slide }) =>
-    slide.type === "question" ||
-    slide.stageType === "guided_dok_ladder" ||
-    slide.section === "Guided" ||
-    slide.section === "Assessment"
-  )
-  .map(({ idx }) => idx);
+    .map((slide, idx) => ({ slide, idx }))
+    .filter(({ slide }) =>
+      slide.type === "question" ||
+      slide.stageType === "guided_dok_ladder" ||
+      slide.section === "Guided" ||
+      slide.section === "Assessment"
+    )
+    .map(({ idx }) => idx);
 
   for (let i = 0; i < parsed.questions.length && i < questionIndexes.length; i += 1) {
     const deckIndex = questionIndexes[i];
-    const parsedQuestion = parsed.questions[i];
+    const parsedQuestion = parseQuestionBlock(parsed.questions[i].raw);
     const current = next[deckIndex];
-    current.question = parsedQuestion.raw
-    current.answerChoices = []
+    current.question = parsedQuestion.question;
+    current.answerChoices = parsedQuestion.choices;
+    current.prompt = shortPassage ? trimInjectedText(shortPassage, 180) : current.prompt;
   }
   return next;
 }
@@ -2013,8 +2096,8 @@ async function logPresentationEvent(slideIndex: number, stageType?: SlideType) {
         stage_type: stageType || null,
       }),
     });
-  } catch {
-    // intentionally silent
+  } catch (e) {
+    console.warn("Skipping presentation save:", e);
   }
 }
 
@@ -2122,6 +2205,28 @@ function coerceLessonRow(input: unknown): LessonRow | null {
   return row;
 }
 
+function getLessonId(): string {
+  const params = new URLSearchParams(window.location.search);
+  return String(params.get("lessonId") || params.get("id") || "").trim();
+}
+
+async function loadLesson(lessonId: string): Promise<LessonRow | null> {
+  if (!lessonId) return null;
+
+  const token = getSavedToken();
+  const headers: Record<string, string> = {
+    apikey: SUPABASE_ANON_KEY,
+    "Content-Type": "application/json",
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const lesson = await fetchLessonRow(lessonId, headers);
+  if (lesson) {
+    localStorage.setItem("lr_current_lesson", JSON.stringify(lesson));
+  }
+  return lesson;
+}
+
 async function fetchGeneratedLessonRow(payload: GenerateLessonPayload, headers: Record<string, string>): Promise<LessonRow | null> {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/generate-lesson`, {
     method: "POST",
@@ -2136,11 +2241,23 @@ async function fetchGeneratedLessonRow(payload: GenerateLessonPayload, headers: 
   return nested;
 }
 
-async function loadSlides() {
+async function loadSlides(incomingSlides: any[] = []) {
   const params = new URLSearchParams(window.location.search);
-  const lessonId = String(params.get("id") || "").trim();
+  const lessonId = getLessonId();
   lessonIdGlobal = lessonId;
-  assertSupabaseConfigured();
+
+  if (incomingSlides.length > 0) {
+    baseSlides = incomingSlides.map(cloneSlide);
+    slides = incomingSlides;
+    if (!lessonIdGlobal) {
+      lessonIdGlobal = "local_storage_lesson";
+    }
+    normalizeSlidesForSettings();
+    currentIndex = 0;
+    return;
+  }
+
+  let row: LessonRow | null = getSavedLessonSafe() as LessonRow | null;
 
   const token = getSavedToken();
   const headers: Record<string, string> = {
@@ -2149,11 +2266,15 @@ async function loadSlides() {
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  let row: LessonRow | null = null;
   let lessonLookupError = "";
-  if (lessonId) {
+  if (lessonId && prefetchedLessonRow) {
+    row = prefetchedLessonRow;
+  } else if (lessonId) {
     try {
       row = await fetchLessonRow(lessonId, headers);
+      if (row) {
+        localStorage.setItem("lr_current_lesson", JSON.stringify(row));
+      }
     } catch (e: any) {
       lessonLookupError = String(e?.message || e || "");
       if (lessonLookupError === "SESSION_EXPIRED") {
@@ -2161,6 +2282,9 @@ async function loadSlides() {
         if (refreshedToken) {
           headers.Authorization = `Bearer ${refreshedToken}`;
           row = await fetchLessonRow(lessonId, headers);
+          if (row) {
+            localStorage.setItem("lr_current_lesson", JSON.stringify(row));
+          }
           lessonLookupError = "";
         } else {
           setSavedSession(null);
@@ -2171,6 +2295,7 @@ async function loadSlides() {
   }
 
   if (!row) {
+    assertSupabaseConfigured();
     const payload = buildGenerateLessonPayload(params);
     if (!payload) {
       const fallbackHint = lessonLookupError ? ` Lesson lookup failed: ${lessonLookupError}` : "";
@@ -2221,7 +2346,7 @@ async function loadSlides() {
   renderSkillPanel();
   renderAlignmentProof(row);
 
-  const lockedTemplateSlides = buildSkillLockedDeck(
+  baseSlides = buildSkillLockedDeck(
     skillType,
     tekDescription,
     dok,
@@ -2229,74 +2354,44 @@ async function loadSlides() {
     verb,
     priority,
     executionConfig,
-  );
-  baseSlides = lockedTemplateSlides.map(cloneSlide);
+  ).map(cloneSlide);
 
-baseSlides = enforceSkillLock(baseSlides, skillType);
+  baseSlides = enforceSkillLock(baseSlides, skillType);
+  baseSlides.unshift(buildBrandedSplashSlide(
+    tekDescription,
+    grade,
+    priority,
+    dok,
+  ));
 
-baseSlides.unshift(buildBrandedSplashSlide(
-  tekDescription,
-  grade,
-  priority,
-  dok
-));
-
-
-// Inject lesson content LAST
-if (row.lesson_text) {
-
-  const parsed = parseLessonTextBlocks(row.lesson_text);
-
-  console.log("Parsed lesson text:", parsed);
-
-  // Fill template slides first
-  baseSlides = applyLessonTextToDeck(baseSlides, row.lesson_text);
-
-  // Add AI questions as additional slides
-  if (parsed.questions && parsed.questions.length > 0) {
-
-    parsed.questions.forEach(q => {
-
-      baseSlides.push({
-        type: "question",
-        stageType: "guided_dok_ladder",
-        heading: "Practice Question",
-        question: q.raw || "Practice Question",
-        prompt: parsed.passage || "",
-        answerChoices: [],
-        correctIndex: 0,
-        section: "Practice",
-        durationSeconds: 150
-      });
-
-    });
-
+  if (row.lesson_text) {
+    baseSlides = applyLessonTextToDeck(baseSlides, row.lesson_text);
   }
 
-}
+  const assessmentExists = baseSlides.some((slide) => slide.type === "question");
+  if (!assessmentExists) {
+    const mc = generateSkillAlignedMCQ(skillType);
+    const insertIndex = resolveAssessmentInsertIndex(baseSlides);
 
-const assessmentExists = baseSlides.some(slide => slide.type === "question");
+    baseSlides.splice(insertIndex, 0, {
+      type: "question",
+      stageType: "guided_dok_ladder",
+      heading: "Check for Understanding",
+      question: mc.question,
+      answerChoices: mc.answerChoices,
+      correctIndex: mc.correctIndex,
+      section: "Assessment",
+      durationSeconds: 150,
+    });
+  }
 
-if (!assessmentExists) {
-
-  const mc = generateSkillAlignedMCQ(skillType);
-  const dokLevel = normalizeDok(dok);
-  const insertIndex = resolveAssessmentInsertIndex(baseSlides);
-
-  baseSlides.splice(insertIndex, 0, {
-    type: "question",
-    stageType: "guided_dok_ladder",
-    heading: "Check for Understanding",
-    question: mc.question,
-    answerChoices: mc.answerChoices,
-    correctIndex: mc.correctIndex,
-    section: "Assessment",
-    durationSeconds: 150
-  });
-}
-normalizeSlidesForSettings();
-currentIndex = 0;
-renderSlide();
+  baseSlides = buildSlidesFinal(baseSlides);
+  normalizeSlidesForSettings();
+  slides = baseSlides;
+  currentIndex = 0;
+  console.log("✅ Playbook-driven slides:", slides);
+  console.log("🎯 FINAL SLIDES:", slides.map((s) => s.stageType));
+  return;
 }
 function buildBrandedSplashSlide(
   tekDescription: string,
@@ -2979,7 +3074,7 @@ function renderMultipleChoice(
   const choicesClean = cleanItems(choicesRaw);
   const choices = choicesClean.length
     ? `<ul class="mcChoices answers fade-in" style="animation-delay:0.25s">${choicesClean
-        .map((c, i) => `<li class="mcChoice answer${revealStep > 0 && i === slide.correctIndex ? " mcChoice--correct correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
+        .map((c, i) => `<li class="mcChoice answer${i === slide.correctIndex ? " mcChoice--correct correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
         .join("")}</ul>`
     : "";
 
@@ -3001,19 +3096,6 @@ function renderMultipleChoice(
       ${coachLine}${alignment}
     </div>
   `;
-}
-
-function adjustSlideText() {
-  const slide = document.querySelector(".slide-content") as HTMLElement | null;
-  if (!slide) return;
-
-  let fontSize = 48;
-  slide.style.fontSize = `${fontSize}px`;
-
-  while (slide.scrollHeight > slide.clientHeight && fontSize > 24) {
-    fontSize -= 2;
-    slide.style.fontSize = `${fontSize}px`;
-  }
 }
 
 function adjustSlideText() {
@@ -3098,7 +3180,7 @@ function buildRenderedSlideHtml(
   }
 
   if (slide.type === "split") {
-    const items = limitItems(cleanItems(slide.items || []), 4);
+    const items = limitItems(cleanItems(slide.items || []), 5);
     const visibleCount = revealStep > 0 ? Math.min(revealStep, items.length) : Math.min(1, items.length);
     return `
       <div class="slide slide-content ${layoutClass} slide--split${extraClass}">
@@ -3165,7 +3247,10 @@ function buildRenderedSlideHtml(
 function renderSlide() {
   const slide = slides[currentIndex];
   const container = slideContainerEl;
-  if (!container) return;
+  if (!container) {
+    console.error("❌ slide-container not found");
+    return;
+  }
   const counter = document.getElementById("slide-counter");
   const notesPanel = document.getElementById("teacher-notes");
 
@@ -3232,7 +3317,7 @@ function renderSlide() {
     const choices =
       slide.answerChoices && slide.answerChoices.length
         ? `<ul class="mcChoices">${slide.answerChoices
-            .map((c, i) => `<li class="mcChoice${revealStep > 0 && i === slide.correctIndex ? " mcChoice--correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
+            .map((c, i) => `<li class="mcChoice${i === slide.correctIndex ? " mcChoice--correct correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
             .join("")}</ul>`
         : "";
 
@@ -3293,6 +3378,9 @@ function renderSlide() {
   const renderedSlide = container.querySelector(".slide") as HTMLElement | null;
   if (renderedSlide) {
     renderedSlide.classList.add("slide-enter");
+    if ((slide.items || []).length >= 5) {
+      renderedSlide.classList.add("dense");
+    }
     requestAnimationFrame(() => {
       renderedSlide.classList.add("slide-enter-active");
     });
@@ -3567,6 +3655,44 @@ function bindKeys() {
 }
 
 async function boot() {
+  console.log("🚀 boot starting");
+
+  const lessonId = getLessonId();
+  console.log("lessonId:", lessonId);
+
+  const storedLesson = getSavedLessonSafe();
+
+  if (!storedLesson && !lessonId) {
+    const container = document.getElementById("slide-container");
+    if (container) {
+      container.innerHTML = `
+        <div class="slide slide-content">
+          <h2>No lesson found</h2>
+          <p>Go generate a lesson first.</p>
+        </div>
+      `;
+    }
+    return;
+  }
+
+  let lesson: any = null;
+
+  if (lessonId) {
+    lesson = await loadLesson(lessonId);
+  } else if (storedLesson) {
+    lesson = storedLesson;
+  }
+
+  if (!lesson) {
+    console.error("❌ No lesson available");
+    return;
+  }
+
+  prefetchedLessonRow = lesson as LessonRow | null;
+  const lessonSlides = lesson.slides || lesson.questions || lesson.slide_definitions || [];
+  console.log("lesson:", lesson);
+  console.log("slides:", lessonSlides);
+
   slideContainerEl = document.getElementById("slide-container") as HTMLElement | null;
   if (slideContainerEl) {
     slideContainerEl.innerHTML = `
@@ -3585,9 +3711,11 @@ async function boot() {
   } catch (e: any) {
     const container = document.getElementById("slide-container");
     if (container) {
-      container.innerHTML = `<div class="slide slide-content"><h2>Present mode unavailable</h2><p>${escHtml(e?.message || e)}</p></div>`;
+      container.innerHTML = `<div class="slide slide-content"><h2>Loading lesson...</h2><p>${escHtml(e?.message || e)}</p></div>`;
     }
   }
 }
 
-boot()
+document.addEventListener("DOMContentLoaded", () => {
+  boot();
+});
