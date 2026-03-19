@@ -45,17 +45,19 @@ body {
 #slide-container {
   height: calc(100vh - 96px);
   overflow-y: auto;
-  padding: var(--space-5);
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  padding: 60px 80px;
   padding-bottom: 196px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding-top: clamp(var(--space-4), 6vh, 72px);
   scrollbar-gutter: stable;
 }
 
 .slide-content {
   max-width: 900px;
+  width: 100%;
   line-height: 1.4;
   word-wrap: break-word;
   overflow-wrap: anywhere;
@@ -73,7 +75,9 @@ body {
   animation: slideFade 280ms ease;
   transition: opacity 200ms ease, transform 200ms ease;
   will-change: transform, opacity;
-  overflow: hidden;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .slide::before {
@@ -141,6 +145,7 @@ body {
 .slide-enter {
   opacity: 0;
   transform: translateY(20px) scale(0.98);
+  animation: fadeUp 0.4s ease;
 }
 
 .slide-enter-active {
@@ -176,7 +181,7 @@ body {
    TYPOGRAPHY
 ========================= */
 .slide h1 {
-  font-size: clamp(36px, 5vw, 56px);
+  font-size: clamp(48px, 6vw, 68px);
   margin: 0 0 12px;
   line-height: 1.08;
   font-weight: 800;
@@ -205,7 +210,7 @@ body {
 }
 
 .slide p {
-  font-size: clamp(26px, 2.8vw, 32px);
+  font-size: clamp(20px, 2.2vw, 24px);
   margin: 0 0 var(--space-2);
   line-height: 1.45;
 }
@@ -213,10 +218,17 @@ body {
 .slideSubtext {
   margin: 0 0 var(--space-3) !important;
   color: #cbd5e1;
+  font-size: clamp(20px, 2.1vw, 24px) !important;
+  line-height: 1.5;
+}
+
+.slidePassage {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .promptPrimary {
-  font-size: clamp(34px, 4vw, 48px) !important;
+  font-size: clamp(36px, 4.4vw, 52px) !important;
   font-weight: 800;
   margin-bottom: var(--space-3) !important;
 }
@@ -233,11 +245,12 @@ body {
 /* =========================
    LIST ITEMS
 ========================= */
-ul { list-style: none; padding: 0; margin: 0; }
+ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
 
 li {
-  font-size: clamp(28px, 3vw, 36px);
-  margin: 0 0 var(--space-2);
+  font-size: 20px;
+  line-height: 1.4;
+  margin: 0;
   padding: var(--space-3) var(--space-4);
   border-left: 5px solid var(--present-accent, #38bdf8);
   background: rgba(30, 41, 59, 0.65);
@@ -248,6 +261,19 @@ li {
 li:hover {
   transform: translateX(6px);
   background: rgba(56,189,248,0.15);
+}
+
+
+.layout-question {
+  text-align: center;
+}
+
+.layout-question ul {
+  justify-items: center;
+}
+
+.dense li {
+  font-size: 18px;
 }
 
 /* =========================
@@ -428,8 +454,19 @@ button:active {
 }
 
 #slide-counter {
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 110px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(148,163,184,0.35);
+  background: rgba(15, 23, 42, 0.72);
+  font-weight: 900;
+  font-size: 18px;
   color: #e2e8f0;
+  letter-spacing: 0.05em;
 }
 
 .footerHints {
@@ -576,6 +613,19 @@ button:active {
   margin-bottom: 10px;
 }
 
+
+.question-container {
+  max-width: 900px;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.question-text {
+  font-size: 32px;
+  font-weight: 600;
+  margin-bottom: 24px;
+}
+
 .answers,
 .mcChoices {
   margin-top: 14px;
@@ -606,7 +656,8 @@ button:active {
 
 .answer.correct,
 .mcChoice--correct {
-  background: rgba(34,197,94,0.2);
+  border: 2px solid #22c55e;
+  background: rgba(34,197,94,0.1);
   border-color: #22c55e;
   box-shadow: 0 0 18px rgba(34,197,94,0.35);
   font-weight: 700;
@@ -1186,7 +1237,7 @@ button:active {
   <div class="panel" id="dock-notes-panel"></div>
 </div>
 
-<script type="module" src="/src/main.ts"></script>
+<script type="module" src="/src/present.ts"></script>
 
 </body>
 </html>
