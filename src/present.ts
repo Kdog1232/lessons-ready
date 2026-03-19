@@ -472,13 +472,40 @@ function parseLessonTextBlocks(lessonText: string) {
 
   if (!lessonText) return { passage: "", questions: [] };
 
+  const normalized = String(lessonText || "").trim();
+  const jsonMatch = normalized.match(/\{[\s\S]*\}/);
+  const jsonCandidate = jsonMatch ? jsonMatch[0] : normalized;
+
+  try {
+    const parsed = JSON.parse(jsonCandidate) as {
+      passage?: string;
+      questions?: Array<{ question?: string; choices?: string[]; correctIndex?: number }>;
+    };
+
+    if (parsed && (parsed.passage || Array.isArray(parsed.questions))) {
+      return {
+        passage: cleanText(String(parsed.passage || "")),
+        questions: Array.isArray(parsed.questions)
+          ? parsed.questions.map((question) => ({
+              raw: JSON.stringify(question),
+              question: cleanText(String(question?.question || "Practice Question")),
+              choices: Array.isArray(question?.choices) ? question.choices.map((choice) => cleanText(String(choice || ""))).filter(Boolean) : [],
+              correctIndex: Number.isInteger(question?.correctIndex) ? Number(question?.correctIndex) : undefined,
+            }))
+          : [],
+      };
+    }
+  } catch {
+    // fall through to text parsing
+  }
+
   const passageMatch =
-    lessonText.match(/PASSAGE:\s*([\s\S]*?)(?:QUESTION|$)/i);
+    normalized.match(/PASSAGE:\s*([\s\S]*?)(?:QUESTION|$)/i);
 
   const passage = passageMatch ? passageMatch[1].trim() : "";
 
   const questions =
-    lessonText.split(/QUESTION/i).slice(1).map(block => ({
+    normalized.split(/QUESTION/i).slice(1).map(block => ({
       raw: block.trim()
     }));
 
@@ -2414,24 +2441,25 @@ const assessmentExists = baseSlides.some(slide => slide.type === "question");
 
 if (!assessmentExists) {
 
-  const mc = generateSkillAlignedMCQ(skillType);
-  const dokLevel = normalizeDok(dok);
-  const insertIndex = resolveAssessmentInsertIndex(baseSlides);
+    baseSlides.splice(insertIndex, 0, {
+      type: "question",
+      stageType: "guided_dok_ladder",
+      heading: "Check for Understanding",
+      question: mc.question,
+      answerChoices: mc.answerChoices,
+      correctIndex: mc.correctIndex,
+      section: "Assessment",
+      durationSeconds: 150,
+    });
+  }
 
-  baseSlides.splice(insertIndex, 0, {
-    type: "question",
-    stageType: "guided_dok_ladder",
-    heading: "Check for Understanding",
-    question: mc.question,
-    answerChoices: mc.answerChoices,
-    correctIndex: mc.correctIndex,
-    section: "Assessment",
-    durationSeconds: 150
-  });
-}
-normalizeSlidesForSettings();
-currentIndex = 0;
-renderSlide();
+  baseSlides = buildSlidesFinal(baseSlides);
+  normalizeSlidesForSettings();
+  slides = baseSlides;
+  currentIndex = 0;
+  console.log("✅ Playbook-driven slides:", slides);
+  console.log("🎯 FINAL SLIDES:", slides.map((s) => s.stageType));
+  return;
 }
 function buildBrandedSplashSlide(
   tekDescription: string,
