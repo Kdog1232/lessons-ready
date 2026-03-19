@@ -502,28 +502,90 @@ correctIndex: 1
 `;
 
 console.log("TEST PARSER RESULT:", parseLessonTextBlocks(TEST_LESSON));
+
+function buildPassageBullets(passage: string): string[] {
+  return String(passage || "")
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => cleanText(part))
+    .filter(Boolean)
+    .slice(0, 5)
+    .map((part) => trimInjectedText(part, 120));
+}
+
+function trimInjectedText(text: string, max = 120): string {
+  return text.length > max ? `${text.slice(0, max).trimEnd()}...` : text;
+}
+
+function normalizeInjectedItems(items: string[]): string[] {
+  return items
+    .map((item) => cleanText(item))
+    .filter(Boolean)
+    .map((item) => trimInjectedText(item, 120))
+    .slice(0, 5);
+}
+
+
+function parseQuestionBlock(rawQuestion: string): { question: string; choices: string[] } {
+  const lines = String(rawQuestion || "")
+    .split("\n")
+    .map((line) => cleanText(line))
+    .filter(Boolean);
+
+  const questionLine =
+    lines.find((line) => /^question\s*:/i.test(line)) ||
+    lines.find((line) => /\?$/.test(line)) ||
+    lines[0] ||
+    "Practice Question";
+
+  const question = trimInjectedText(questionLine.replace(/^question\s*:/i, "").trim() || "Practice Question", 180);
+  const choices = lines
+    .filter((line) => /^[A-D][).:]/i.test(line))
+    .map((line) => line.replace(/^[A-D][).:]\s*/i, "").trim())
+    .filter(Boolean)
+    .map((choice) => trimInjectedText(choice, 90))
+    .slice(0, 4);
+
+  return { question, choices };
+}
+
 function applyLessonTextToDeck(deck: SlideDefinition[], lessonText?: string): SlideDefinition[] {
   console.log("Applying lesson text to deck:", lessonText);
   const parsed = parseLessonTextBlocks(String(lessonText || ""));
   if (!parsed.passage && !parsed.questions.length) return deck;
 
   const next = deck.map(cloneSlide);
+  const passageBullets = buildPassageBullets(parsed.passage);
+  const shortPassage = trimInjectedText(cleanText(parsed.passage), 220);
+
+  next.forEach((slide) => {
+    if (slide.type === "question") return;
+
+    if (!String(slide.subtext || "").trim() && shortPassage) {
+      slide.subtext = trimInjectedText(shortPassage, 220);
+    }
+
+    if ((!slide.items || slide.items.length === 0) && passageBullets.length > 0) {
+      slide.items = normalizeInjectedItems(passageBullets);
+    }
+  });
+
   const questionIndexes = next
-  .map((slide, idx) => ({ slide, idx }))
-  .filter(({ slide }) =>
-    slide.type === "question" ||
-    slide.stageType === "guided_dok_ladder" ||
-    slide.section === "Guided" ||
-    slide.section === "Assessment"
-  )
-  .map(({ idx }) => idx);
+    .map((slide, idx) => ({ slide, idx }))
+    .filter(({ slide }) =>
+      slide.type === "question" ||
+      slide.stageType === "guided_dok_ladder" ||
+      slide.section === "Guided" ||
+      slide.section === "Assessment"
+    )
+    .map(({ idx }) => idx);
 
   for (let i = 0; i < parsed.questions.length && i < questionIndexes.length; i += 1) {
     const deckIndex = questionIndexes[i];
-    const parsedQuestion = parsed.questions[i];
+    const parsedQuestion = parseQuestionBlock(parsed.questions[i].raw);
     const current = next[deckIndex];
-    current.question = parsedQuestion.raw
-    current.answerChoices = []
+    current.question = parsedQuestion.question;
+    current.answerChoices = parsedQuestion.choices;
+    current.prompt = shortPassage ? trimInjectedText(shortPassage, 180) : current.prompt;
   }
   return next;
 }
@@ -2019,8 +2081,8 @@ async function logPresentationEvent(slideIndex: number, stageType?: SlideType) {
         stage_type: stageType || null,
       }),
     });
-  } catch {
-    // intentionally silent
+  } catch (e) {
+    console.warn("Skipping presentation save:", e);
   }
 }
 
@@ -2315,28 +2377,33 @@ if (row.lesson_text) {
 
   console.log("Parsed lesson text:", parsed);
 
-  // Fill template slides first
-  baseSlides = applyLessonTextToDeck(baseSlides, row.lesson_text);
+  baseSlides = enforceSkillLock(baseSlides, skillType);
+  baseSlides.unshift(buildBrandedSplashSlide(
+    tekDescription,
+    grade,
+    priority,
+    dok,
+  ));
 
-  // Add AI questions as additional slides
-  if (parsed.questions && parsed.questions.length > 0) {
+  if (row.lesson_text) {
+    baseSlides = applyLessonTextToDeck(baseSlides, row.lesson_text);
+  }
 
-    parsed.questions.forEach(q => {
+  const assessmentExists = baseSlides.some((slide) => slide.type === "question");
+  if (!assessmentExists) {
+    const mc = generateSkillAlignedMCQ(skillType);
+    const insertIndex = resolveAssessmentInsertIndex(baseSlides);
 
-      baseSlides.push({
-        type: "question",
-        stageType: "guided_dok_ladder",
-        heading: "Practice Question",
-        question: q.raw || "Practice Question",
-        prompt: parsed.passage || "",
-        answerChoices: [],
-        correctIndex: 0,
-        section: "Practice",
-        durationSeconds: 150
-      });
-
+    baseSlides.splice(insertIndex, 0, {
+      type: "question",
+      stageType: "guided_dok_ladder",
+      heading: "Check for Understanding",
+      question: mc.question,
+      answerChoices: mc.answerChoices,
+      correctIndex: mc.correctIndex,
+      section: "Assessment",
+      durationSeconds: 150,
     });
-
   }
 
 }
@@ -3047,7 +3114,7 @@ function renderMultipleChoice(
   const choicesClean = cleanItems(choicesRaw);
   const choices = choicesClean.length
     ? `<ul class="mcChoices answers fade-in" style="animation-delay:0.25s">${choicesClean
-        .map((c, i) => `<li class="mcChoice answer${revealStep > 0 && i === slide.correctIndex ? " mcChoice--correct correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
+        .map((c, i) => `<li class="mcChoice answer${i === slide.correctIndex ? " mcChoice--correct correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
         .join("")}</ul>`
     : "";
 
@@ -3153,7 +3220,7 @@ function buildRenderedSlideHtml(
   }
 
   if (slide.type === "split") {
-    const items = limitItems(cleanItems(slide.items || []), 4);
+    const items = limitItems(cleanItems(slide.items || []), 5);
     const visibleCount = revealStep > 0 ? Math.min(revealStep, items.length) : Math.min(1, items.length);
     return `
       <div class="slide slide-content ${layoutClass} slide--split${extraClass}">
@@ -3290,7 +3357,7 @@ function renderSlide() {
     const choices =
       slide.answerChoices && slide.answerChoices.length
         ? `<ul class="mcChoices">${slide.answerChoices
-            .map((c, i) => `<li class="mcChoice${revealStep > 0 && i === slide.correctIndex ? " mcChoice--correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
+            .map((c, i) => `<li class="mcChoice${i === slide.correctIndex ? " mcChoice--correct correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
             .join("")}</ul>`
         : "";
 
@@ -3351,6 +3418,9 @@ function renderSlide() {
   const renderedSlide = container.querySelector(".slide") as HTMLElement | null;
   if (renderedSlide) {
     renderedSlide.classList.add("slide-enter");
+    if ((slide.items || []).length >= 5) {
+      renderedSlide.classList.add("dense");
+    }
     requestAnimationFrame(() => {
       renderedSlide.classList.add("slide-enter-active");
     });
