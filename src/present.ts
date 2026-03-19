@@ -3155,13 +3155,14 @@ function renderMultipleChoice(
 
   return `
     <div class="slide slide-content ${layoutClass} slide--question${extraClass}">
-      ${stage}${coachingTag}<h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 80)) || "Question")}</h2>
-      <p class="promptPrimary fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.question || "")), 260))}</p>
-      <p class="fade-in" style="animation-delay:0.2s">${escHtml(limitText(cleanText(String(slide.prompt || "")), 220))}</p>
-      ${choices}
-      <div id="live-question-results" class="liveQuestionResults"></div>
-      ${rationale}
-      ${coachLine}${alignment}
+      <div class="question-container">
+        ${stage}${coachingTag}<h2 class="question-text fade-in" style="animation-delay:0.05s">${escHtml(limitText(cleanText(String(slide.question || "")), 260))}</h2>
+        <p class="slideSubtext fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.prompt || "")), 220))}</p>
+        ${choices}
+        <div id="live-question-results" class="liveQuestionResults"></div>
+        ${rationale}
+        ${coachLine}${alignment}
+      </div>
     </div>
   `;
 }
@@ -3398,12 +3399,13 @@ function renderSlide() {
 
     container.innerHTML = `
       <div class="slide slide-content slide--question${extraClass}">
-        ${stage}${coachingTag}<h2>${escHtml(slide.heading)}</h2>
-        <p class="promptPrimary">${escHtml(slide.question)}</p>
-        <p>${escHtml(slide.prompt)}</p>
-        ${choices}
-        ${rationale}
-        ${coachLine}${alignment}
+        <div class="question-container">
+          ${stage}${coachingTag}<h2 class="question-text">${escHtml(slide.question)}</h2>
+          <p class="slideSubtext">${escHtml(slide.prompt)}</p>
+          ${choices}
+          ${rationale}
+          ${coachLine}${alignment}
+        </div>
       </div>
     `;
   } else if (slide.type === "writing") {
