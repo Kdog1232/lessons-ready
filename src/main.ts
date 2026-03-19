@@ -39,6 +39,9 @@ const HARD_TIMEOUT_MS = 180000; // 3 minutes
 const STRIPE_PUBLISHABLE_KEY =
   "pk_live_51SuRvaQu6FSRjIW6zjcH0X7n0jmSi8fOB10P5Oe1c4ZYn5nV5dd7lMeGkQZ4u4mx7mfH5d01bAbqoP8nbs14TyqP00HzRaaPcz";
 
+function resolveLessonModeFromPublisher(publisher?: string) {
+  return "standard";
+}
 // -------------------------
 // Helpers
 // -------------------------
