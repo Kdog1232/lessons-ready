@@ -148,6 +148,12 @@ function resolveLessonMode(plainText: string): "bluebonnet" | "amplify" | "gener
   return "generic";
 }
 
+function resolveLessonModeFromPublisher(publisher: string): "standard" {
+  if (!publisher) return "standard";
+  if (publisher.toLowerCase().includes("bluebonnet")) return "standard";
+  return "standard";
+}
+
 function toLessonExportPayload(opts: {
   plainText: string;
   grade: string;
