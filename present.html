@@ -43,122 +43,69 @@ body {
    SLIDE LAYOUT
 ========================= */
 #slide-container {
-  height: 100vh;
-  overflow: hidden;
+  height: calc(100vh - 96px);
+  overflow-y: auto;
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  padding: 60px 80px;
+  padding-bottom: 196px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
-  padding-bottom: 180px;
+  scrollbar-gutter: stable;
 }
 
 .slide-content {
-  max-width: 720px;
-  margin: 0 auto;
+  max-width: 900px;
+  width: 100%;
   line-height: 1.4;
+  overflow-y: auto;
+  padding-right: 10px;
   word-wrap: break-word;
   overflow-wrap: anywhere;
-  max-height: 65vh;
-  overflow-y: auto;
-  padding-right: 6px;
-}
-
-.slide-content::-webkit-scrollbar {
-  width: 6px;
-}
-
-.slide-content::-webkit-scrollbar-thumb {
-  background: rgba(148,163,184,0.5);
-  border-radius: 6px;
 }
 
 .slide {
   position: relative;
   width: min(1040px, 100%);
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 22px;
+  padding: clamp(var(--space-4), 4vw, 40px);
+  box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+  animation: slideFade 280ms ease;
+  transition: opacity 200ms ease, transform 200ms ease;
+  will-change: transform, opacity;
   max-height: calc(100vh - 220px);
   overflow-y: auto;
-  padding: 48px 64px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 18px;
-  border-radius: 24px;
-  background: linear-gradient(180deg, #0f172a 0%, #020617 100%);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
-  transition: all 0.35s ease;
+  overflow-x: hidden;
 }
 
-.layout-center {
-  text-align: center;
-  align-items: center;
-}
-
-.layout-center p {
+.slide.reading-focus {
   max-width: 800px;
 }
 
-.layout-list ul {
-  display: grid;
-  gap: 12px;
+.slide.locked {
+  opacity: 0.95;
 }
 
-.layout-list li {
-  font-size: clamp(20px, 2.4vw, 26px);
+.slide.locked .answer-choice {
+  pointer-events: none;
+  opacity: 0.6;
 }
 
-.layout-vocab {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 40px;
-  align-items: center;
+.slide[data-stage="passage-heavy"] {
+  animation: fadeIn 0.4s ease;
 }
 
-.layout-story {
-  max-width: 900px;
+.slide[data-stage="question"] {
+  animation: slideUp 0.3s ease;
 }
 
-.story-text {
-  font-size: 24px;
-  line-height: 1.7;
-  background: rgba(255,255,255,0.04);
-  padding: 28px;
-  border-radius: 18px;
-  border-left: 4px solid #38bdf8;
-}
-
-.layout-question {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.layout-question h2 {
-  font-weight: 800;
-}
-
-.layout-debate {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 32px;
-}
-
-.layout-split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-}
-
-.layout-writing {
-  max-width: 800px;
-}
-
-.layout-exit {
-  text-align: center;
-  align-items: center;
-}
-
-.layout-exit h1 {
-  font-size: 42px;
+.slide * {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .slide::before {
@@ -226,6 +173,7 @@ body {
 .slide-enter {
   opacity: 0;
   transform: translateY(20px) scale(0.98);
+  animation: fadeUp 0.4s ease;
 }
 
 .slide-enter-active {
@@ -248,6 +196,28 @@ body {
   }
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulseCorrect {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
 .interactive {
   transition: all 0.2s ease;
 }
@@ -261,7 +231,7 @@ body {
    TYPOGRAPHY
 ========================= */
 .slide h1 {
-  font-size: clamp(36px, 5vw, 56px);
+  font-size: clamp(48px, 6vw, 68px);
   margin: 0 0 12px;
   line-height: 1.08;
   font-weight: 800;
@@ -290,23 +260,20 @@ body {
 }
 
 .slide p {
-  font-size: clamp(18px, 2vw, 24px);
-  margin: 0 0 10px;
-  line-height: 1.5;
-}
-
-.slide ul {
-  max-height: 60vh;
-  overflow-y: auto;
+  font-size: clamp(20px, 2.2vw, 24px);
+  margin: 0 0 var(--space-2);
+  line-height: 1.45;
 }
 
 .slideSubtext {
   margin: 0 0 var(--space-3) !important;
   color: #cbd5e1;
+  font-size: clamp(20px, 2.1vw, 24px) !important;
+  line-height: 1.5;
 }
 
 .promptPrimary {
-  font-size: clamp(34px, 4vw, 48px) !important;
+  font-size: clamp(36px, 4.4vw, 52px) !important;
   font-weight: 800;
   margin-bottom: var(--space-3) !important;
 }
@@ -316,26 +283,19 @@ body {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  opacity: 0.5;
+  opacity: 0.6;
   margin-bottom: var(--space-2);
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(148,163,184,0.15);
-}
-
-.slide:empty {
-  display: none;
 }
 
 /* =========================
    LIST ITEMS
 ========================= */
-ul { list-style: none; padding: 0; margin: 0; }
+ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
 
 li {
-  font-size: clamp(28px, 3vw, 36px);
-  margin: 0 0 var(--space-2);
+  font-size: 20px;
+  line-height: 1.4;
+  margin: 0;
   padding: var(--space-3) var(--space-4);
   border-left: 5px solid var(--present-accent, #38bdf8);
   background: rgba(30, 41, 59, 0.65);
@@ -346,6 +306,19 @@ li {
 li:hover {
   transform: translateX(6px);
   background: rgba(56,189,248,0.15);
+}
+
+
+.layout-question {
+  text-align: center;
+}
+
+.layout-question ul {
+  justify-items: center;
+}
+
+.dense li {
+  font-size: 18px;
 }
 
 /* =========================
@@ -385,7 +358,7 @@ li:hover {
    CONTROLS PANEL
 ========================= */
 #controls {
-  width: var(--dock-panel-width);
+  width: 320px;
   max-height: min(62vh, 520px);
   background: rgba(15, 23, 42, 0.95);
   border: 1px solid rgba(148,163,184,0.2);
@@ -401,13 +374,9 @@ li:hover {
   bottom: 48px;
   z-index: 20;
   display: flex;
-  gap: var(--dock-stack-gap);
+  gap: 12px;
   overflow-x: auto;
-  padding: 0 var(--space-2);
-  scrollbar-gutter: stable both-edges;
-  align-items: flex-end;
-  height: auto;
-  max-height: 55vh;
+  padding: 0 12px;
 }
 
 #controlsHeader {
@@ -437,7 +406,6 @@ li:hover {
   transform: translateY(calc(100% - 48px));
   transition: transform 0.22s ease;
   overflow: hidden;
-  border: 1px solid rgba(148,163,184,0.3);
 }
 
 .dock-panel.is-open {
@@ -445,7 +413,7 @@ li:hover {
 }
 
 .dock-content {
-  padding: var(--space-2);
+  padding: 14px;
   overflow-y: auto;
   max-height: calc(min(62vh, 520px) - 48px);
 }
@@ -531,8 +499,19 @@ button:active {
 }
 
 #slide-counter {
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 110px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(148,163,184,0.35);
+  background: rgba(15, 23, 42, 0.72);
+  font-weight: 900;
+  font-size: 18px;
   color: #e2e8f0;
+  letter-spacing: 0.05em;
 }
 
 .footerHints {
@@ -679,6 +658,19 @@ button:active {
   margin-bottom: 10px;
 }
 
+
+.question-container {
+  max-width: 900px;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.question-text {
+  font-size: 32px;
+  font-weight: 600;
+  margin-bottom: 24px;
+}
+
 .answers,
 .mcChoices {
   margin-top: 14px;
@@ -707,9 +699,19 @@ button:active {
   border-color: #38bdf8;
 }
 
+.answer-choice:focus {
+  outline: 3px solid rgba(99,102,241,0.9);
+  outline-offset: 3px;
+}
+
+.answer-choice.pulse {
+  animation: pulseCorrect 0.4s ease;
+}
+
 .answer.correct,
 .mcChoice--correct {
-  background: rgba(34,197,94,0.2);
+  border: 2px solid #22c55e;
+  background: rgba(34,197,94,0.1);
   border-color: #22c55e;
   box-shadow: 0 0 18px rgba(34,197,94,0.35);
   font-weight: 700;
@@ -763,6 +765,65 @@ button:active {
   border-radius: 16px;
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.1);
+}
+
+.question-box--sticky {
+  position: sticky;
+  top: 0;
+  background: rgba(15, 23, 42, 0.98);
+  z-index: 2;
+}
+
+.slide-stage-label {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(99,102,241,0.16);
+  color: #c7d2fe;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lock-indicator {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  background: #ef4444;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  z-index: 4;
+}
+
+.reveal-indicator {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: #22c55e;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  z-index: 4;
+}
+
+.timer {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  font-size: 16px;
+  background: #111827;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148,163,184,0.25);
+  z-index: 3;
 }
 
 .whyWinsTitle {
@@ -823,7 +884,7 @@ button:active {
 
 
 .masteryTracker {
-  width: var(--dock-panel-width);
+  width: 340px;
   max-height: min(62vh, 520px);
   background: rgba(17, 24, 39, 0.94);
   color: #f8fafc;
@@ -850,7 +911,7 @@ button:active {
 
 
 .skillPanel {
-  width: var(--dock-panel-width);
+  width: 340px;
   max-height: min(62vh, 520px);
   background: rgba(15, 23, 42, 0.94);
   color: #e2e8f0;
@@ -874,7 +935,7 @@ button:active {
 
 
 .alignmentPanel {
-  width: var(--dock-panel-width);
+  width: 340px;
   max-height: min(62vh, 520px);
   background: rgba(15, 23, 42, 0.94);
   color: #e2e8f0;
@@ -1155,10 +1216,6 @@ button:active {
   .presentHelp {
     display: none;
   }
-
-  .layout-split {
-    grid-template-columns: 1fr !important;
-  }
 }
 
 .panel { display: none; padding: 14px; color: #e2e8f0; }
@@ -1169,7 +1226,7 @@ button:active {
    PRINT CLEANUP
 ========================= */
 @media print {
-  .dock-container, #controls, #teacher-notes, #footer, #mastery-tracker, #skill-panel, #alignment-proof, #next-slide-preview, .presentHelp, #present-dock, #dock-panel { display: none !important; }
+  .dock-container, #controls, #notes-panel, #footer, #mastery-tracker, #skill-panel, #alignment-proof, #next-slide-preview, .presentHelp, #present-dock, #dock-panel { display: none !important; }
   body { background: white !important; color: #111 !important; }
 }
 </style>
@@ -1188,25 +1245,18 @@ button:active {
     <label class="toggle"><input id="toggle-short30" type="checkbox" /> Shorten to 30 min</label>
     <label class="toggle"><input id="toggle-intervention" type="checkbox" /> Intervention pace</label>
     <label class="toggle"><input id="toggle-coaching" type="checkbox" /> Coaching mode</label>
-    <label class="toggle"><input id="toggle-include-model" type="checkbox" /> Include Model (I Do)</label>
-    <label class="toggle"><input id="toggle-include-compare" type="checkbox" /> Include Compare & Defend</label>
-    <label class="toggle"><input id="toggle-include-exit" type="checkbox" /> Include Exit Ticket</label>
-    <label class="toggle"><input id="toggle-mini15" type="checkbox" /> Reduce to 15-minute mini lesson</label>
-    <label class="toggle"><input id="toggle-rigor" type="checkbox" /> Increase rigor (force DOK 3)</label>
-    <label class="toggle"><input id="toggle-teacher-notes" type="checkbox" checked /> Show teacher notes</label>
-    <label class="toggle" for="theme-select">Theme:
-      <select id="theme-select">
-        <option value="default">Default</option>
-        <option value="fortnite">Fortnite</option>
-        <option value="sports">Sports</option>
-        <option value="real_world">Real World</option>
-        <option value="academic">Academic</option>
+    <label class="toggle">Presenter mode
+      <select id="presenter-mode">
+        <option value="teacher">Teacher</option>
+        <option value="student">Student</option>
       </select>
     </label>
 
     <div class="toolbar">
       <button id="btn-start-session" type="button">Start Live Session</button>
       <button id="btn-reveal" type="button">Reveal next</button>
+      <button id="btn-show-answers" type="button">Reveal Answer</button>
+      <button id="btn-lock" type="button">Lock Answers</button>
       <button id="btn-turntalk" type="button">Turn & talk</button>
       <button id="btn-coldcall" type="button">Cold call</button>
       <button id="btn-fullscreen" type="button">Fullscreen</button>
@@ -1230,13 +1280,6 @@ button:active {
     </div>
     <div id="slide-thumbnails" class="thumbGrid" aria-label="Slide thumbnails"></div>
     </div>
-  </aside>
-
-  <aside id="teacher-notes" class="dock-panel" aria-label="Teacher notes">
-    <div class="dock-header" data-panel-target="teacher-notes">
-      <h3>🧠 Teacher Notes</h3>
-    </div>
-    <div class="dock-content" id="teacher-notes-content"></div>
   </aside>
 
   <aside id="alignment-proof" class="alignmentPanel dock-panel is-open" aria-label="TEKS alignment proof">
@@ -1287,6 +1330,10 @@ button:active {
     </div>
   </div>
 </div>
+
+<aside id="notes-panel" aria-label="Teacher notes"></aside>
+
+
 
 <aside id="next-slide-preview" class="nextSlidePreview" aria-label="Next slide preview">
   <div class="nextPreviewHeader">Next Slide</div>
