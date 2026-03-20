@@ -34,7 +34,7 @@ const SUPABASE_STATUS_FN_URL =
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
 
 // ✅ Longer timeout
-const HARD_TIMEOUT_MS = 180000; // 3 minutes
+const HARD_TIMEOUT_MS = 60000; // 60 seconds
 
 // ✅ Stripe publishable key (SAFE in frontend)
 const STRIPE_PUBLISHABLE_KEY =
@@ -3111,6 +3111,7 @@ THEME-SPECIFIC FOCUS (${std || "theme"}):
   generateBtn.addEventListener("click", async () => {
     if (activeStreamAbort) activeStreamAbort.abort();
     activeStreamAbort = new AbortController();
+    let requestTimedOut = false;
 
     clearMessage();
     output.innerHTML = "";
@@ -3130,6 +3131,7 @@ if (fbStatus) fbStatus.innerHTML = "";
 
     const timeoutId = setTimeout(() => {
       try {
+        requestTimedOut = true;
         activeStreamAbort?.abort();
       } catch {}
     }, HARD_TIMEOUT_MS);
@@ -3166,6 +3168,9 @@ if (fbStatus) fbStatus.innerHTML = "";
         mode: chosenMode,
         testMode: testMode.checked,
         stream: wantsStream,
+        max_tokens: 800,
+        maxTokens: 800,
+        responseDetail: "concise",
 
         publisher: pub,
         publisherOther: pubOther,
@@ -3234,6 +3239,12 @@ if (fbStatus) fbStatus.innerHTML = "";
       payload.teacherNotes =
         (payload.teacherNotes || "") +
         `
+GENERATION SIZE GUARDRAILS:
+- Keep the response concise and classroom-ready.
+- Limit output to the most essential lesson components only.
+- If slides/checkpoints are included, cap them at 5.
+- Prioritize objective, model, guided practice, independent practice, and exit ticket.
+
 ${buildQualityGuardrailsNotes(standard.value.trim())}`;
 
       // ✅ NEW: inject Admin Defense/Toolkit instructions (frontend-only, safe)
@@ -3498,8 +3509,18 @@ setStatus("Done");
     } catch (err: any) {
       const msg =
         err?.name === "AbortError"
-          ? "Timed out. Try again (first request can be slower)."
+          ? `AI request timed out after ${Math.round(HARD_TIMEOUT_MS / 1000)} seconds. Try a smaller request or retry.`
           : String(err?.message || err);
+
+      if (requestTimedOut) {
+        console.error("OpenAI-backed lesson request timed out", {
+          timeoutMs: HARD_TIMEOUT_MS,
+          mode: mode.value,
+          grade: grade.value,
+          subject: subject.value,
+          standard: standard.value,
+        });
+      }
 
       showMessage(esc(msg), false);
       output.classList.remove("typing");

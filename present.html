@@ -59,6 +59,8 @@ body {
   max-width: 900px;
   width: 100%;
   line-height: 1.4;
+  overflow-y: auto;
+  padding-right: 10px;
   word-wrap: break-word;
   overflow-wrap: anywhere;
 }
@@ -78,6 +80,32 @@ body {
   max-height: calc(100vh - 220px);
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+.slide.reading-focus {
+  max-width: 800px;
+}
+
+.slide.locked {
+  opacity: 0.95;
+}
+
+.slide.locked .answer-choice {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.slide[data-stage="passage-heavy"] {
+  animation: fadeIn 0.4s ease;
+}
+
+.slide[data-stage="question"] {
+  animation: slideUp 0.3s ease;
+}
+
+.slide * {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .slide::before {
@@ -166,6 +194,28 @@ body {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulseCorrect {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
 }
 
 .interactive {
@@ -649,6 +699,15 @@ button:active {
   border-color: #38bdf8;
 }
 
+.answer-choice:focus {
+  outline: 3px solid rgba(99,102,241,0.9);
+  outline-offset: 3px;
+}
+
+.answer-choice.pulse {
+  animation: pulseCorrect 0.4s ease;
+}
+
 .answer.correct,
 .mcChoice--correct {
   border: 2px solid #22c55e;
@@ -706,6 +765,65 @@ button:active {
   border-radius: 16px;
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.1);
+}
+
+.question-box--sticky {
+  position: sticky;
+  top: 0;
+  background: rgba(15, 23, 42, 0.98);
+  z-index: 2;
+}
+
+.slide-stage-label {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(99,102,241,0.16);
+  color: #c7d2fe;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lock-indicator {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  background: #ef4444;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  z-index: 4;
+}
+
+.reveal-indicator {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: #22c55e;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  z-index: 4;
+}
+
+.timer {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  font-size: 16px;
+  background: #111827;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148,163,184,0.25);
+  z-index: 3;
 }
 
 .whyWinsTitle {
@@ -1127,10 +1245,18 @@ button:active {
     <label class="toggle"><input id="toggle-short30" type="checkbox" /> Shorten to 30 min</label>
     <label class="toggle"><input id="toggle-intervention" type="checkbox" /> Intervention pace</label>
     <label class="toggle"><input id="toggle-coaching" type="checkbox" /> Coaching mode</label>
+    <label class="toggle">Presenter mode
+      <select id="presenter-mode">
+        <option value="teacher">Teacher</option>
+        <option value="student">Student</option>
+      </select>
+    </label>
 
     <div class="toolbar">
       <button id="btn-start-session" type="button">Start Live Session</button>
       <button id="btn-reveal" type="button">Reveal next</button>
+      <button id="btn-show-answers" type="button">Reveal Answer</button>
+      <button id="btn-lock" type="button">Lock Answers</button>
       <button id="btn-turntalk" type="button">Turn & talk</button>
       <button id="btn-coldcall" type="button">Cold call</button>
       <button id="btn-fullscreen" type="button">Fullscreen</button>

@@ -26,6 +26,10 @@ type SlideDefinition = {
   heading?: string;
   subtext?: string;
   items?: string[];
+  passage?: string;
+  passagePart?: number;
+  totalParts?: number;
+  layout?: string;
   question?: string;
   prompt?: string;
   section?: string;
@@ -179,6 +183,14 @@ type ExecutionConfig = {
   autoAdvance: boolean;
 };
 
+type StandardIntent = {
+  teksCode: string;
+  skillFocus: string;
+  cognitiveVerb: string;
+  evidenceRequired: boolean;
+  focusType: string;
+};
+
 let baseSlides: SlideDefinition[] = [];
 let slides: any[] = [];
 let currentIndex = 0;
@@ -189,6 +201,7 @@ let revealStep = 0;
 let timerInterval: number | null = null;
 let turnTalkInterval: number | null = null;
 let slideEndsAt = 0;
+let thinkTimeEndsAt = 0;
 let currentSkillType: SkillType = "generic";
 let currentDok = "";
 let currentPriority = "";
@@ -213,6 +226,11 @@ let liveRealtimeRef = 1;
 const AUTO_RETEACH_THRESHOLD = 0.6;
 let activeDockPanel: "responses" | "reteach" | "notes" = "responses";
 let latestLiveSnapshot: LiveResultsSnapshot | null = null;
+let locked = false;
+let presenterMode: "teacher" | "student" = "teacher";
+let currentSlideRevealed = false;
+let lastRenderedSlideIndex = -1;
+const autoAdvanceAfterReveal = true;
 
 
 const stageSignals: Record<string, string[]> = {
@@ -1362,6 +1380,182 @@ function buildExecutionConfig(
   };
 }
 
+function resolveStandardIntent(
+  row: LessonRow,
+  executionConfig?: ExecutionConfig,
+): StandardIntent {
+  const teksCode = String(row.standard_label || "").trim();
+  const skillFocus = String(row.canonical_skill || "").trim();
+  const cognitiveVerb = String(row.cognitive_verb || "").trim();
+
+  if (!skillFocus || !cognitiveVerb) {
+    throw new Error("TEKS MISALIGNMENT DETECTED");
+  }
+
+  return {
+    teksCode,
+    skillFocus,
+    cognitiveVerb,
+    evidenceRequired: Boolean((executionConfig?.evidenceRequired || 1) > 1),
+    focusType: String(row.lesson_mode || "standard").trim() || "standard",
+  };
+}
+
+function generateUniversalSlides(intent: StandardIntent): SlideDefinition[] {
+  const verb = normalizeVerb(intent.cognitiveVerb);
+  return [
+    {
+      type: "headline",
+      stageType: "objective_lock",
+      heading: "TEKS Focus",
+      subtext: `${intent.teksCode || "Selected TEKS"} • ${intent.skillFocus} • ${verb}`,
+      section: "Objective",
+      durationSeconds: 90,
+    },
+    {
+      type: "headline",
+      stageType: "verb_definition",
+      heading: "What the Verb Means",
+      subtext: `${verb}: ${studentVerbDefinition(verb)}.`,
+      section: "Frontload",
+      durationSeconds: 75,
+    },
+    {
+      type: "split",
+      stageType: "strategy_formula",
+      heading: "Strategy Formula",
+      items: ["Identify the task", "Find evidence", "Explain your reasoning"],
+      section: "Frontload",
+      durationSeconds: 120,
+    },
+    {
+      type: "question",
+      stageType: "model_think_aloud",
+      heading: "Model (I Do)",
+      question: `How does a reader ${verb} this skill step-by-step?`,
+      section: "Model",
+      durationSeconds: 110,
+    },
+    {
+      type: "question",
+      stageType: "guided_dok_ladder",
+      heading: "Guided Practice",
+      question: verbDrivenQuestion(intent.cognitiveVerb, "Use evidence to justify your answer."),
+      section: "Guided",
+      durationSeconds: 180,
+    },
+    {
+      type: "discussion",
+      stageType: "compare_defend",
+      heading: "Compare & Defend",
+      prompt: "Compare two possible answers and defend the stronger one.",
+      section: "Deepen",
+      durationSeconds: 120,
+    },
+    {
+      type: "writing",
+      stageType: "independent_transfer",
+      heading: "Independent Practice",
+      subtext: `Independently ${verb} using evidence from the text.`,
+      section: "Independent",
+      durationSeconds: 180,
+    },
+    {
+      type: "writing",
+      stageType: "exit_ticket",
+      heading: "Exit Ticket",
+      subtext: `Show how you can ${verb} ${intent.skillFocus}.`,
+      section: "Exit",
+      durationSeconds: 120,
+    },
+  ];
+}
+
+function injectPlaybookContent(
+  slidesIn: SlideDefinition[],
+  playbook: SkillPlaybookRow,
+  intent: StandardIntent,
+  executionConfig?: ExecutionConfig,
+): SlideDefinition[] {
+  return slidesIn.map((slide) => {
+    const next: SlideDefinition & Record<string, any> = {
+      ...slide,
+      skillFocus: intent.skillFocus,
+      cognitiveVerb: intent.cognitiveVerb,
+      focusType: intent.focusType,
+      evidenceRequired: intent.evidenceRequired,
+      notes: `Skill: ${intent.skillFocus} • Verb: ${intent.cognitiveVerb}${slide.notes ? ` • ${slide.notes}` : ""}`,
+    };
+
+    if (slide.stageType === "objective_lock") {
+      next.subtext = executionConfig?.objectiveTemplate || next.subtext;
+    }
+
+    if (slide.stageType === "strategy_formula") {
+      next.items = executionConfig?.strategyFormula
+        ? [executionConfig.strategyFormula]
+        : (playbook.strategy_formula ? [playbook.strategy_formula] : next.items);
+    }
+
+    if (slide.stageType === "model_think_aloud") {
+      next.prompt = String(playbook.model_sequence || executionConfig?.modelSequence || next.prompt || "");
+    }
+
+    if (slide.stageType === "guided_dok_ladder") {
+      next.items = [
+        String(playbook.tier1_prompt || executionConfig?.tier1Prompt || ""),
+        String(playbook.tier2_prompt || executionConfig?.tier2Prompt || ""),
+        String(playbook.tier3_prompt || executionConfig?.tier3Prompt || ""),
+      ].filter(Boolean);
+      next.prompt = executionConfig?.impactPrompt || next.prompt;
+    }
+
+    if (slide.stageType === "independent_transfer") {
+      next.subtext = String(playbook.writing_template || executionConfig?.writingTemplate || next.subtext || "");
+    }
+
+    if (slide.stageType === "exit_ticket") {
+      next.prompt = String(playbook.exit_template || executionConfig?.exitTemplate || next.prompt || "");
+    }
+
+    return next;
+  });
+}
+
+function applyVerbLogic(slide: SlideDefinition, intent: StandardIntent): SlideDefinition {
+  const next: SlideDefinition & Record<string, any> = { ...slide };
+
+  if (intent.cognitiveVerb === "analyze") {
+    next.requireExplanation = true;
+    next.teacherCue = `${next.teacherCue ? `${next.teacherCue} ` : ""}Require explanation of how the evidence supports the idea.`.trim();
+  }
+
+  if (intent.cognitiveVerb === "infer") {
+    next.requireClues = true;
+    next.teacherCue = `${next.teacherCue ? `${next.teacherCue} ` : ""}Require students to name the clues behind the inference.`.trim();
+  }
+
+  if (intent.cognitiveVerb === "compare") {
+    next.requireTwoItems = true;
+    next.teacherCue = `${next.teacherCue ? `${next.teacherCue} ` : ""}Require students to compare two items explicitly.`.trim();
+  }
+
+  next.notes = `Skill: ${intent.skillFocus} • Verb: ${intent.cognitiveVerb}${next.notes ? ` • ${next.notes}` : ""}`;
+  next.skillFocus = intent.skillFocus;
+  next.cognitiveVerb = intent.cognitiveVerb;
+  return next;
+}
+
+function validateSlides(slidesIn: SlideDefinition[], intent: StandardIntent): SlideDefinition[] {
+  for (const slide of slidesIn) {
+    const tagged = slide as SlideDefinition & Record<string, any>;
+    if (tagged.skillFocus !== intent.skillFocus || tagged.cognitiveVerb !== intent.cognitiveVerb) {
+      throw new Error("TEKS MISALIGNMENT DETECTED");
+    }
+  }
+  return slidesIn;
+}
+
 function applyExecutionConfigToDeck(
   deck: SlideDefinition[],
   executionConfig: ExecutionConfig,
@@ -2496,16 +2690,82 @@ function formatSeconds(sec: number) {
   return `${mm}:${ss}`;
 }
 
+function getThinkTimeSeconds(slide?: SlideDefinition | null) {
+  return slide?.type === "question" ? 30 : 0;
+}
+
+function getSlideTimerSeconds(slide?: SlideDefinition | null) {
+  if (!slide) return 0;
+  return slide.durationSeconds || preferredStageDuration(slide.stageType);
+}
+
+function resetScroll() {
+  document.querySelectorAll(".passage-box, .slide-content").forEach((el) => {
+    if (el instanceof HTMLElement) el.scrollTop = 0;
+  });
+}
+
+function focusFirstQuestionChoice() {
+  window.setTimeout(() => {
+    const firstChoice = document.querySelector(".answer-choice") as HTMLElement | null;
+    firstChoice?.focus();
+  }, 100);
+}
+
+function revealAnswer(choiceEl: HTMLElement | null) {
+  if (!choiceEl || !isTeacherMode()) return;
+  choiceEl.classList.add("correct");
+  window.setTimeout(() => {
+    choiceEl.classList.add("pulse");
+    window.setTimeout(() => choiceEl.classList.remove("pulse"), 450);
+  }, 150);
+}
+
+function revealCurrentAnswer() {
+  if (locked || !isTeacherMode()) return;
+  if (currentSlideRevealed) return;
+  const revealedSlideIndex = currentIndex;
+  currentSlideRevealed = true;
+  const correctChoice = document.querySelector(".answer-choice[data-correct='true']") as HTMLElement | null;
+  revealAnswer(correctChoice);
+  if (autoAdvanceAfterReveal && revealedSlideIndex < slides.length - 1) {
+    window.setTimeout(() => {
+      if (currentIndex === revealedSlideIndex && currentIndex < slides.length - 1) {
+        currentIndex += 1;
+        revealStep = 0;
+        renderSlide();
+      }
+    }, 2000);
+  }
+}
+
+function toggleLock() {
+  locked = !locked;
+  const lockButton = document.getElementById("btn-lock");
+  if (lockButton) lockButton.textContent = locked ? "Unlock Answers" : "Lock Answers";
+}
+
 function startSlideTimer(seconds: number) {
   if (timerInterval) window.clearInterval(timerInterval);
   const timerEl = document.getElementById("live-timer");
   if (!timerEl) return;
+  const thinkTimerEl = document.getElementById("slide-think-timer");
+  const thinkTimeSeconds = getThinkTimeSeconds(slides[currentIndex]);
   slideEndsAt = Date.now() + seconds * 1000;
+  thinkTimeEndsAt = thinkTimeSeconds > 0 ? Date.now() + thinkTimeSeconds * 1000 : 0;
   let autoAdvanced = false;
 
   const tick = () => {
     const remaining = Math.round((slideEndsAt - Date.now()) / 1000);
     timerEl.textContent = `Slide timer ${formatSeconds(remaining)}`;
+    if (thinkTimerEl) {
+      if (thinkTimeEndsAt > 0) {
+        const thinkRemaining = Math.max(0, Math.round((thinkTimeEndsAt - Date.now()) / 1000));
+        thinkTimerEl.textContent = `Think time ${formatSeconds(thinkRemaining)}`;
+      } else {
+        thinkTimerEl.textContent = "";
+      }
+    }
 
     if (
       remaining <= 0 &&
@@ -3073,6 +3333,25 @@ function stageBadge(stageType?: SlideType): string {
   return `<div class="stageBadge stage-chip">${escHtml(stageLabels[stageType] || "")}</div>`;
 }
 
+function slideStageLabel(stageType?: SlideType): string {
+  if (!stageType) return "";
+  return `<div class="slide-stage-label">${escHtml(stageType.replaceAll("_", " ").toUpperCase())}</div>`;
+}
+
+function isTeacherMode() {
+  return presenterMode === "teacher";
+}
+
+function isAnswerRevealedForCurrentSlide() {
+  return currentSlideRevealed;
+}
+
+function onSlideChange(newSlideId: number) {
+  if (newSlideId === lastRenderedSlideIndex) return;
+  currentSlideRevealed = false;
+  lastRenderedSlideIndex = newSlideId;
+}
+
 function getLayoutClass(stageType: string): string {
   const stageLayouts: Record<string, string> = {
     objective_lock: "layout-center",
@@ -3134,6 +3413,10 @@ function renderMultipleChoice(
   coachLine: string,
   alignment: string,
 ): string {
+  const passageText = cleanText(String((slide as any).passage || ""));
+  const readingFocusClass = (slide as any).layout === "reading-focus" ? " reading-focus" : "";
+  const slideDataStage = passageText ? "passage-heavy" : "question";
+  const showCorrect = isTeacherMode() && isAnswerRevealedForCurrentSlide();
   const choicesRaw = Array.isArray(slide.answerChoices)
     ? slide.answerChoices
     : Array.isArray((slide as any).choices)
@@ -3147,11 +3430,27 @@ function renderMultipleChoice(
     : "";
 
   const rationale =
-    revealStep > 0 && slide.distractorRationale
+    isTeacherMode() && revealStep > 0 && slide.distractorRationale
       ? `<div class="whyWinsTitle fade-in" style="animation-delay:0.3s">Why This Answer Wins</div><div class="rationaleGrid fade-in" style="animation-delay:0.35s">${slide.distractorRationale
           .map((r, i) => `<div class="rationaleCard${i === slide.correctIndex ? " rationaleCard--correct" : ""}"><strong>${String.fromCharCode(65 + i)}</strong> ${escHtml(cleanText(r))}</div>`)
           .join("")}</div>`
       : "";
+  const passageMeta =
+    slide.passagePart && slide.totalParts
+      ? `<div class="passage-meta fade-in" style="animation-delay:0.06s">Passage Part ${slide.passagePart} of ${slide.totalParts}</div>`
+      : "";
+  const passageHtml = passageText
+    ? `<div class="passage-label fade-in" style="animation-delay:0.04s">Read the passage</div><div class="passage-box fade-in" style="animation-delay:0.05s">${formatPassage(passageText)}</div>`
+    : "";
+  const promptHtml = !passageText && slide.prompt
+    ? `<div class="slideSubtext fade-in" style="animation-delay:0.15s">${escHtml(cleanText(String(slide.prompt || "")))}</div>`
+    : "";
+  const thinkTimeHtml = getThinkTimeSeconds(slide)
+    ? `<div id="slide-think-timer" class="timer fade-in" style="animation-delay:0.08s"></div>`
+    : "";
+  const stageHeader = slideStageLabel(slide.stageType);
+  const lockIndicator = locked ? `<div class="lock-indicator">Answers Locked</div>` : "";
+  const revealIndicator = currentSlideRevealed ? `<div class="reveal-indicator">Answer Revealed</div>` : "";
 
   return `
     <div class="slide slide-content ${layoutClass} slide--question${extraClass}">
@@ -3332,6 +3631,8 @@ function renderSlide() {
     return;
   }
 
+  onSlideChange(currentIndex);
+
   if (!countedSignalSlides.has(currentIndex)) {
     if (slide.type === "question") masteryTracker.guidedQuestions += 1;
     if (slide.type === "writing") masteryTracker.writingMoments += 1;
@@ -3350,19 +3651,25 @@ function renderSlide() {
     renderLiveSessionPanel();
   }
 
-  const coachLine = settings.showTeacherNotes && slide.teacherCue
+  const coachLine = isTeacherMode() && settings.showTeacherNotes && slide.teacherCue
     ? `<div class="coachLine">Coach: ${escHtml(cleanText(slide.teacherCue))}</div>`
     : "";
   const alignment = `<div class="alignmentChip">${escHtml(alignmentChip(slide))}</div>`;
   const stage = stageBadge(slide.stageType);
+  const stageHeader = slideStageLabel(slide.stageType);
   const layoutClass = getLayoutClass(String(slide.stageType || ""));
   const coachingTag = String(slide.section || "").toLowerCase().includes("coaching") ? `<div class="coachingTag">Coaching Insight</div>` : "";
   const extraClass = `${stageClass(slide.stageType)}${String(slide.section || "").toLowerCase().includes("coaching") ? " slide--coaching" : ""}`;
+  const lockIndicator = locked ? `<div class="lock-indicator">Answers Locked</div>` : "";
+  const revealIndicator = currentSlideRevealed ? `<div class="reveal-indicator">Answer Revealed</div>` : "";
 
   try {
   if (slide.type === "splash") {
     container.innerHTML = `
-      <div class="slide slide-content slide--splash${extraClass}">
+      <div class="slide slide-content slide--splash${extraClass}${locked ? " locked" : ""}">
+        ${lockIndicator}
+        ${revealIndicator}
+        ${stageHeader}
         <div class="brandMark">LR</div>
         <div class="brandKicker">Instruction Launch</div>
         <h1>${escHtml(slide.heading || "Lessons-Ready")}</h1>
@@ -3371,12 +3678,15 @@ function renderSlide() {
       </div>
     `;
   } else if (slide.type === "headline") {
-    container.innerHTML = `<div class="slide slide-content slide--headline${extraClass}">${stage}${coachingTag}<div class="sectionTag">${escHtml(slide.section || "")}</div><h1>${escHtml(slide.heading)}</h1><p>${escHtml(slide.subtext)}</p>${coachLine}${alignment}</div>`;
+    container.innerHTML = `<div class="slide slide-content slide--headline${extraClass}${locked ? " locked" : ""}">${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}<div class="sectionTag">${escHtml(slide.section || "")}</div><h1>${escHtml(slide.heading)}</h1><p>${escHtml(slide.subtext)}</p>${coachLine}${alignment}</div>`;
   } else if (slide.type === "split") {
     const items = slide.items || [];
     const visibleCount = revealStep > 0 ? Math.min(revealStep, items.length) : Math.min(1, items.length);
     container.innerHTML = `
-      <div class="slide slide-content slide--split${extraClass}">
+      <div class="slide slide-content slide--split${extraClass}${locked ? " locked" : ""}">
+        ${lockIndicator}
+        ${revealIndicator}
+        ${stageHeader}
         ${stage}${coachingTag}
         <h2>${escHtml(slide.heading)}</h2>
         <p class="slideSubtext">${escHtml(slide.subtext)}</p>
@@ -3385,6 +3695,10 @@ function renderSlide() {
       </div>
     `;
   } else if (slide.type === "question") {
+    const passageText = cleanText(String((slide as any).passage || ""));
+    const readingFocusClass = (slide as any).layout === "reading-focus" ? " reading-focus" : "";
+    const slideDataStage = passageText ? "passage-heavy" : "question";
+    const showCorrect = isTeacherMode() && isAnswerRevealedForCurrentSlide();
     const choices =
       slide.answerChoices && slide.answerChoices.length
         ? `<ul class="mcChoices">${slide.answerChoices
@@ -3393,11 +3707,24 @@ function renderSlide() {
         : "";
 
     const rationale =
-      revealStep > 0 && slide.distractorRationale
+      isTeacherMode() && revealStep > 0 && slide.distractorRationale
         ? `<div class="whyWinsTitle">Why This Answer Wins</div><div class="rationaleGrid">${slide.distractorRationale
             .map((r, i) => `<div class="rationaleCard${i === slide.correctIndex ? " rationaleCard--correct" : ""}"><strong>${String.fromCharCode(65 + i)}</strong> ${escHtml(r)}</div>`)
             .join("")}</div>`
         : "";
+    const passageMeta =
+      slide.passagePart && slide.totalParts
+        ? `<div class="passage-meta">Passage Part ${slide.passagePart} of ${slide.totalParts}</div>`
+        : "";
+    const passageHtml = passageText
+      ? `<div class="passage-label">Read the passage</div><div class="passage-box">${formatPassage(passageText)}</div>`
+      : "";
+    const promptHtml = !passageText && slide.prompt
+      ? `<div class="slideSubtext">${escHtml(slide.prompt)}</div>`
+      : "";
+    const thinkTimeHtml = getThinkTimeSeconds(slide)
+      ? `<div id="slide-think-timer" class="timer"></div>`
+      : "";
 
     container.innerHTML = `
       <div class="slide slide-content slide--question${extraClass}">
@@ -3417,8 +3744,10 @@ function renderSlide() {
         ? `<p class="revealBlock">${escHtml(currentSkillType === "context_clues" ? "Model paragraph reveal: The word \"obscured\" means hidden because the nearby detail says thick fog blocked visibility." : "Model paragraph reveal: Explain your claim with direct evidence and reasoning from the text.")}</p>`
         : "";
     container.innerHTML = `
-      <div class="slide slide-content slide--writing${extraClass}">
-        ${stage}${coachingTag}<h2>${escHtml(slide.heading)}</h2>
+      <div class="slide slide-content slide--writing${extraClass}${locked ? " locked" : ""}">
+        ${lockIndicator}
+        ${revealIndicator}
+        ${stageHeader}${stage}${coachingTag}<h2>${escHtml(slide.heading)}</h2>
         <p class="promptPrimary">${escHtml(slide.subtext)}</p>
         <div class="cerScaffold"><div>Claim</div><div>Evidence</div><div>Reasoning</div></div>
         ${cerFrame}
@@ -3428,19 +3757,21 @@ function renderSlide() {
     `;
   } else if (slide.type === "energy") {
     const contrastClass = currentIndex % 4 === 0 ? " slide--contrast" : "";
-    container.innerHTML = `<div class="slide slide-content slide--energy${contrastClass}${extraClass}">${stage}${coachingTag}<h1>${escHtml(slide.heading)}</h1><p>${escHtml(slide.subtext || "")}</p>${coachLine}${alignment}</div>`;
+    container.innerHTML = `<div class="slide slide-content slide--energy${contrastClass}${extraClass}${locked ? " locked" : ""}">${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}<h1>${escHtml(slide.heading)}</h1><p>${escHtml(slide.subtext || "")}</p>${coachLine}${alignment}</div>`;
   } else if (slide.type === "discussion") {
     const stem = revealStep > 0 ? `<p class="revealBlock">Sentence stem reveal: "I agree because the text says..."</p>` : "";
     container.innerHTML = `
-      <div class="slide slide-content slide--discussion${extraClass}">
-        ${stage}${coachingTag}<h2>${escHtml(slide.heading || "Discuss")}</h2>
+      <div class="slide slide-content slide--discussion${extraClass}${locked ? " locked" : ""}">
+        ${lockIndicator}
+        ${revealIndicator}
+        ${stageHeader}${stage}${coachingTag}<h2>${escHtml(slide.heading || "Discuss")}</h2>
         <p class="promptPrimary">${escHtml(slide.prompt || "Discuss with your partner.")}</p>
         ${stem}
         ${coachLine}${alignment}
       </div>
     `;
   } else {
-    container.innerHTML = `<div class="slide slide-content${extraClass}">${stage}${coachingTag}<h2>${escHtml(slide.heading || "Slide")}</h2>${coachLine}${alignment}</div>`;
+    container.innerHTML = `<div class="slide slide-content${extraClass}${locked ? " locked" : ""}">${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}<h2>${escHtml(slide.heading || "Slide")}</h2>${coachLine}${alignment}</div>`;
   }
 
   } catch (e: any) {
@@ -3459,9 +3790,11 @@ function renderSlide() {
   }
 
   adjustSlideText();
+  resetScroll();
+  if (slide.type === "question") focusFirstQuestionChoice();
 
   const section = slide.section ? ` • ${slide.section}` : "";
-  const stageDuration = slide.durationSeconds || preferredStageDuration(slide.stageType);
+  const stageDuration = getSlideTimerSeconds(slide);
   const timeCue = stageDuration ? ` • Suggested time: ${Math.max(1, Math.round(stageDuration / 60))} min` : "";
   const confidence = `<span class="confidenceFooter">${escHtml(currentTek || "TEKS set")} • ${escHtml(currentDok || "DOK set")} • ${escHtml(currentPriority || "Priority set")}</span>`;
   if (counter) counter.innerHTML = `Slide ${currentIndex + 1} of ${slides.length}${section}${timeCue} ${confidence}`;
@@ -3495,14 +3828,22 @@ function renderSlide() {
 
   if (notesPanel) {
     const content = document.getElementById("teacher-notes-content") as HTMLElement | null;
-    if (content) content.innerHTML = notesHtml;
-    notesPanel.classList.toggle("is-open", notesOpen);
+    if (content) {
+      content.innerHTML = isTeacherMode()
+        ? notesHtml
+        : `<div class="notesSection"><h3>👥 Student Mode</h3><div class="notesText">Teacher cues are hidden in student mode.</div></div>`;
+    }
+    notesPanel.classList.toggle("is-open", isTeacherMode() && notesOpen);
   }
   const dockNotesPanel = document.getElementById("dock-notes-panel");
-  if (dockNotesPanel) dockNotesPanel.innerHTML = notesHtml;
+  if (dockNotesPanel) {
+    dockNotesPanel.innerHTML = isTeacherMode()
+      ? notesHtml
+      : `<div class="notesSection"><h3>👥 Student Mode</h3><div class="notesText">Teacher cues are hidden in student mode.</div></div>`;
+  }
 
   if (lessonIdGlobal) localStorage.setItem(resumeKey(lessonIdGlobal), String(currentIndex));
-  startSlideTimer(slide.durationSeconds || preferredStageDuration(slide.stageType));
+  startSlideTimer(stageDuration);
   if (slide.stageType) {
     logPresentationEvent(currentIndex, slide.stageType).catch(() => {});
   }
@@ -3626,6 +3967,12 @@ function bindControls() {
     revealStep += 1;
     renderSlide();
   });
+  document.getElementById("btn-show-answers")?.addEventListener("click", () => {
+    revealCurrentAnswer();
+  });
+  document.getElementById("btn-lock")?.addEventListener("click", () => {
+    toggleLock();
+  });
 
   document.getElementById("btn-turntalk")?.addEventListener("click", () => startTurnTalkCountdown(30));
 
@@ -3693,6 +4040,31 @@ function bindControls() {
     revealStep = 0;
     renderSlide();
   });
+
+  slideContainerEl?.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement | null;
+    const choice = target?.closest(".answer-choice") as HTMLElement | null;
+    if (!choice || locked || !isTeacherMode()) return;
+    revealCurrentAnswer();
+  });
+  slideContainerEl?.addEventListener("keydown", (e) => {
+    const target = e.target as HTMLElement | null;
+    const choice = target?.closest(".answer-choice") as HTMLElement | null;
+    const keyEvent = e as KeyboardEvent;
+    if (!choice || locked || !isTeacherMode()) return;
+    if (keyEvent.key !== "Enter" && keyEvent.key !== " ") return;
+    e.preventDefault();
+    revealCurrentAnswer();
+  });
+
+  const modeSelect = document.getElementById("presenter-mode") as HTMLSelectElement | null;
+  if (modeSelect) {
+    modeSelect.value = presenterMode;
+    modeSelect.addEventListener("change", () => {
+      presenterMode = modeSelect.value === "student" ? "student" : "teacher";
+      renderSlide();
+    });
+  }
 
 }
 
