@@ -1,27 +1,12 @@
 console.log("🔥 NEW BUILD LOADED");
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
-const LR_CURRENT_LESSON_KEY = "lr_current_lesson";
 const LS_SESSION_KEY = "lr_supabase_session_v1"; // legacy auth session key for optional Supabase calls
 const LS_PRESENT_NOTES_KEY = "lr_present_notes_open_v1";
 const LIVE_JOIN_BASE = `${window.location.origin}/join.html`;
+const LR_CURRENT_LESSON_KEY = "lr_current_lesson"
 
-function getSavedLessonSafe(): (LessonRow & { slide_definitions?: any[]; slides?: any[]; questions?: any[]; id?: string }) | null {
-  try {
-    const raw = localStorage.getItem("lr_current_lesson");
-    if (!raw) {
-      console.warn("⚠️ No saved lesson found in localStorage");
-      return null;
-    }
-
-    const storedLesson = JSON.parse(raw) as LessonRow & { slide_definitions?: any[]; slides?: any[]; questions?: any[]; id?: string };
-    console.log("✅ Loaded saved lesson from localStorage:", storedLesson);
-    return storedLesson;
-  } catch (e) {
-    console.error("❌ Failed to parse saved lesson:", e);
-    return null;
-  }
-}
+let savedLesson: (LessonRow & { slide_definitions?: any[]; id?: string }) | null = null;
 
 let prefetchedLessonRow: LessonRow | null = null;
 
@@ -584,64 +569,8 @@ function normalizeInjectedItems(items: string[]): string[] {
     .slice(0, 5);
 }
 
-function isValidQuestion(q: any) {
-  return (
-    q &&
-    typeof q.question === "string" &&
-    Array.isArray(q.choices) &&
-    q.choices.length === 4 &&
-    typeof q.correctIndex === "number"
-  );
-}
 
-function buildQuestionSlide(q: any): SlideDefinition {
-  return {
-    type: "question",
-    stageType: "guided_dok_ladder",
-    heading: "STAAR Check",
-    question: trimInjectedText(String(q.question || "Practice Question"), 180),
-    answerChoices: normalizeInjectedItems((q.choices || []).slice(0, 4)),
-    correctIndex: Number.isInteger(q.correctIndex) ? Number(q.correctIndex) : 0,
-    passage: cleanText(String(q.prompt || "")),
-    passagePart: Number.isInteger(q.passagePart) ? Number(q.passagePart) : undefined,
-    totalParts: Number.isInteger(q.totalParts) ? Number(q.totalParts) : undefined,
-    layout: q.prompt && !(q.choices || []).length ? "reading-focus" : undefined,
-    prompt: "",
-    section: "Assessment",
-    durationSeconds: 150,
-  };
-}
-
-function splitLongPassage(passage: string): string[] {
-  const cleanPassage = cleanText(String(passage || ""));
-  if (!cleanPassage) return [];
-  if (cleanPassage.length <= 600) return [cleanPassage];
-
-  const chunks: string[] = [];
-  let remaining = cleanPassage;
-
-  while (remaining.length > 600) {
-    let splitAt = remaining.lastIndexOf(" ", 600);
-    if (splitAt < 400) splitAt = 600;
-    chunks.push(remaining.slice(0, splitAt).trim());
-    remaining = remaining.slice(splitAt).trim();
-  }
-
-  if (remaining) chunks.push(remaining);
-  return chunks;
-}
-
-function formatPassage(passage: string) {
-  return String(passage || "")
-    .split("\n")
-    .map((paragraph) => cleanText(paragraph))
-    .filter(Boolean)
-    .map((paragraph) => `<p class="passage-paragraph">${escHtml(paragraph)}</p>`)
-    .join("");
-}
-
-
-function parseQuestionBlock(rawQuestion: string): { question: string; choices: string[]; correctIndex?: number } {
+function parseQuestionBlock(rawQuestion: string): { question: string; choices: string[] } {
   const lines = String(rawQuestion || "")
     .split("\n")
     .map((line) => cleanText(line))
@@ -660,10 +589,8 @@ function parseQuestionBlock(rawQuestion: string): { question: string; choices: s
     .filter(Boolean)
     .map((choice) => trimInjectedText(choice, 90))
     .slice(0, 4);
-  const correctIndexMatch = String(rawQuestion || "").match(/correctIndex\s*:\s*(\d+)/i);
-  const correctIndex = correctIndexMatch ? Number(correctIndexMatch[1]) : undefined;
 
-  return { question, choices, correctIndex };
+  return { question, choices };
 }
 
 function applyLessonTextToDeck(deck: SlideDefinition[], lessonText?: string): SlideDefinition[] {
@@ -673,22 +600,17 @@ function applyLessonTextToDeck(deck: SlideDefinition[], lessonText?: string): Sl
 
   const next = deck.map(cloneSlide);
   const passageBullets = buildPassageBullets(parsed.passage);
-  const passageChunks = splitLongPassage(parsed.passage);
-  const firstPassageChunk = passageChunks[0] || cleanText(parsed.passage);
+  const shortPassage = trimInjectedText(cleanText(parsed.passage), 220);
 
   next.forEach((slide) => {
     if (slide.type === "question") return;
 
-    if (!String(slide.subtext || "").trim() && firstPassageChunk) {
-      slide.subtext = firstPassageChunk;
+    if (!String(slide.subtext || "").trim() && shortPassage) {
+      slide.subtext = trimInjectedText(shortPassage, 220);
     }
 
     if ((!slide.items || slide.items.length === 0) && passageBullets.length > 0) {
-      slide.items = normalizeInjectedItems(passageBullets).slice(0, 2);
-    }
-
-    if (firstPassageChunk && !slide.answerChoices?.length) {
-      slide.layout = "reading-focus";
+      slide.items = normalizeInjectedItems(passageBullets);
     }
   });
 
@@ -704,23 +626,11 @@ function applyLessonTextToDeck(deck: SlideDefinition[], lessonText?: string): Sl
 
   for (let i = 0; i < parsed.questions.length && i < questionIndexes.length; i += 1) {
     const deckIndex = questionIndexes[i];
-    const parsedQuestion = parsed.questions[i].question
-      ? {
-          question: trimInjectedText(String(parsed.questions[i].question || "Practice Question"), 180),
-          choices: normalizeInjectedItems((parsed.questions[i].choices || []).slice(0, 4)),
-          correctIndex: Number.isInteger(parsed.questions[i].correctIndex) ? Number(parsed.questions[i].correctIndex) : undefined,
-        }
-      : parseQuestionBlock(parsed.questions[i].raw);
+    const parsedQuestion = parseQuestionBlock(parsed.questions[i].raw);
     const current = next[deckIndex];
     current.question = parsedQuestion.question;
     current.answerChoices = parsedQuestion.choices;
-    current.correctIndex = parsedQuestion.correctIndex;
-    current.passage = passageChunks[i] || passageChunks[0] || current.passage;
-    current.passagePart = passageChunks.length > 1 ? i + 1 : undefined;
-    current.totalParts = passageChunks.length > 1 ? passageChunks.length : undefined;
-    if (current.passage && !current.answerChoices?.length) {
-      current.layout = "reading-focus";
-    }
+    current.prompt = shortPassage ? trimInjectedText(shortPassage, 180) : current.prompt;
   }
   return next;
 }
@@ -2518,7 +2428,8 @@ async function loadLesson(lessonId: string): Promise<LessonRow | null> {
 
   const lesson = await fetchLessonRow(lessonId, headers);
   if (lesson) {
-    localStorage.setItem("lr_current_lesson", JSON.stringify(lesson));
+    localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(lesson));
+    savedLesson = lesson as LessonRow & { slide_definitions?: any[]; id?: string };
   }
   return lesson;
 }
@@ -2539,7 +2450,7 @@ async function fetchGeneratedLessonRow(payload: GenerateLessonPayload, headers: 
 
 async function loadSlides(incomingSlides: any[] = []) {
   const params = new URLSearchParams(window.location.search);
-  const lessonId = getLessonId();
+  const lessonId = String(params.get("lessonId") || params.get("id") || "").trim();
   lessonIdGlobal = lessonId;
 
   if (incomingSlides.length > 0) {
@@ -2553,7 +2464,7 @@ async function loadSlides(incomingSlides: any[] = []) {
     return;
   }
 
-  let row: LessonRow | null = getSavedLessonSafe() as LessonRow | null;
+  let row: LessonRow | null = savedLesson as LessonRow | null;
 
   const token = getSavedToken();
   const headers: Record<string, string> = {
@@ -2569,7 +2480,8 @@ async function loadSlides(incomingSlides: any[] = []) {
     try {
       row = await fetchLessonRow(lessonId, headers);
       if (row) {
-        localStorage.setItem("lr_current_lesson", JSON.stringify(row));
+        localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(row));
+        savedLesson = row as LessonRow & { slide_definitions?: any[]; id?: string };
       }
     } catch (e: any) {
       lessonLookupError = String(e?.message || e || "");
@@ -2579,7 +2491,8 @@ async function loadSlides(incomingSlides: any[] = []) {
           headers.Authorization = `Bearer ${refreshedToken}`;
           row = await fetchLessonRow(lessonId, headers);
           if (row) {
-            localStorage.setItem("lr_current_lesson", JSON.stringify(row));
+            localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(row));
+            savedLesson = row as LessonRow & { slide_definitions?: any[]; id?: string };
           }
           lessonLookupError = "";
         } else {
@@ -2627,6 +2540,20 @@ async function loadSlides(incomingSlides: any[] = []) {
   currentSkillType = skillType;
   applyPresentationTheme();
 
+  const storedSlideDefinitions = Array.isArray((row as LessonRow & { slide_definitions?: unknown }).slide_definitions)
+    ? ((row as LessonRow & { slide_definitions?: SlideDefinition[] }).slide_definitions || []).map(cloneSlide)
+    : [];
+
+  if (storedSlideDefinitions.length > 0) {
+    currentExecutionConfig = null;
+    renderSkillPanel();
+    renderAlignmentProof(row);
+    baseSlides = storedSlideDefinitions;
+    normalizeSlidesForSettings();
+    currentIndex = 0;
+    return;
+  }
+
   const selectedMode = String(params.get("instruction_mode") || "core").toLowerCase();
   const skillPlaybook = await fetchSkillPlaybook(skillType, headers);
   const instructionMode = await fetchInstructionMode(selectedMode, headers);
@@ -2642,15 +2569,34 @@ async function loadSlides(incomingSlides: any[] = []) {
   renderSkillPanel();
   renderAlignmentProof(row);
 
-  const intent = resolveStandardIntent(row, executionConfig);
+  {
+    const lockedTemplateSlides = buildSkillLockedDeck(
+      skillType,
+      tekDescription,
+      dok,
+      grade,
+      verb,
+      priority,
+      executionConfig,
+    );
+    baseSlides = lockedTemplateSlides.map(cloneSlide);
 
-  baseSlides = generateUniversalSlides(intent).map(cloneSlide);
-  baseSlides = injectPlaybookContent(baseSlides, skillPlaybook, intent, executionConfig);
-  baseSlides = baseSlides.map((slide) => applyVerbLogic(slide, intent));
-  baseSlides = validateSlides(
-    applyExecutionConfigToDeck(baseSlides, executionConfig, intent.cognitiveVerb),
-    intent,
-  ).map(cloneSlide);
+baseSlides = enforceSkillLock(baseSlides, skillType);
+
+baseSlides.unshift(buildBrandedSplashSlide(
+  tekDescription,
+  grade,
+  priority,
+  dok
+));
+
+
+// Inject lesson content LAST
+if (row.lesson_text) {
+
+  const parsed = parseLessonTextBlocks(row.lesson_text);
+
+  console.log("Parsed lesson text:", parsed);
 
   baseSlides = enforceSkillLock(baseSlides, skillType);
   baseSlides.unshift(buildBrandedSplashSlide(
@@ -2661,54 +2607,33 @@ async function loadSlides(incomingSlides: any[] = []) {
   ));
 
   if (row.lesson_text) {
-    const parsedLesson = parseLessonTextBlocks(row.lesson_text);
     baseSlides = applyLessonTextToDeck(baseSlides, row.lesson_text);
-
-    if (parsedLesson.questions.length > 0) {
-      const validQuestions = parsedLesson.questions
-        .map((question) => {
-          if (question.question) {
-            return {
-              question: question.question,
-              choices: question.choices || [],
-              correctIndex: question.correctIndex,
-              prompt: parsedLesson.passage,
-            };
-          }
-
-          const parsedQuestion = parseQuestionBlock(question.raw);
-          return {
-            question: parsedQuestion.question,
-            choices: parsedQuestion.choices,
-            correctIndex: Number.isInteger(parsedQuestion.correctIndex) ? Number(parsedQuestion.correctIndex) : 0,
-            prompt: parsedLesson.passage,
-          };
-        })
-        .filter(isValidQuestion);
-
-      const questionSlides = validQuestions
-        .slice(0, 2)
-        .flatMap((question) => {
-          const chunks = splitLongPassage(String(question.prompt || ""));
-          if (!chunks.length) return [buildQuestionSlide(question)];
-          return chunks.map((chunk, idx) =>
-            buildQuestionSlide({
-              ...question,
-              prompt: chunk,
-              passagePart: idx + 1,
-              totalParts: chunks.length,
-              question: idx === 0 ? question.question : `${question.question} (Passage Continued)`,
-            }),
-          );
-        });
-      baseSlides.splice(2, 0, ...questionSlides);
-    }
   }
 
   const assessmentExists = baseSlides.some((slide) => slide.type === "question");
   if (!assessmentExists) {
     const mc = generateSkillAlignedMCQ(skillType);
     const insertIndex = resolveAssessmentInsertIndex(baseSlides);
+
+    baseSlides.splice(insertIndex, 0, {
+      type: "question",
+      stageType: "guided_dok_ladder",
+      heading: "Check for Understanding",
+      question: mc.question,
+      answerChoices: mc.answerChoices,
+      correctIndex: mc.correctIndex,
+      section: "Assessment",
+      durationSeconds: 150,
+    });
+  }
+
+}
+
+}
+
+const assessmentExists = baseSlides.some(slide => slide.type === "question");
+
+if (!assessmentExists) {
 
     baseSlides.splice(insertIndex, 0, {
       type: "question",
@@ -3500,7 +3425,7 @@ function renderMultipleChoice(
   const choicesClean = cleanItems(choicesRaw);
   const choices = choicesClean.length
     ? `<ul class="mcChoices answers fade-in" style="animation-delay:0.25s">${choicesClean
-        .map((c, i) => `<li class="mcChoice answer-choice answer${showCorrect && i === slide.correctIndex ? " mcChoice--correct correct" : ""}" data-correct="${i === slide.correctIndex ? "true" : "false"}" tabindex="0"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
+        .map((c, i) => `<li class="mcChoice answer${i === slide.correctIndex ? " mcChoice--correct correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
         .join("")}</ul>`
     : "";
 
@@ -3528,19 +3453,10 @@ function renderMultipleChoice(
   const revealIndicator = currentSlideRevealed ? `<div class="reveal-indicator">Answer Revealed</div>` : "";
 
   return `
-    <div class="slide slide-content ${layoutClass} slide--question${extraClass}${readingFocusClass}${locked ? " locked" : ""}" data-stage="${slideDataStage}">
+    <div class="slide slide-content ${layoutClass} slide--question${extraClass}">
       <div class="question-container">
-        ${lockIndicator}
-        ${revealIndicator}
-        ${thinkTimeHtml}
-        ${stageHeader}
-        ${stage}${coachingTag}
-        ${passageMeta}
-        ${passageHtml}
-        <div class="question-box question-box--sticky fade-in" style="animation-delay:0.1s">
-          <h2 class="question-text">${escHtml(cleanText(String(slide.question || "")))}</h2>
-          ${promptHtml}
-        </div>
+        ${stage}${coachingTag}<h2 class="question-text fade-in" style="animation-delay:0.05s">${escHtml(limitText(cleanText(String(slide.question || "")), 260))}</h2>
+        <p class="slideSubtext fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.prompt || "")), 220))}</p>
         ${choices}
         <div id="live-question-results" class="liveQuestionResults"></div>
         ${rationale}
@@ -3786,7 +3702,7 @@ function renderSlide() {
     const choices =
       slide.answerChoices && slide.answerChoices.length
         ? `<ul class="mcChoices">${slide.answerChoices
-            .map((c, i) => `<li class="mcChoice answer-choice${showCorrect && i === slide.correctIndex ? " mcChoice--correct correct" : ""}" data-correct="${i === slide.correctIndex ? "true" : "false"}" tabindex="0"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
+            .map((c, i) => `<li class="mcChoice${i === slide.correctIndex ? " mcChoice--correct correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
             .join("")}</ul>`
         : "";
 
@@ -3811,19 +3727,10 @@ function renderSlide() {
       : "";
 
     container.innerHTML = `
-      <div class="slide slide-content slide--question${extraClass}${readingFocusClass}${locked ? " locked" : ""}" data-stage="${slideDataStage}">
+      <div class="slide slide-content slide--question${extraClass}">
         <div class="question-container">
-          ${lockIndicator}
-          ${revealIndicator}
-          ${thinkTimeHtml}
-          ${stageHeader}
-          ${stage}${coachingTag}
-          ${passageMeta}
-          ${passageHtml}
-          <div class="question-box question-box--sticky">
-            <h2 class="question-text">${escHtml(slide.question)}</h2>
-            ${promptHtml}
-          </div>
+          ${stage}${coachingTag}<h2 class="question-text">${escHtml(slide.question)}</h2>
+          <p class="slideSubtext">${escHtml(slide.prompt)}</p>
           ${choices}
           ${rationale}
           ${coachLine}${alignment}
@@ -4193,42 +4100,12 @@ function bindKeys() {
 
 async function boot() {
   console.log("🚀 boot starting");
-
   const lessonId = getLessonId();
   console.log("lessonId:", lessonId);
-
-  const storedLesson = getSavedLessonSafe();
-
-  if (!storedLesson && !lessonId) {
-    const container = document.getElementById("slide-container");
-    if (container) {
-      container.innerHTML = `
-        <div class="slide slide-content">
-          <h2>No lesson found</h2>
-          <p>Go generate a lesson first.</p>
-        </div>
-      `;
-    }
-    return;
-  }
-
-  let lesson: any = null;
-
-  if (lessonId) {
-    lesson = await loadLesson(lessonId);
-  } else if (storedLesson) {
-    lesson = storedLesson;
-  }
-
-  if (!lesson) {
-    console.error("❌ No lesson available");
-    return;
-  }
-
+  const lesson = lessonId ? await loadLesson(lessonId) : savedLesson;
   prefetchedLessonRow = lesson as LessonRow | null;
-  const lessonSlides = lesson.slides || lesson.questions || lesson.slide_definitions || [];
-  console.log("lesson:", lesson);
-  console.log("slides:", lessonSlides);
+  console.log("lesson from DB:", lesson);
+  console.log("slides:", (lesson as { slides?: unknown; slide_definitions?: unknown } | null)?.slides || (lesson as { slide_definitions?: unknown } | null)?.slide_definitions);
 
   slideContainerEl = document.getElementById("slide-container") as HTMLElement | null;
   if (slideContainerEl) {
@@ -4240,7 +4117,9 @@ async function boot() {
   }
 
   try {
-    await loadSlides();
+    if (slides.length === 0) {
+      await loadSlides(savedLesson?.slide_definitions || []);
+    }
     bindControls();
     bindKeys();
     refreshDockVisibility();

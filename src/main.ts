@@ -40,6 +40,7 @@ const HARD_TIMEOUT_MS = 60000; // 60 seconds
 const STRIPE_PUBLISHABLE_KEY =
   "pk_live_51SuRvaQu6FSRjIW6zjcH0X7n0jmSi8fOB10P5Oe1c4ZYn5nV5dd7lMeGkQZ4u4mx7mfH5d01bAbqoP8nbs14TyqP00HzRaaPcz";
 
+
 // -------------------------
 // Helpers
 // -------------------------
@@ -147,6 +148,12 @@ function resolveLessonMode(plainText: string): "bluebonnet" | "amplify" | "gener
   if (t.includes("bluebonnet")) return "bluebonnet";
   if (t.includes("amplify")) return "amplify";
   return "generic";
+}
+
+function resolveLessonModeFromPublisher(publisher: string): "standard" {
+  if (!publisher) return "standard";
+  if (publisher.toLowerCase().includes("bluebonnet")) return "standard";
+  return "standard";
 }
 
 function toLessonExportPayload(opts: {
@@ -3388,7 +3395,7 @@ Include:
       // ✅ Show Feedback Garage after output renders
       setDisplay(garage, "block");
 
-      const lessonModeForRow = "standard";
+      const lessonModeForRow = resolveLessonModeFromPublisher(pub);
       
  // 🔹 CANONICAL RESOLUTION (STRICT MATCH)
 const standardLabel = standard.value.trim();
@@ -3468,14 +3475,9 @@ const row = {
       }
 
       const saved = Array.isArray(inserted) ? inserted[0] : inserted;
-      localStorage.setItem(
-        "lr_current_lesson",
-        JSON.stringify({
-          ...row,
-          ...(saved || {}),
-          slide_definitions: undefined,
-        }),
-      );
+      localStorage.setItem("lr_current_lesson", JSON.stringify({
+        slide_definitions: slideDefs,
+      }));
       lastLessonId = saved?.id || null;
       lastLessonFavorite = false;
 
