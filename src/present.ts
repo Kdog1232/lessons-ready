@@ -3214,14 +3214,16 @@ function buildRenderedSlideHtml(
       .join(" ");
     const parts = splitContent(modelSource).slice(0, 3);
     const content = parts.length ? parts : ["Model the reasoning in short, explicit steps and narrate evidence use."];
+    const modelBlocks = content
+      .map(
+        (part, i) => `<div class="sectionTag fade-in" style="animation-delay:${0.08 + i * 0.08}s">Model (${i + 1}/${content.length})</div><div class="story-text fade-in" style="animation-delay:${0.14 + i * 0.08}s">${escHtml(limitText(part, 220))}</div>`,
+      )
+      .join("");
+
     return `
       <div class="slide slide-content ${layoutClass} slide--headline${extraClass}">
         ${stage}${coachingTag}
-        ${content
-          .map(
-            (part, i) => `<div class="sectionTag fade-in" style="animation-delay:${0.08 + i * 0.08}s">Model (${i + 1}/${content.length})</div><div class="story-text fade-in" style="animation-delay:${0.14 + i * 0.08}s">${escHtml(limitText(part, 220))}</div>`,
-          )
-          .join("")}
+        ${modelBlocks}
         ${coachLine}${alignment}
       </div>
     `;
