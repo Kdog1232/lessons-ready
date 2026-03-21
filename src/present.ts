@@ -689,7 +689,6 @@ function buildStructuredSectionsFromLesson(lessonText: string): StructuredLesson
   };
 }
 
-console.log("TEST PARSER RESULT:", parseLessonTextBlocks(TEST_LESSON));
 
 function buildPassageBullets(passage: string): string[] {
   return String(passage || "")
@@ -735,7 +734,7 @@ function parseQuestionBlock(rawQuestion: string): { question: string; choices: s
 
   return { question, choices };
 }
-
+const sections = buildStructuredSectionsFromLesson(lessonText || "");
 function applyLessonTextToDeck(deck: SlideDefinition[], lessonText?: string): SlideDefinition[] {
   console.log("Applying lesson text to deck:", lessonText);
   const parsed = parseLessonTextBlocks(String(lessonText || ""));
@@ -2843,17 +2842,19 @@ async function loadSlides(incomingSlides: any[] = []) {
   renderAlignmentProof(row);
 
   {
-    const lockedTemplateSlides = buildSkillLockedDeck(
-      skillType,
-      tekDescription,
-      dok,
-      grade,
-      verb,
-      priority,
-      executionConfig,
-    );
-    baseSlides = lockedTemplateSlides.map(cloneSlide);
+   const lockedTemplateSlides = buildSkillLockedDeck(
+  skillType,
+  tekDescription,
+  dok,
+  grade,
+  verb,
+  priority,
+  executionConfig,
+);
 
+baseSlides = lockedTemplateSlides.map(cloneSlide);
+
+// ✅ ALWAYS apply
 baseSlides = enforceSkillLock(baseSlides, skillType);
 
 baseSlides.unshift(buildBrandedSplashSlide(
@@ -2863,25 +2864,15 @@ baseSlides.unshift(buildBrandedSplashSlide(
   dok
 ));
 
-
-// Inject lesson content LAST
+// ✅ Inject lesson content LAST
 if (row.lesson_text) {
 
   const parsed = parseLessonTextBlocks(row.lesson_text);
 
   console.log("Parsed lesson text:", parsed);
 
-  baseSlides = enforceSkillLock(baseSlides, skillType);
-  baseSlides.unshift(buildBrandedSplashSlide(
-    tekDescription,
-    grade,
-    priority,
-    dok,
-  ));
-
-  if (row.lesson_text) {
-    baseSlides = applyLessonTextToDeck(baseSlides, row.lesson_text);
-  }
+  baseSlides = applyLessonTextToDeck(baseSlides, row.lesson_text);
+}
 
   const assessmentExists = baseSlides.some((slide) => slide.type === "question");
   if (!assessmentExists) {
@@ -2903,22 +2894,6 @@ if (row.lesson_text) {
 }
 
 }
-
-const assessmentExists = baseSlides.some(slide => slide.type === "question");
-
-if (!assessmentExists) {
-
-    baseSlides.splice(insertIndex, 0, {
-      type: "question",
-      stageType: "guided_dok_ladder",
-      heading: "Check for Understanding",
-      question: mc.question,
-      answerChoices: mc.answerChoices,
-      correctIndex: mc.correctIndex,
-      section: "Assessment",
-      durationSeconds: 150,
-    });
-  }
 
   baseSlides = buildSlidesFinal(baseSlides);
   normalizeSlidesForSettings();
