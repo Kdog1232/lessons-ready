@@ -2902,7 +2902,7 @@ if (row.lesson_text) {
   console.log("✅ Playbook-driven slides:", slides);
   console.log("🎯 FINAL SLIDES:", slides.map((s) => s.stageType));
   return;
-}
+
 function buildBrandedSplashSlide(
   tekDescription: string,
   grade: number,
