@@ -1,4 +1,4 @@
-const SUPABASE_URL = ((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_SUPABASE_URL || "").trim();
+// trigger vercel rebuildconst SUPABASE_URL = ((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_SUPABASE_URL || "").trim();
 const SUPABASE_ANON_KEY = ((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_SUPABASE_ANON_KEY || "").trim();
 
 const bannedTokens = ["poop", "skibidi", "toilet", "butt", "sus", "amongus", "69", "420"];
