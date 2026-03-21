@@ -581,48 +581,44 @@ type StructuredLessonSections = {
   };
 };
 
+  function parseLessonTextBlocks(lessonText: string): ParsedLessonBlocks {
   const normalized = String(lessonText || "").trim();
-  const jsonMatch = normalized.match(/\{[\s\S]*\}/);
-  const jsonCandidate = jsonMatch ? jsonMatch[0] : normalized;
 
+  // Try JSON first
   try {
-    const parsed = JSON.parse(jsonCandidate) as {
+    const parsed = JSON.parse(normalized) as {
       passage?: string;
       questions?: Array<{ question?: string; choices?: string[]; correctIndex?: number }>;
     };
 
     if (parsed && (parsed.passage || Array.isArray(parsed.questions))) {
       return {
-        passage: cleanText(String(parsed.passage || "")),
+        passage: String(parsed.passage || ""),
         questions: Array.isArray(parsed.questions)
-          ? parsed.questions.map((question) => ({
-              raw: JSON.stringify(question),
-              question: cleanText(String(question?.question || "Practice Question")),
-              choices: Array.isArray(question?.choices) ? question.choices.map((choice) => cleanText(String(choice || ""))).filter(Boolean) : [],
-              correctIndex: Number.isInteger(question?.correctIndex) ? Number(question?.correctIndex) : undefined,
+          ? parsed.questions.map((q) => ({
+              raw: JSON.stringify(q),
+              question: String(q.question || "Practice Question"),
+              choices: Array.isArray(q.choices) ? q.choices : [],
+              correctIndex: Number.isInteger(q.correctIndex) ? q.correctIndex : undefined,
             }))
           : [],
       };
     }
   } catch {
-    // fall through to text parsing
+    // fallback
   }
 
-  const passageMatch =
-    normalized.match(/PASSAGE:\s*([\s\S]*?)(?:QUESTION|$)/i);
+  // TEXT fallback
+  const passageMatch = normalized.match(/PASSAGE:\s*([\s\S]*?)(?:QUESTION|$)/i);
+  const passage = passageMatch ? passageMatch[1].trim() : "";
 
-  const jsonMatchBlock = lessonBody.match(/\{[\s\S]*\}/);
-  const jsonCandidateText = jsonMatchBlock ? jsonMatchBlock[0] : lessonBody;
-
-  try {
-    const parsed = JSON.parse(jsonCandidateText) as {
-      passage?: string;
-      questions?: Array<{ question?: string; choices?: string[]; correctIndex?: number }>;
-    };
-
-  const questions =
-    normalized.split(/QUESTION/i).slice(1).map(block => ({
-      raw: block.trim()
+  const questions = normalized
+    .split(/QUESTION/i)
+    .slice(1)
+    .map((block) => ({
+      raw: block.trim(),
+      question: block.trim(),
+      choices: [],
     }));
 
   return { passage, questions };
