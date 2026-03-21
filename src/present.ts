@@ -3366,7 +3366,7 @@ async function persistQuestionSnapshot(snapshot: QuestionPerformanceSnapshot) {
     snapshot.misconception,
     snapshot.student_count,
     snapshot.teacher_move,
-  ]);
+  
   const snapshotKey = `${snapshot.session_id}:${snapshot.question_id}`;
   const existingSignature = persistedQuestionSnapshotSignatures.get(snapshotKey);
   if (existingSignature === signature) return;
