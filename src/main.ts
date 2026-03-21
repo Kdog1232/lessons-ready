@@ -1,5 +1,3 @@
-// ✅ FILE: src/main.ts (COPY/PASTE THIS WHOLE FILE)
-console.log("✅ src/main.ts loaded");
 import { generateDefaultSkillFocus } from "./utils/skillFocus";
 // -------------------------
 // ✅ CONFIG
@@ -99,12 +97,12 @@ function extractSectionBlocksFromPlainText(text: string) {
 }
 
 
-function resolveEngagementTemplate(skillFocus: string, subjectValue: string): "neutral" | "sports" | "gaming" | "real-world" | "holiday" {
+function resolveEngagementTemplate(skillFocus: string, subjectValue: string): "neutral" | "sports" | "gaming" | "real_world" | "holiday" {
   const text = `${skillFocus || ""} ${subjectValue || ""}`.toLowerCase();
   if (/(football|basketball|soccer|sports|athlete)/.test(text)) return "sports";
   if (/(gaming|game|fortnite|minecraft|esports)/.test(text)) return "gaming";
   if (/(holiday|winter break|thanksgiving|christmas|new year)/.test(text)) return "holiday";
-  if (/(community|real-world|career|workplace|civic)/.test(text)) return "real-world";
+  if (/(community|real-world|real_world|career|workplace|civic)/.test(text)) return "real_world";
   return "neutral";
 }
 
@@ -250,7 +248,10 @@ function toLessonExportPayload(opts: {
     ],
     questions: selectedQuestions,
     answerKey,
-    exportOptions: { engagementTemplate },
+    exportOptions: {
+      engagementTemplate,
+      engagementTemplateLegacy: engagementTemplate.replace("_", "-"),
+    },
     rubric: {
       title: "Constructed Response Rubric",
       criteria: [
