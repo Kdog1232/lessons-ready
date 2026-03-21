@@ -1,4 +1,4 @@
-console.log("🔥 NEW BUILD LOADED");
+// trigger vercel rebuildconsole.log("🔥 NEW BUILD LOADED");
 console.log("🔥 NEW CODE IS RUNNING");
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
