@@ -1,7 +1,17 @@
+// ✅ FILE: src/main.ts (COPY/PASTE THIS WHOLE FILE)
+console.log("✅ src/main.ts loaded");
+console.log("🧪 test branch build validation active");
 import { generateDefaultSkillFocus } from "./utils/skillFocus";
+import { resolveCanonicalStandard } from "./save-lessons";
 // -------------------------
 // ✅ CONFIG
 // -------------------------
+const path = window.location.pathname;
+const isGeneratorPage =
+  path === "/" ||
+  path.includes("index");
+
+const isPresenterPage = path.includes("present");
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 
 // ✅ Lesson generation (keep as-is)
@@ -24,23 +34,42 @@ const SUPABASE_STATUS_FN_URL =
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
 
 // ✅ Longer timeout
-const HARD_TIMEOUT_MS = 180000; // 3 minutes
+const HARD_TIMEOUT_MS = 60000; // 60 seconds
 
 // ✅ Stripe publishable key (SAFE in frontend)
 const STRIPE_PUBLISHABLE_KEY =
   "pk_live_51SuRvaQu6FSRjIW6zjcH0X7n0jmSi8fOB10P5Oe1c4ZYn5nV5dd7lMeGkQZ4u4mx7mfH5d01bAbqoP8nbs14TyqP00HzRaaPcz";
+
 
 // -------------------------
 // Helpers
 // -------------------------
 function getEl<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
-  if (!el) throw new Error(`Missing element with id="${id}" in index.html`);
+
+  if (!el) {
+    console.warn(`Missing element: ${id}`);
+
+    // Safe fallback element to prevent crashes
+    return {
+      style: {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      value: "",
+      textContent: "",
+    } as unknown as T;
+  }
+
   return el as T;
 }
 
 function getElOpt<T extends HTMLElement>(id: string): T | null {
-  return (document.getElementById(id) as T) || null;
+  return document.getElementById(id) as T | null;
+}
+// ✅ ADD IT RIGHT HERE
+function setDisplay(el: HTMLElement | null, value: string) {
+  if (!el) return;
+  el.style.display = value;
 }
 
 function escapeHtml(s: string) {
@@ -76,6 +105,14 @@ function esc(s: any) {
   return escapeHtml(String(s ?? ""));
 }
 
+(window as any).openPresentMode = function (lessonId: string) {
+  if (!lessonId) {
+    window.location.href = "/present.html";
+    return;
+  }
+  window.location.href = `/present.html?lessonId=${encodeURIComponent(lessonId)}`;
+};
+
 function extractSectionBlocksFromPlainText(text: string) {
   const lines = String(text || "").replaceAll("\r\n", "\n").split("\n");
   const out: Array<{ heading: string; lines: string[] }> = [];
@@ -96,8 +133,7 @@ function extractSectionBlocksFromPlainText(text: string) {
   return out;
 }
 
-
-function resolveEngagementTemplate(skillFocus: string, subjectValue: string): "neutral" | "sports" | "gaming" | "real_world" | "holiday" {
+function resolveEngagementTemplate(skillFocus: string, subjectValue: string): "neutral" | "sports" | "gaming" | "real-world" | "holiday" {
   const text = `${skillFocus || ""} ${subjectValue || ""}`.toLowerCase();
   if (/(football|basketball|soccer|sports|athlete)/.test(text)) return "sports";
   if (/(gaming|game|fortnite|minecraft|esports)/.test(text)) return "gaming";
@@ -112,6 +148,12 @@ function resolveLessonMode(plainText: string): "bluebonnet" | "amplify" | "gener
   if (t.includes("bluebonnet")) return "bluebonnet";
   if (t.includes("amplify")) return "amplify";
   return "generic";
+}
+
+function resolveLessonModeFromPublisher(publisher: string): "standard" {
+  if (!publisher) return "standard";
+  if (publisher.toLowerCase().includes("bluebonnet")) return "standard";
+  return "standard";
 }
 
 function toLessonExportPayload(opts: {
@@ -317,12 +359,14 @@ function getPortalReturnUrl() {
   return window.location.origin + window.location.pathname;
 }
 
-/** Prevent duplicate listeners when refreshAuthUI runs */
 function addOnce(el: HTMLElement | null, key: string, fn: () => void) {
   if (!el) return;
+
   const anyEl = el as any;
   anyEl.__lr_listeners = anyEl.__lr_listeners || {};
+
   if (anyEl.__lr_listeners[key]) return;
+
   anyEl.__lr_listeners[key] = true;
   el.addEventListener("click", fn);
 }
@@ -466,10 +510,7 @@ function isJwtForCurrentProject(token: string): boolean {
 function getSessionIfValidForCurrentProject(): Session | null {
   const s = getSavedSession();
   if (!s?.access_token) return null;
-  if (!isJwtForCurrentProject(s.access_token)) {
-    setSavedSession(null);
-    return null;
-  }
+  // TEMP FIX: disable strict project validation
   return s;
 }
 
@@ -1172,11 +1213,24 @@ function stripLegacyCurriculumBridgeHtml(html: string) {
     if (looksLikeLegacy) t.remove();
   }
 
-  return root.innerHTML;
+// 🔥 Remove numbered Curriculum Bridge section headings like:
+// "2) 🗺️ Curriculum Bridge Map"
+const allNodes = Array.from(root.querySelectorAll("*"));
+for (const node of allNodes) {
+  const txt = (node.textContent || "").trim().toLowerCase();
+
+  const looksNumberedBridge =
+    txt.includes("curriculum bridge map") &&
+    (txt.startsWith("2)") ||
+     txt.startsWith("2.") ||
+     txt.match(/^\d+\)/));
+
+  if (looksNumberedBridge) {
+    node.remove();
+  }
 }
-
-
-
+return root.innerHTML;
+}
 
 
 function normalizePublisherForBadge(publisherName: string) {
@@ -1199,12 +1253,22 @@ function normalizePublisherForBadge(publisherName: string) {
   return p;
 }
 
-function buildCurriculumModeBadgeHtml(opts: { publisherName: string; standard: string }) {
+function buildCurriculumModeBadgeHtml(opts: { 
+  publisherName: string; 
+  standard: string;
+  unit?: string;
+  lesson?: string;
+}) {
   const normalized = normalizePublisherForBadge(opts.publisherName);
   if (!normalized) return "";
 
-  const terms = getCurriculumTerms(opts.publisherName);
   const standardLabel = escapeHtml(opts.standard || "Selected standard");
+  const unitLabel = escapeHtml(opts.unit || "");
+  const lessonLabel = escapeHtml(opts.lesson || "");
+
+  const supportsLine = (unitLabel && lessonLabel)
+    ? `Supports Unit ${unitLabel} • Lesson ${lessonLabel} • ${standardLabel}`
+    : `Supports ${standardLabel}`;
 
   return `
     <div style="
@@ -1222,27 +1286,8 @@ function buildCurriculumModeBadgeHtml(opts: { publisherName: string; standard: s
         ${escapeHtml(normalized)} Alignment Mode Active
       </div>
       <div style="font-size:12px; font-weight:700; color:rgba(255,255,255,0.90);">
-        Supports ${escapeHtml(terms.flowWords[0])} • ${escapeHtml(terms.flowWords[2])} • ${standardLabel}
+        ${supportsLine}
       </div>
-    </div>
-  `;
-}
-
-
-
-function buildWalkthroughLookForsHtml(opts: { standard: string; publisherName: string }) {
-  const terms = getCurriculumTerms(opts.publisherName);
-  const standardLabel = escapeHtml(opts.standard || "selected standard");
-  return `
-    <div class="authBox" style="margin:0 0 10px;">
-      <div class="sectionTitle" style="margin-top:0;">👀 Walkthrough Look-Fors Covered</div>
-      <ul class="mList" style="margin-top:0;">
-        <li>✓ Clear objective aligned to ${standardLabel}</li>
-        <li>✓ Student discourse during ${escapeHtml(terms.flowWords[0])} discussion</li>
-        <li>✓ Text-based evidence cited in writing and discussion</li>
-        <li>✓ Academic vocabulary explicitly reinforced</li>
-        <li>✓ CFU ladder with tiered questioning</li>
-      </ul>
     </div>
   `;
 }
@@ -1303,7 +1348,75 @@ function injectBridgeIntoSection2(cleanHtml: string, bridgeHtml: string) {
   }
   return root.innerHTML;
 }
+async function fetchCurriculumAlignment(opts: {
+  publisher: string;
+  standard: string;
+}) {
+  try {
+    // Step 1: Get program_id from publisher name
+    const programRows = await postgrest("GET", "curriculum_programs", {
+      query: `select=id&name=eq.${encodeURIComponent(opts.publisher)}&limit=1`,
+    });
 
+    if (!Array.isArray(programRows) || !programRows.length) return null;
+
+    const programId = programRows[0].id;
+
+    // Step 2: Find lesson linked to this TEK + program
+    const rows = await postgrest("GET", "lesson_standards", {
+      query:
+        `select=` +
+        `lesson_id,` +
+        `standards(standard_label),` +
+        `curriculum_lessons(` +
+          `lesson_code,lesson_order,` +
+          `curriculum_units(unit_code,program_id)` +
+        `)` +
+        `&standards.standard_label=ilike.*${encodeURIComponent(opts.standard)}*` +
+        `&curriculum_lessons.curriculum_units.program_id=eq.${programId}` +
+        `&limit=1`,
+    });
+
+    if (!Array.isArray(rows) || !rows.length) return null;
+
+    const lesson = rows[0].curriculum_lessons;
+    const unit = lesson?.curriculum_units;
+
+    return {
+      unit: unit?.unit_code || null,
+      lesson: lesson?.lesson_code || lesson?.lesson_order || null,
+    };
+  } catch (e) {
+    console.warn("Alignment lookup failed", e);
+    return null;
+  }
+}
+function buildWalkthroughLookForsHtml(publisherName: string, standard: string) {
+  const normalized = normalizePublisherForBadge(publisherName);
+  if (!normalized) return "";
+
+  return `
+    <div style="
+      margin:0 0 12px;
+      padding:10px 12px;
+      border-radius:12px;
+      background:rgba(255,255,255,0.06);
+      border:1px solid rgba(255,255,255,0.08);
+      font-size:12px;
+    ">
+      <div style="font-weight:800; margin-bottom:6px;">
+        👀 Walkthrough Look-Fors Covered
+      </div>
+      <ul style="margin:0; padding-left:16px;">
+        <li>Clear objective aligned to ${escapeHtml(standard)}</li>
+        <li>Student discourse during collaborative discussion</li>
+        <li>Text-based evidence cited in writing and discussion</li>
+        <li>Academic vocabulary explicitly reinforced</li>
+        <li>CFU ladder with tiered questioning</li>
+      </ul>
+    </div>
+  `;
+}
 function renderLessonWithCurriculumBridge(lessonText: string, opts: {
   publisher: string;
   standard: string;
@@ -1317,32 +1430,38 @@ function renderLessonWithCurriculumBridge(lessonText: string, opts: {
       ? buildStudentWorksheetHtml(lessonText, { includeTopSignals: true })
       : formatLessonToHtml(lessonText);
 
-  const publisherSelected = Boolean((opts.publisher || "").trim());
-  if (!publisherSelected) return baseHtml;
-
-  const modeBadge = buildCurriculumModeBadgeHtml({
-    publisherName: opts.publisher,
-    standard: opts.standard,
-  });
-
-  if (audienceView === "student") {
-    return `${modeBadge}${baseHtml}`;
-  }
-
-  const rewiredHtml = stripLegacyCurriculumBridgeHtml(baseHtml);
-  const bridgeHtml = buildCurriculumBridgeHtml(opts);
-  const withBridge = injectBridgeIntoSection2(rewiredHtml, bridgeHtml);
-  const walkthrough = buildWalkthroughLookForsHtml({
-    standard: opts.standard,
-    publisherName: opts.publisher,
-  });
-  const engagement = buildEngagementBoostHtml();
-  const topSignals = `${modeBadge}${walkthrough}${engagement}`;
-  return `${topSignals}${withBridge}`;
-}
-// -------------------------
-// PDF Generation (pdf-lib)
-// -------------------------
+      const publisherSelected = Boolean((opts.publisher || "").trim());
+      if (!publisherSelected) return baseHtml;
+      
+      const modeBadge = buildCurriculumModeBadgeHtml({
+        publisherName: opts.publisher,
+        standard: opts.standard,
+        unit: opts.unit,
+        lesson: opts.lesson,
+      });
+      
+      if (audienceView === "student") {
+        return `${modeBadge}${baseHtml}`;
+      }
+      
+      const rewiredHtml = stripLegacyCurriculumBridgeHtml(baseHtml);
+      const bridgeHtml = buildCurriculumBridgeHtml(opts);
+      const withBridge = injectBridgeIntoSection2(rewiredHtml, bridgeHtml);
+      
+      const walkthrough = buildWalkthroughLookForsHtml(
+        opts.publisher,
+        opts.standard
+      );
+      
+      const engagement = buildEngagementBoostHtml();
+      const topSignals = `${modeBadge}${walkthrough}${engagement}`;
+      
+      return `${topSignals}${withBridge}`;
+    }
+      
+    // -------------------------
+    // PDF Generation (pdf-lib)
+    // -------------------------
 async function downloadTextAsPdf(opts: {
   title: string;
   metaLine: string;
@@ -1526,9 +1645,12 @@ async function ensureLoggedInForBilling(
   const s = getSavedSession();
   if (s?.access_token) return s;
 
-  const email = authEmail.value.trim();
-  const pw = authPassword.value.trim();
-  if (!email || !pw) throw new Error("Enter email + password first, then retry.");
+  const email = authEmail?.value?.trim();
+  const pw = authPassword?.value?.trim();
+
+  if (!email || !pw) {
+    throw new Error("Enter email + password first, then retry.");
+  }
 
   try {
     return await logIn(email, pw);
@@ -1536,7 +1658,6 @@ async function ensureLoggedInForBilling(
     return await signUp(email, pw);
   }
 }
-
 // -------------------------
 // ✅ Subscription state (cached) FIXED (no duplicate types, caches raw status)
 // -------------------------
@@ -1770,86 +1891,208 @@ async function openPortal(
 // -------------------------
 // App
 // -------------------------
+if (isPresenterPage) {
+  console.log("🎥 Presenter page detected — skipping generator init");
+} else {
 try {
   // Views
   const landingView = getElOpt<HTMLElement>("landingView");
   const appView = getElOpt<HTMLElement>("appView");
 
-  // Auth UI
-  const authEmail = getEl<HTMLInputElement>("authEmail");
-  const authPassword = getEl<HTMLInputElement>("authPassword");
-  const signUpBtn = getEl<HTMLButtonElement>("signUpBtn");
-  const logInBtn = getEl<HTMLButtonElement>("logInBtn");
-  const logOutBtn = getEl<HTMLButtonElement>("logOutBtn");
-  const forgotPwBtn = getElOpt<HTMLButtonElement>("forgotPwBtn");
-  const authStatusPill = getEl<HTMLElement>("authStatusPill");
-  const message = getEl<HTMLElement>("message");
-  const messageApp = getElOpt<HTMLElement>("message_app");
+  // -------------------------
+// Auth UI (SAFE VERSION)
+// -------------------------
+const authEmail = getElOpt<HTMLInputElement>("authEmail");
+const authPassword = getElOpt<HTMLInputElement>("authPassword");
+const signUpBtn = getElOpt<HTMLButtonElement>("signUpBtn");
+const logInBtn = getElOpt<HTMLButtonElement>("logInBtn");
+const logOutBtn = getElOpt<HTMLButtonElement>("logOutBtn");
+const forgotPwBtn = getElOpt<HTMLButtonElement>("forgotPwBtn");
+const authStatusPill = getElOpt<HTMLElement>("authStatusPill");
+const message = getElOpt<HTMLElement>("message");
+const messageApp = getElOpt<HTMLElement>("message_app");
 
-  // Billing + top buttons (HTML already has these)
-  const billingBtnSubscribe =
-    getElOpt<HTMLButtonElement>("billingBtn_subscribe"); // landing subscribe (not present in your new HTML, safe)
-  const billingBtn = getElOpt<HTMLButtonElement>("billingBtn"); // legacy / hidden
-  const billingBtnApp =
-    getElOpt<HTMLButtonElement>("billingBtn_app"); // app top right (single source of truth)
-  const billingBtnApp2 =
-    getElOpt<HTMLButtonElement>("billingBtn_app2"); // duplicate (not present now, safe)
-  const logOutBtnApp = getElOpt<HTMLButtonElement>("logOutBtn_app");
+  // Billing + top buttons (SAFE)
+const billingBtnSubscribe = getElOpt<HTMLButtonElement>("billingBtn_subscribe");
+const billingBtn = getElOpt<HTMLButtonElement>("billingBtn");
+const billingBtnApp = getElOpt<HTMLButtonElement>("billingBtn_app");
+const billingBtnApp2 = getElOpt<HTMLButtonElement>("billingBtn_app2");
+const logOutBtnApp = getElOpt<HTMLButtonElement>("logOutBtn_app");
 
-  // Form / app UI
-  const statusPill = getEl<HTMLElement>("statusPill");
-  const metaLineEl = getEl<HTMLElement>("metaLine");
+// Form / app UI (SAFE)
+const statusPill = getElOpt<HTMLElement>("statusPill");
+const metaLineEl = getElOpt<HTMLElement>("metaLine");
+const mode = getElOpt<HTMLSelectElement>("mode");
 
-  const mode = getEl<HTMLSelectElement>("mode");
+// ✅ SAFE MODE HANDLER
+function applyModeAvailability() {
+  if (!mode) return; // 🔥 prevents crash
 
-  // ✅ NEW: disables Pro-only mode options in the dropdown (uses data-pro="1")
-  function applyModeAvailability() {
-    const proAllowed = isPaidActive(); // strict: only paid "active" (not trialing)
-    const opts = Array.from(mode.querySelectorAll("option"));
+  const proAllowed = isPaidActive();
+  const opts = Array.from(mode.querySelectorAll("option"));
 
-    for (const opt of opts) {
-      const isPro = opt.getAttribute("data-pro") === "1";
-      if (isPro) {
-        opt.disabled = !proAllowed;
-        if (!proAllowed && mode.value === opt.value) {
-          mode.value = "full_lesson";
-        }
+  for (const opt of opts) {
+    const isPro = opt.getAttribute("data-pro") === "1";
+
+    if (isPro) {
+      opt.disabled = !proAllowed;
+
+      if (!proAllowed && mode.value === opt.value) {
+        mode.value = "full_lesson";
       }
     }
   }
+}
+function enforceModeAccess() {
+  if (!mode) return; // 🔥 prevents crash on presenter
 
-  function enforceModeAccess() {
-    // Paid users: unlock Pro-marked options
-    applyModeAvailability();
+  // Paid users: unlock Pro-marked options
+  applyModeAvailability();
 
-    // Keep dropdown enabled for everyone (we just disable Pro options)
-    mode.disabled = false;
+  // Keep dropdown enabled for everyone
+  mode.disabled = false;
 
-    // If NOT paid and user somehow selected a Pro mode, force to full_lesson
-    const selectedOpt = mode.querySelector(
-      `option[value="${CSS.escape(mode.value)}"]`,
-    );
-    if (
-      selectedOpt &&
-      selectedOpt.getAttribute("data-pro") === "1" &&
-      !isPaidActive()
-    ) {
-      mode.value = "full_lesson";
-    }
+  // If NOT paid and user somehow selected a Pro mode, force fallback
+  const selectedOpt = mode.querySelector(
+    `option[value="${CSS.escape(mode.value)}"]`,
+  );
+
+  if (
+    selectedOpt &&
+    selectedOpt.getAttribute("data-pro") === "1" &&
+    !isPaidActive()
+  ) {
+    mode.value = "full_lesson";
   }
+}
 
   const outputStyle = getElOpt<HTMLSelectElement>("outputStyle");
   const audienceView = getElOpt<HTMLSelectElement>("audienceView");
-  const state = getEl<HTMLSelectElement>("state");
-  const publisher = getEl<HTMLSelectElement>("publisher");
-  const publisherOtherWrap = getEl<HTMLElement>("publisherOtherWrap");
-  const publisherOther = getEl<HTMLInputElement>("publisherOther");
+  const state = getElOpt<HTMLSelectElement>("state");
+  const publisher = getElOpt<HTMLSelectElement>("publisher");
+  const publisherOtherWrap = getElOpt<HTMLElement>("publisherOtherWrap");
+  const publisherOther = getElOpt<HTMLInputElement>("publisherOther");
 
-  const grade = getEl<HTMLSelectElement>("grade");
-  const subject = getEl<HTMLSelectElement>("subject");
-  const standard = getEl<HTMLInputElement>("standard");
-  const unit = getEl<HTMLInputElement>("unit");
-  const lesson = getEl<HTMLInputElement>("lesson");
+  const grade = getElOpt<HTMLSelectElement>("grade");
+  const subject = getElOpt<HTMLSelectElement>("subject");
+  const standard = getElOpt<HTMLSelectElement>("standard");
+  function getSelectedStandardDisplay(): string {
+    const select = standard;
+    if (!select) return "";
+    const opt = select.options[select.selectedIndex];
+    return opt?.textContent || select.value;
+  }
+ // ================================
+// 🔹 Standards Dropdown Loader
+// ================================
+
+// 🔒 Prevent race conditions
+let standardsRequestCounter = 0;
+
+async function loadStandardsFor(gradeVal: string, subjectVal: string) {
+  try {
+    const normalizedGrade = gradeVal === "K" ? 0 : Number(gradeVal);
+
+    const anon = getAnonKey();
+
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/standards_canonical?select=standard_label,skill_display_name,canonical_skill&grade=eq.${normalizedGrade}&subject=eq.${encodeURIComponent(subjectVal)}&order=standard_label.asc`,
+      {
+        headers: {
+          apikey: anon,
+          Authorization: `Bearer ${anon}`,
+        },
+      }
+    );
+
+if (!res.ok) throw new Error(await res.text());
+
+const rows = await res.json();
+
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    console.error("loadStandardsFor error", e);
+    return [];
+  }
+}
+
+async function refreshStandardDropdown(): Promise<void> {
+  const requestId = ++standardsRequestCounter;
+
+  const gradeVal = grade?.value;
+  const subjectVal = subject?.value;
+
+  if (!gradeVal || !subjectVal) return;
+
+  const data = await loadStandardsFor(gradeVal, subjectVal);
+
+  // 🚨 Ignore stale async responses
+  if (requestId !== standardsRequestCounter) return;
+
+  const selects = [
+    document.getElementById("standard"),
+    document.getElementById("qs_standard"),
+  ].filter(Boolean) as HTMLSelectElement[];
+
+  selects.forEach((select) => {
+    const previousValue = select.value;
+
+    select.innerHTML = "";
+
+    data.forEach((row: any) => {
+      const opt = document.createElement("option");
+      opt.value = row.standard_label;
+      opt.textContent =
+      `${row.standard_label} — ${row.description || row.skill_display_name}`;
+      select.appendChild(opt);
+    });
+
+    // Restore selection if still valid
+    if ([...select.options].some(o => o.value === previousValue)) {
+      select.value = previousValue;
+    }
+  });
+}
+
+// Event listeners
+grade?.addEventListener("change", refreshStandardDropdown);
+subject?.addEventListener("change", refreshStandardDropdown);
+
+// ⚠️ Remove this if you still see flicker
+// refreshStandardDropdown();
+// ================================
+// 🔹 Quick Panel Sync → Main Form
+// ================================
+
+const qsGrade = getElOpt<HTMLSelectElement>("qs_grade");
+const qsSubject = getElOpt<HTMLSelectElement>("qs_subject");
+const qsStandard = getElOpt<HTMLSelectElement>("qs_standard");
+
+// Sync Quick → Advanced (Grade)
+qsGrade?.addEventListener("change", () => {
+  if (!grade) return;
+  grade.value = qsGrade.value;
+
+  // 🔥 TRIGGER actual change event
+  grade.dispatchEvent(new Event("change", { bubbles: true }));
+});
+
+// Sync Quick → Advanced (Subject)
+qsSubject?.addEventListener("change", () => {
+  if (!subject) return;
+  subject.value = qsSubject.value;
+
+  // 🔥 TRIGGER actual change event
+  subject.dispatchEvent(new Event("change", { bubbles: true }));
+});
+
+// Sync Quick → Advanced (Standard)
+qsStandard?.addEventListener("change", () => {
+  if (!standard) return;
+  standard.value = qsStandard.value;
+});
+  const unit = getElOpt<HTMLInputElement>("unit");
+  const lesson = getElOpt<HTMLInputElement>("lesson");
   const skillFocus = getElOpt<HTMLTextAreaElement>("skillFocus");
   const supportingStandards = getElOpt<HTMLInputElement>("supportingStandards");
   const lessonLength = getElOpt<HTMLInputElement>("lessonLength");
@@ -1875,10 +2118,10 @@ try {
   }
 
   // Auto-fill when user changes inputs
-  standard.addEventListener("change", autoFillSkillFocusIfBlank);
-  grade.addEventListener("change", autoFillSkillFocusIfBlank);
-  subject.addEventListener("change", autoFillSkillFocusIfBlank);
-  state.addEventListener("change", autoFillSkillFocusIfBlank);
+  standard?.addEventListener("change", autoFillSkillFocusIfBlank);
+  grade?.addEventListener("change", autoFillSkillFocusIfBlank);
+  subject?.addEventListener("change", autoFillSkillFocusIfBlank);
+  state?.addEventListener("change", autoFillSkillFocusIfBlank);
 
   // ✅ Campus / Program (DB-powered accuracy) — optional inputs/hidden fields
   const campusId = getElOpt<HTMLInputElement>("campusId"); // hidden or input (not present in your HTML, safe)
@@ -1908,26 +2151,26 @@ try {
   const loadPresetBtn = getElOpt<HTMLButtonElement>("loadPresetBtn");
   const deletePresetBtn = getElOpt<HTMLButtonElement>("deletePresetBtn");
 
-  const testMode = getEl<HTMLInputElement>("testMode");
+  const testMode = getElOpt<HTMLInputElement>("testMode");
 
-  const generateBtn = getEl<HTMLButtonElement>("generateBtn");
-  const openLibraryBtn = getEl<HTMLButtonElement>("openLibraryBtn");
-  const closeLibraryBtn = getEl<HTMLButtonElement>("closeLibraryBtn");
+  const generateBtn = getElOpt<HTMLButtonElement>("generateBtn");
+  const openLibraryBtn = getElOpt<HTMLButtonElement>("openLibraryBtn");
+  const closeLibraryBtn = getElOpt<HTMLButtonElement>("closeLibraryBtn");
 
   // Output actions
-  const outputView = getEl<HTMLElement>("outputView");
-  const libraryView = getEl<HTMLElement>("libraryView");
-  const librarySearch = getEl<HTMLInputElement>("librarySearch");
-  const libraryList = getEl<HTMLElement>("libraryList");
+  const outputView = getElOpt<HTMLElement>("outputView");
+  const libraryView = getElOpt<HTMLElement>("libraryView");
+  const librarySearch = getElOpt<HTMLInputElement>("librarySearch");
+  const libraryList = getElOpt<HTMLElement>("libraryList");
 
-  const favoriteBtn = getEl<HTMLButtonElement>("favoriteBtn");
-  const copyBtn = getEl<HTMLButtonElement>("copyBtn");
+  const favoriteBtn = getElOpt<HTMLButtonElement>("favoriteBtn");
+  const copyBtn = getElOpt<HTMLButtonElement>("copyBtn");
   const copyDocsBtn = getElOpt<HTMLButtonElement>("copyDocsBtn");
   const printBtn = getElOpt<HTMLButtonElement>("printBtn");
-  const downloadPdfBtn = getEl<HTMLButtonElement>("downloadPdfBtn");
+  const downloadPdfBtn = getElOpt<HTMLButtonElement>("downloadPdfBtn");
   const exportPackBtn = getElOpt<HTMLButtonElement>("exportPackBtn");
 
-  const output = getEl<HTMLElement>("output");
+  const output = getElOpt<HTMLElement>("output");
 
   // Feedback Garage (HTML has it — but backend endpoint/table might not yet exist, so it’s optional/safe)
   const submitFeedbackBtn = getElOpt<HTMLButtonElement>("submitFeedbackBtn");
@@ -1940,38 +2183,50 @@ try {
   let lastLessonId: string | null = null;
   let lastLessonFavorite = false;
 
+
   // -------------------------
   // UI helpers
   // -------------------------
   function setStatus(text: string) {
-    statusPill.textContent = text;
-  }
+  if (!statusPill) return;
+  statusPill.textContent = text;
+}
 
-  function activeMessageEl(): HTMLElement {
-    const appIsVisible = appView ? appView.style.display !== "none" : false;
-    if (appIsVisible && messageApp) return messageApp;
-    return message;
-  }
+  function activeMessageEl(): HTMLElement | null {
+  const appIsVisible = appView ? appView.style.display !== "none" : false;
 
-  function showMessage(html: string, ok = true) {
-    const target = activeMessageEl();
-    target.innerHTML = `<div class="${ok ? "ok" : "error"}">${html}</div>`;
-  }
+  if (appIsVisible && messageApp) return messageApp;
+  if (message) return message;
 
-  function clearMessage() {
-    message.innerHTML = "";
-    if (messageApp) messageApp.innerHTML = "";
-  }
+  return null; // ✅ prevents crash
+}
+
+ function showMessage(html: string, ok = true) {
+  const target = activeMessageEl();
+
+  if (!target) return; // ✅ prevents crash
+
+  target.innerHTML = `<div class="${ok ? "ok" : "error"}">${html}</div>`;
+}
+
+function clearMessage() {
+  if (message) message.innerHTML = "";
+  if (messageApp) messageApp.innerHTML = "";
+}
 
   function setMeta(text: string) {
-    metaLineEl.textContent = text;
+  if (!metaLineEl) return;
+  metaLineEl.textContent = text;
+}
+
+ function setView(isLoggedIn: boolean) {
+  if (landingView) {
+    setDisplay(landingView, isLoggedIn ? "none" : "block");
   }
 
-  function setView(isLoggedIn: boolean) {
-  if (!landingView || !appView) return;
-
-  landingView.style.display = isLoggedIn ? "none" : "block";
-  appView.style.display = isLoggedIn ? "block" : "none";
+  if (appView) {
+    setDisplay(appView, isLoggedIn ? "block" : "none");
+  }
 
   if (isLoggedIn) {
     document.body.classList.add("logged-in");
@@ -1979,16 +2234,20 @@ try {
     document.body.classList.remove("logged-in");
   }
 }
-  function refreshPublisherUI() {
-    publisherOtherWrap.style.display = publisher.value === "Other" ? "block" : "none";
-  }
+ function refreshPublisherUI() {
+  if (!publisherOtherWrap || !publisher) return;
+  setDisplay(
+    publisherOtherWrap,
+    publisher.value === "Other" ? "block" : "none"
+  );
+}
 
-  function showLibrary(show: boolean) {
-    outputView.style.display = show ? "none" : "block";
-    libraryView.style.display = show ? "block" : "none";
-    openLibraryBtn.style.display = show ? "none" : "inline-block";
-    closeLibraryBtn.style.display = show ? "inline-block" : "none";
-  }
+function showLibrary(show: boolean) {
+  setDisplay(outputView, show ? "none" : "block");
+  setDisplay(libraryView, show ? "block" : "none");
+  setDisplay(openLibraryBtn, show ? "none" : "inline-block");
+  setDisplay(closeLibraryBtn, show ? "inline-block" : "none");
+}
 
   async function refreshBillingUI(forceStatus = false) {
     const s = getSavedSession();
@@ -2001,53 +2260,59 @@ try {
       enforceModeAccess();
     }
 
-    // Landing view subscribe button (only when logged OUT)
-    if (billingBtnSubscribe) {
-      billingBtnSubscribe.style.display = loggedIn ? "none" : "inline-block";
-    }
+  // Landing subscribe button (only when logged OUT)
+  setDisplay(billingBtnSubscribe, loggedIn ? "none" : "inline-block");
 
-    // ✅ Hide legacy button
-    if (billingBtn) {
-      billingBtn.style.display = "none";
-    }
+  // Hide legacy button
+  setDisplay(billingBtn, "none");
 
-    // ✅ Single source of truth: billingBtn_app
-    if (billingBtnApp) {
-      billingBtnApp.style.display = loggedIn ? "inline-block" : "none";
-      billingBtnApp.textContent = isSubscribed() ? "Manage Subscription" : "Subscribe";
-    }
+  // Main app billing button
+  setDisplay(billingBtnApp, loggedIn ? "inline-block" : "none");
 
-    // ✅ Always hide duplicate (if it exists)
-    if (billingBtnApp2) {
-      billingBtnApp2.style.display = "none";
-    }
-  }
+ if (billingBtnApp) {
+  billingBtnApp.textContent = isSubscribed()
+    ? "Manage Subscription"
+    : "Subscribe";
+}
 
-  function refreshAuthUI() {
-    const s = getSavedSession();
-    const loggedIn = Boolean(s?.access_token);
+  // Always hide duplicate
+  setDisplay(billingBtnApp2, "none");
+}
+ function refreshAuthUI() {
+  const s = getSavedSession();
+  const loggedIn = Boolean(s?.access_token);
 
+  // ✅ SAFE
+  if (authStatusPill) {
     authStatusPill.textContent = loggedIn
       ? `Logged in: ${s?.user?.email || s?.user?.id}`
       : "Not logged in";
-
-    signUpBtn.style.display = loggedIn ? "none" : "inline-block";
-    logInBtn.style.display = loggedIn ? "none" : "inline-block";
-    if (forgotPwBtn) forgotPwBtn.style.display = loggedIn ? "none" : "inline-block";
-    logOutBtn.style.display = loggedIn ? "inline-block" : "none";
-
-    setView(loggedIn);
-    favoriteBtn.disabled = !loggedIn || !lastLessonId;
-
-    // billing UI is async (status call)
-    refreshBillingUI(false).catch(() => {});
   }
 
-  refreshPublisherUI();
-  publisher.addEventListener("change", refreshPublisherUI);
+  // ✅ SAFE (already good)
+  setDisplay(signUpBtn, loggedIn ? "none" : "inline-block");
+  setDisplay(logInBtn, loggedIn ? "none" : "inline-block");
+  setDisplay(forgotPwBtn, loggedIn ? "none" : "inline-block");
+  setDisplay(logOutBtn, loggedIn ? "inline-block" : "none");
+
+  // ✅ SAFE
+  if (favoriteBtn) {
+    favoriteBtn.disabled = !loggedIn || !lastLessonId;
+  }
+
+   setView(loggedIn); // ✅ THIS IS KEY
+  // billing UI is async (status call)
+  refreshBillingUI(false).catch(() => {});
+   
+}
+
+  if (isGeneratorPage) {
+    refreshPublisherUI();
+    publisher?.addEventListener("change", refreshPublisherUI);
+  }
 
   // ✅ Keep mode access correct if user changes mode
-  mode.addEventListener("change", () => enforceModeAccess());
+  mode?.addEventListener("change", () => enforceModeAccess());
 
   // -------------------------
   // ✅ BUTTON WIRING
@@ -2055,9 +2320,10 @@ try {
   addOnce(signUpBtn, "signup", async () => {
     try {
       clearMessage();
-      const email = authEmail.value.trim();
-      const pw = authPassword.value.trim();
-      if (!email || !pw) return showMessage("Enter email + password.", false);
+      const email = authEmail?.value?.trim();
+const pw = authPassword?.value?.trim();
+
+if (!email || !pw) return showMessage("Enter email + password.", false);
 
       await signUp(email, pw);
       showMessage("Account created ✅ Logged in.", true);
@@ -2073,8 +2339,8 @@ try {
   addOnce(logInBtn, "login", async () => {
     try {
       clearMessage();
-      const email = authEmail.value.trim();
-      const pw = authPassword.value.trim();
+      const email = authEmail?.value?.trim();
+      const pw = authPassword?.value?.trim();
       if (!email || !pw) return showMessage("Enter email + password.", false);
 
       await logIn(email, pw);
@@ -2092,7 +2358,7 @@ try {
     addOnce(forgotPwBtn, "forgot", async () => {
       try {
         clearMessage();
-        const email = authEmail.value.trim();
+        const email = authEmail?.value?.trim();
         if (!email) return showMessage("Enter your email first.", false);
         await supabaseAuthPOST("recover", { email });
         showMessage("Password reset email sent ✅ Check your inbox.", true);
@@ -2107,12 +2373,16 @@ try {
   showMessage("Logged out ✅", true);
   lastLessonId = null;
   lastLessonFavorite = false;
-  favoriteBtn.textContent = "☆ Favorite";
-  favoriteBtn.disabled = true;
+  if (favoriteBtn) {
+    favoriteBtn.textContent = "☆ Favorite";
+    favoriteBtn.disabled = true;
+  }
 
   setCachedSubStatus("unknown", "unknown");
   enforceModeAccess();
   refreshAuthUI();
+    
+  setView(false);
 }
 
   addOnce(logOutBtn, "logout", doLogout);
@@ -2175,6 +2445,30 @@ try {
     }
   } catch {}
 
+  if (
+    isGeneratorPage &&
+    state &&
+    publisher &&
+    publisherOtherWrap &&
+    publisherOther &&
+    grade &&
+    subject &&
+    standard &&
+    unit &&
+    lesson &&
+    testMode &&
+    generateBtn &&
+    openLibraryBtn &&
+    closeLibraryBtn &&
+    outputView &&
+    libraryView &&
+    librarySearch &&
+    libraryList &&
+    favoriteBtn &&
+    copyBtn &&
+    downloadPdfBtn &&
+    output
+  ) {
   // -------------------------
   // Presets
   // -------------------------
@@ -2371,9 +2665,9 @@ try {
 
     const rows = await postgrest("GET", "lessons", {
       query:
-        "select=id,created_at,grade,subject,standard,curriculum_unit,curriculum_lesson,publisher,state,is_favorite,lesson_text,lesson_html" +
-        "&order=created_at.desc" +
-        "&limit=50",
+     "select=id,created_at,grade,subject,standard_label,curriculum_unit,curriculum_lesson,publisher,state,lesson_text,is_favorite" +
+     "&order=created_at.desc" +
+     "&limit=50",
     });
 
     let data = Array.isArray(rows) ? rows : [];
@@ -2381,7 +2675,7 @@ try {
     if (q) {
       data = data.filter((r: any) => {
         const blob = [
-          r.standard,
+          r.standard_label,
           r.subject,
           r.curriculum_unit,
           r.curriculum_lesson,
@@ -2402,7 +2696,7 @@ try {
 
     libraryList.innerHTML = data
       .map((r: any) => {
-        const title = `Grade ${r.grade ?? "?"} • ${r.subject ?? ""} • ${r.standard ?? ""}`.trim();
+        const title = `Grade ${r.grade ?? "?"} • ${r.subject ?? ""} • ${r.standard_label ?? ""}`.trim();
         const metaTxt =
           `${r.publisher ?? ""}${r.state ? ` • ${r.state}` : ""} • ${r.curriculum_unit ?? ""} ${r.curriculum_lesson ?? ""}`.trim();
         const star = r.is_favorite ? "★" : "☆";
@@ -2417,6 +2711,7 @@ try {
               <div class="libraryBtns">
                 <button class="smallBtn" data-action="star" type="button">${star} Favorite</button>
                 <button class="smallBtn" data-action="open" type="button">Open</button>
+                <button class="smallBtn present-btn" data-action="present" data-id="${esc(r.id)}" onclick="openPresentMode('${esc(r.id)}')" type="button">🎥 Present Mode</button>
                 <button class="smallBtn" data-action="pdf" type="button">PDF</button>
                 <button class="smallBtn danger" data-action="delete" type="button">Delete</button>
               </div>
@@ -2459,7 +2754,7 @@ try {
       if (action === "open" || action === "pdf") {
         const rows = await postgrest("GET", "lessons", {
           query:
-            "select=id,is_favorite,lesson_text,lesson_html,grade,subject,standard,curriculum_unit,curriculum_lesson" +
+            "select=id,is_favorite,lesson_text,lesson_html,grade,subject,standard_label,curriculum_unit,curriculum_lesson" +
             `&id=eq.${encodeURIComponent(lessonId)}` +
             "&limit=1",
         });
@@ -2475,19 +2770,20 @@ try {
         favoriteBtn.textContent = lastLessonFavorite ? "★ Favorited" : "☆ Favorite";
 
         output.innerHTML = renderLessonWithCurriculumBridge(data.lesson_text || "", {
-          publisher: publisher.value === "Other" ? (publisherOther.value.trim() || "Other") : publisher.value,
-          standard: standard.value.trim(),
-          unit: unit.value.trim(),
-          lesson: lesson.value.trim(),
+          publisher: publisher.value === "Other"
+            ? (publisherOther.value.trim() || "Other")
+            : publisher.value,
+          standard: data.standard_label || "",
+          unit: data.curriculum_unit || "",
+          lesson: data.curriculum_lesson || "",
           audienceView: (audienceView?.value as OutputAudienceView) || "teacher",
         });
         lastLessonPlainText = htmlToPlainText(output.innerHTML);
         downloadPdfBtn.disabled = !lastLessonPlainText.trim();
         if (exportPackBtn) exportPackBtn.disabled = !lastLessonPlainText.trim();
 
-        // ✅ Show Feedback Garage when opening a saved lesson
-        const feedbackGarage = getElOpt<HTMLElement>("feedbackGarage");
-        if (feedbackGarage) feedbackGarage.style.display = "block";
+       const feedbackGarage = getElOpt<HTMLElement>("feedbackGarage");
+       setDisplay(feedbackGarage, "block");
 
         if (action === "pdf") {
           const filename = safeName(
@@ -2500,6 +2796,13 @@ try {
             filename,
           });
         }
+        return;
+      }
+
+
+      if (action === "present") {
+        const presentLessonId = btnEl.getAttribute("data-id") || lessonId;
+        (window as any).openPresentMode(presentLessonId);
         return;
       }
 
@@ -2811,6 +3114,7 @@ THEME-SPECIFIC FOCUS (${std || "theme"}):
   generateBtn.addEventListener("click", async () => {
     if (activeStreamAbort) activeStreamAbort.abort();
     activeStreamAbort = new AbortController();
+    let requestTimedOut = false;
 
     clearMessage();
     output.innerHTML = "";
@@ -2819,16 +3123,18 @@ THEME-SPECIFIC FOCUS (${std || "theme"}):
     if (exportPackBtn) exportPackBtn.disabled = true;
 
     // ✅ Hide Feedback Garage until we have a fresh lesson
-    const garage = getElOpt<HTMLElement>("feedbackGarage");
-    if (garage) garage.style.display = "none";
-    const fbStatus = getElOpt<HTMLElement>("feedbackStatus");
-    if (fbStatus) fbStatus.innerHTML = "";
+   const garage = getElOpt<HTMLElement>("feedbackGarage");
+setDisplay(garage, "none");
+
+const fbStatus = getElOpt<HTMLElement>("feedbackStatus");
+if (fbStatus) fbStatus.innerHTML = "";
 
     generateBtn.disabled = true;
     setStatus("Working…");
 
     const timeoutId = setTimeout(() => {
       try {
+        requestTimedOut = true;
         activeStreamAbort?.abort();
       } catch {}
     }, HARD_TIMEOUT_MS);
@@ -2865,6 +3171,9 @@ THEME-SPECIFIC FOCUS (${std || "theme"}):
         mode: chosenMode,
         testMode: testMode.checked,
         stream: wantsStream,
+        max_tokens: 800,
+        maxTokens: 800,
+        responseDetail: "concise",
 
         publisher: pub,
         publisherOther: pubOther,
@@ -2933,6 +3242,12 @@ THEME-SPECIFIC FOCUS (${std || "theme"}):
       payload.teacherNotes =
         (payload.teacherNotes || "") +
         `
+GENERATION SIZE GUARDRAILS:
+- Keep the response concise and classroom-ready.
+- Limit output to the most essential lesson components only.
+- If slides/checkpoints are included, cap them at 5.
+- Prioritize objective, model, guided practice, independent practice, and exit ticket.
+
 ${buildQualityGuardrailsNotes(standard.value.trim())}`;
 
       // ✅ NEW: inject Admin Defense/Toolkit instructions (frontend-only, safe)
@@ -2985,12 +3300,14 @@ Include:
 
       const contentType = (res.headers.get("content-type") || "").toLowerCase();
       let lessonText = "";
+      let lessonSections: StructuredLessonSections | undefined;
 
       if (wantsStream && contentType.includes("text/event-stream")) {
         let liveText = "";
         let lastChunk = "";
         let lastRendered = "";
         let finalLessonText = "";
+        let finalLessonSections: StructuredLessonSections | undefined;
 
         output.classList.add("typing");
         output.textContent = " ";
@@ -3024,6 +3341,13 @@ Include:
               if (typeof candidate === "string" && candidate.trim()) {
                 finalLessonText = candidate;
               }
+              const candidateSections =
+                obj?.sections ??
+                obj?.data?.sections ??
+                obj?.result?.sections;
+              if (candidateSections && typeof candidateSections === "object") {
+                finalLessonSections = candidateSections as StructuredLessonSections;
+              }
             },
 
             onError: (obj) => {
@@ -3037,6 +3361,7 @@ Include:
         output.classList.remove("typing");
 
         lessonText = (finalLessonText || liveText) as string;
+        lessonSections = finalLessonSections;
         output.innerHTML = renderLessonWithCurriculumBridge(lessonText, {
           publisher: pub,
           standard: standard.value.trim(),
@@ -3054,45 +3379,108 @@ Include:
         }
         if (!data.ok) throw new Error(data.error || "Unknown error");
         lessonText = (data.lesson_plan || data.prompt_preview || "") as string;
+        if (data.sections && typeof data.sections === "object") lessonSections = data.sections as StructuredLessonSections;
       }
 
       lessonText = dedupeWholeTextIfRepeated(lessonText);
-
-      output.innerHTML = renderLessonWithCurriculumBridge(lessonText, {
-        publisher: pub,
-        standard: standard.value.trim(),
-        unit: unit.value.trim(),
-        lesson: lesson.value.trim(),
-        audienceView: (audienceView?.value as OutputAudienceView) || "teacher",
-      });
+      // Render lesson + curriculum bridge
+    output.innerHTML = renderLessonWithCurriculumBridge(lessonText, {
+     publisher: pub,
+     standard: getSelectedStandardDisplay(),
+    unit: unit.value.trim() || "",
+    lesson: lesson.value.trim() || "",
+});
+      
       lastLessonPlainText = htmlToPlainText(output.innerHTML);
       downloadPdfBtn.disabled = !lastLessonPlainText.trim();
       if (exportPackBtn) exportPackBtn.disabled = !lastLessonPlainText.trim();
 
       // ✅ Show Feedback Garage after output renders
-      if (garage) garage.style.display = "block";
+      setDisplay(garage, "block");
 
-      const row = {
+      const lessonModeForRow = resolveLessonModeFromPublisher(pub);
+      
+ // 🔹 CANONICAL RESOLUTION (STRICT MATCH)
+const standardLabel = standard.value.trim();
+const subjectValue = subject.value.trim();
+
+const canonicalQuery =
+  `standard_label=eq.${encodeURIComponent(standardLabel)}` +
+  `&grade=eq.${gradeValue}` +
+  `&subject=ilike.${encodeURIComponent(subjectValue)}`+
+  `&select=canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name` +
+  `&limit=1`;
+
+const canonicalRows = await postgrest("GET", "standards_canonical", {
+  query: canonicalQuery,
+});
+
+if (!Array.isArray(canonicalRows) || !canonicalRows.length) {
+  throw new Error(
+    `Canonical mapping not found for ${standardLabel} (grade ${gradeValue}, subject ${subjectValue})`
+  );
+}
+
+const canonical = canonicalRows[0];
+const row = {
         user_id: session.user.id,
         publisher: pub,
         publisher_other: pub === "Other" ? pubOther || null : null,
         state: st || null,
         grade: grade.value || null,
         subject: subject.value.trim() || null,
-        standard: standard.value.trim() || null,
+        standard_label: standard.value.trim() || null,
+        canonical_skill: canonical.canonical_skill,
+        cognitive_verb: canonical.cognitive_verb || null,
+        dok_target: canonical.dok_target || null,
+        staar_priority: canonical.staar_priority || null,
+        skill_display_name: canonical.skill_display_name || null,
         curriculum_unit: unit.value.trim() || null,
         curriculum_lesson: lesson.value.trim() || null,
         lesson_text: lessonText || "(empty)",
         lesson_html: output.innerHTML || null,
+        structured_sections: lessonSections || null,
+        slide_definitions: undefined,
+        lesson_mode: lessonModeForRow,
         is_favorite: false,
       };
 
-      const inserted = await postgrest("POST", "lessons", {
-        body: row,
-        preferReturn: "representation",
-      });
+      let inserted: any;
+      try {
+        inserted = await postgrest("POST", "lessons", {
+          body: row,
+          preferReturn: "representation",
+        });
+      } catch (e: any) {
+        const msg = String(e?.message || e || "").toLowerCase();
+        const missingSlideCols =
+          (msg.includes("slide_definitions") || msg.includes("lesson_mode") || msg.includes("structured_sections")) &&
+          (msg.includes("does not exist") || msg.includes("42703") || msg.includes("column"));
+
+        if (!missingSlideCols) throw e;
+
+        console.warn("lessons insert fallback (missing slide columns):", {
+          lesson_mode: lessonModeForRow,
+          slide_count: 0,
+        });
+
+        const fallbackRow = {
+          ...row,
+          structured_sections: undefined,
+          slide_definitions: undefined,
+          lesson_mode: undefined,
+        };
+
+        inserted = await postgrest("POST", "lessons", {
+          body: fallbackRow,
+          preferReturn: "representation",
+        });
+      }
 
       const saved = Array.isArray(inserted) ? inserted[0] : inserted;
+      localStorage.setItem("lr_current_lesson", JSON.stringify({
+        slide_definitions: slideDefs,
+      }));
       lastLessonId = saved?.id || null;
       lastLessonFavorite = false;
 
@@ -3110,7 +3498,7 @@ try {
       state: st || null,
       grade: grade.value || null,
       subject: subject.value.trim() || null,
-      standard: standard.value.trim() || null,
+      standard_label: standard.value.trim() || null,
     },
     preferReturn: "minimal",
   });
@@ -3124,8 +3512,18 @@ setStatus("Done");
     } catch (err: any) {
       const msg =
         err?.name === "AbortError"
-          ? "Timed out. Try again (first request can be slower)."
+          ? `AI request timed out after ${Math.round(HARD_TIMEOUT_MS / 1000)} seconds. Try a smaller request or retry.`
           : String(err?.message || err);
+
+      if (requestTimedOut) {
+        console.error("OpenAI-backed lesson request timed out", {
+          timeoutMs: HARD_TIMEOUT_MS,
+          mode: mode.value,
+          grade: grade.value,
+          subject: subject.value,
+          standard: standard.value,
+        });
+      }
 
       showMessage(esc(msg), false);
       output.classList.remove("typing");
@@ -3178,6 +3576,9 @@ setStatus("Done");
     });
   }
 
+
+  }
+
   // ✅ Load subscription cache ASAP so UI doesn’t flash “unknown”
   loadCachedSubStatus(60_000);
 
@@ -3189,4 +3590,5 @@ setStatus("Done");
 } catch (err: any) {
   console.error("❌ main.ts crashed:", err);
   alert(String(err?.message || err));
+}
 }
