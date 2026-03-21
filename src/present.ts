@@ -37,6 +37,7 @@ type SlideDefinition = {
   notes?: string;
   durationSeconds?: number;
   teacherCue?: string;
+  teacherMove?: string;
 
   answerChoices?: string[];
   correctIndex?: number;
@@ -78,6 +79,7 @@ type LessonRow = {
   grade_level?: number | string;
   grade?: number | string;
   grade_band?: string;
+  lesson_plan?: string;
   lesson_text?: string;
 };
 
@@ -99,10 +101,15 @@ type SavedSession = {
 type LiveSessionRow = {
   id: string;
   join_code: string;
+  active_question_id?: string;
+  is_locked?: boolean;
 };
 
 type ResponseRow = {
   answer_index: number;
+  question_id?: string;
+  student_id?: string;
+  created_at?: string;
 };
 
 type SessionStudentRow = {
@@ -115,6 +122,32 @@ type LiveResultsSnapshot = {
   answeredCount: number;
   studentCount: number;
   studentNames: string[];
+};
+
+type QuestionPerformanceSnapshot = {
+  session_id: string;
+  lesson_id: string;
+  question_id: string;
+  standard: string;
+  dok_level: string;
+  correct_percent: number;
+  total_responses: number;
+  correct_responses: number;
+  most_common_wrong: string;
+  misconception: string;
+  student_count: number;
+  timestamp: string;
+  teacher_move: string;
+};
+
+type LessonReportSnapshot = {
+  session_id: string;
+  lesson_id: string;
+  average_mastery: number;
+  strongest_dok: string;
+  weakest_dok: string;
+  top_misconception: string;
+  recommended_next_step: string;
 };
 
 type GradeBand = "3-4" | "5-6" | "7-8";
@@ -209,6 +242,7 @@ let currentPriority = "";
 let currentTek = "";
 let currentVerb = "";
 let currentStandard = "";
+let currentGradeLabel = "";
 let currentExecutionConfig: ExecutionConfig | null = null;
 let slideContainerEl: HTMLElement | null = null;
 let masteryTracker: MasteryTracker = {
@@ -224,7 +258,12 @@ let liveResultsPoll: number | null = null;
 let liveRealtimeSocket: WebSocket | null = null;
 let liveRealtimeHeartbeat: number | null = null;
 let liveRealtimeRef = 1;
+let liveAnswersLocked = false;
+let lastSyncedQuestionId = "";
+let lastSyncedLockState: boolean | null = null;
+let leaderboardHtml = `<div><b>Leaderboard</b><br/>Waiting for responses...</div>`;
 const AUTO_RETEACH_THRESHOLD = 0.6;
+const AUTO_ADVANCE_RESPONSE_THRESHOLD = 0.8;
 let activeDockPanel: "responses" | "reteach" | "notes" = "responses";
 let latestLiveSnapshot: LiveResultsSnapshot | null = null;
 let locked = false;
@@ -454,6 +493,35 @@ async function parseJsonResponse<T>(res: Response, context: string): Promise<T> 
   }
 }
 
+function renderMeter(percent: number, width = 10): string {
+  const safePercent = Math.max(0, Math.min(100, Math.round(percent)));
+  const filled = Math.round((safePercent / 100) * width);
+  return `${"█".repeat(filled)}${"░".repeat(Math.max(0, width - filled))} ${safePercent}%`;
+}
+
+function formatDokLevel(dok: number): string {
+  return `DOK${Math.max(1, Math.min(3, Math.round(dok || 1)))}`;
+}
+
+function summarizeMasteryStatus(percent: number): { label: string; nextStep: string } {
+  if (percent >= 80) {
+    return {
+      label: "✅ Mastery on track",
+      nextStep: "Extend with compare-and-defend writing that cites multiple pieces of evidence.",
+    };
+  }
+  if (percent >= 60) {
+    return {
+      label: "⚠️ Approaching mastery",
+      nextStep: "Small group reteach on inference + evidence before the next independent task.",
+    };
+  }
+  return {
+    label: "🚨 Intensive reteach needed",
+    nextStep: "Re-model with think-aloud, guided evidence annotation, and immediate revision practice.",
+  };
+}
+
 function themeForMode(mode: string) {
   const m = String(mode || "generic").toLowerCase();
   if (m === "bluebonnet") return { accent: "#2563eb", border: "#1d4ed8", bg: "#0f172a" };
@@ -487,9 +555,31 @@ function cloneSlide(slide: SlideDefinition): SlideDefinition {
   return { ...slide, items: Array.isArray(slide.items) ? [...slide.items] : undefined };
 }
 
-function parseLessonTextBlocks(lessonText: string) {
+type ParsedLessonQuestion = {
+  raw: string;
+  question: string;
+  choices: string[];
+  correctIndex?: number;
+};
 
-  if (!lessonText) return { passage: "", questions: [] };
+type ParsedLessonBlocks = {
+  passage: string;
+  questions: ParsedLessonQuestion[];
+};
+
+type StructuredLessonSections = {
+  objective?: string;
+  vocab?: string[];
+  modeling?: string;
+  guided?: string;
+  independent?: string;
+  exit?: string;
+  cfu?: {
+    tier1?: string;
+    tier2?: string;
+    tier3?: string;
+  };
+};
 
   const normalized = String(lessonText || "").trim();
   const jsonMatch = normalized.match(/\{[\s\S]*\}/);
@@ -521,7 +611,14 @@ function parseLessonTextBlocks(lessonText: string) {
   const passageMatch =
     normalized.match(/PASSAGE:\s*([\s\S]*?)(?:QUESTION|$)/i);
 
-  const passage = passageMatch ? passageMatch[1].trim() : "";
+  const jsonMatchBlock = sourceText.match(/\{[\s\S]*\}/);
+  const jsonCandidateText = jsonMatchBlock ? jsonMatchBlock[0] : sourceText;
+
+  try {
+    const parsed = JSON.parse(jsonCandidateText) as {
+      passage?: string;
+      questions?: Array<{ question?: string; choices?: string[]; correctIndex?: number }>;
+    };
 
   const questions =
     normalized.split(/QUESTION/i).slice(1).map(block => ({
@@ -530,22 +627,63 @@ function parseLessonTextBlocks(lessonText: string) {
 
   return { passage, questions };
 }
-const TEST_LESSON = `
-PASSAGE:
 
-In the heart of the forest, there is an ancient tree that tells stories.
+function extractSectionText(source: string, label: string): string {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = source.match(new RegExp(`${escaped}\\s*:?\\s*([\\s\\S]*?)(?=\\n[A-Z][A-Z\\s&/]{2,}:|$)`, "i"));
+  return match ? match[1].trim() : "";
+}
 
-QUESTION
+function cleanLines(block: string): string[] {
+  return String(block || "")
+    .split("\n")
+    .map((line) => line.trim().replace(/^[-•]\s*/, ""))
+    .filter(Boolean);
+}
 
-question: What is the central idea?
+function firstLine(lines: string[]): string {
+  return lines.find(Boolean) || "";
+}
 
-A) The forest is old
-B) Animals gather around the tree
-C) The tree is magical
-D) The owl tells stories
+function findBlock(source: string, pattern: RegExp): string {
+  const headings = source.match(/^[A-Z][A-Z\s&/]{2,}:/gm) || [];
+  for (const heading of headings) {
+    if (!pattern.test(heading)) continue;
+    return extractSectionText(source, heading.replace(/:$/, ""));
+  }
+  return "";
+}
 
-correctIndex: 1
-`;
+function buildStructuredSectionsFromLesson(lessonText: string): StructuredLessonSections {
+  const source = String(lessonText || "").replaceAll("\r\n", "\n").trim();
+  if (!source) return {};
+
+  const objective = firstLine(cleanLines(findBlock(source, /objective|i can/i)));
+  const vocab = cleanLines(findBlock(source, /academic vocabulary|vocabulary/i));
+  const modeling = firstLine(cleanLines(findBlock(source, /modeling|model|i do/i)));
+  const guided = firstLine(cleanLines(findBlock(source, /guided practice|we do/i)));
+  const independent = firstLine(cleanLines(findBlock(source, /independent|you do/i)));
+  const exit = firstLine(cleanLines(findBlock(source, /exit ticket|closure/i)));
+
+  const cfu: StructuredLessonSections["cfu"] = {
+    tier1: firstLine(cleanLines(findBlock(source, /cfu tier 1/i))),
+    tier2: firstLine(cleanLines(findBlock(source, /cfu tier 2/i))),
+    tier3: firstLine(cleanLines(findBlock(source, /cfu tier 3/i))),
+  };
+
+  return {
+    objective: objective || undefined,
+    vocab: vocab.length ? vocab : undefined,
+    modeling: modeling || undefined,
+    guided: guided || undefined,
+    independent: independent || undefined,
+    exit: exit || undefined,
+    cfu: cfu.tier1 || cfu.tier2 || cfu.tier3 ? cfu : undefined,
+  };
+}
+
+function buildFullTeksDeck(parsed: ParsedLessonBlocks, sections: StructuredLessonSections): SlideDefinition[] {
+  const slides: SlideDefinition[] = [];
 
 console.log("TEST PARSER RESULT:", parseLessonTextBlocks(TEST_LESSON));
 
@@ -633,7 +771,122 @@ function applyLessonTextToDeck(deck: SlideDefinition[], lessonText?: string): Sl
     current.answerChoices = parsedQuestion.choices;
     current.prompt = shortPassage ? trimInjectedText(shortPassage, 180) : current.prompt;
   }
-  return next;
+
+  slides.push({
+    type: "headline",
+    stageType: "strategy_formula",
+    heading: "Today’s Strategy",
+    subtext: "Analyze how character choices impact plot using text evidence.",
+    section: "Strategy",
+    durationSeconds: 90,
+  });
+
+  if (sections?.modeling) {
+    slides.push({
+      type: "discussion",
+      stageType: "model_think_aloud",
+      heading: "I Do (Teacher Model)",
+      prompt: sections.modeling,
+      section: "Modeling",
+      durationSeconds: 120,
+    });
+  }
+
+  if (sections?.cfu) {
+    slides.push({
+      type: "question",
+      stageType: "guided_dok_ladder",
+      heading: "Check for Understanding",
+      question: sections.cfu.tier2 || sections.cfu.tier1 || "Check for Understanding",
+      answerChoices: [
+        "Strong evidence-based answer",
+        "Partial reasoning",
+        "Misconception",
+        "Irrelevant",
+      ],
+      correctIndex: 0,
+      section: "Guided",
+      durationSeconds: 120,
+    });
+  }
+
+  if (sections?.guided) {
+    slides.push({
+      type: "discussion",
+      stageType: "compare_defend",
+      heading: "We Do",
+      prompt: sections.guided,
+      section: "Guided",
+      durationSeconds: 120,
+    });
+    slides.push({
+      type: "discussion",
+      stageType: "compare_defend",
+      heading: "Turn & Talk",
+      prompt: "Which choice had the biggest impact on the plot? Defend your answer with evidence.",
+      section: "Discussion",
+      durationSeconds: 75,
+    });
+    slides.push({
+      type: "energy",
+      stageType: "compare_defend",
+      heading: "Debate Time",
+      subtext: "Stand on the side you agree with and defend it.",
+      section: "Energy",
+      durationSeconds: 60,
+    });
+  }
+
+  if (sections?.independent) {
+    slides.push({
+      type: "writing",
+      stageType: "independent_transfer",
+      heading: "You Do",
+      prompt: sections.independent,
+      subtext: sections.independent,
+      section: "Independent",
+      durationSeconds: 180,
+    });
+  }
+
+  if (sections?.exit) {
+    slides.push({
+      type: "question",
+      stageType: "exit_ticket",
+      heading: "Exit Ticket",
+      question: sections.exit,
+      section: "Exit",
+      durationSeconds: 120,
+    });
+  }
+
+  if (parsed.passage) {
+    slides.push({
+      type: "headline",
+      heading: "Read the Passage",
+      subtext: parsed.passage,
+      section: "Passage",
+      durationSeconds: 150,
+    });
+  }
+
+  if (parsed.questions?.length) {
+    parsed.questions.forEach((q, i) => {
+      slides.push({
+        type: "question",
+        stageType: "guided_dok_ladder",
+        heading: `Question ${i + 1}`,
+        question: q.question,
+        prompt: parsed.passage || "",
+        answerChoices: q.choices,
+        correctIndex: q.correctIndex,
+        section: "Practice",
+        durationSeconds: 150,
+      });
+    });
+  }
+
+  return slides;
 }
 
 function sanitizeQuestionSlide(slide: SlideDefinition): SlideDefinition {
@@ -2310,12 +2563,12 @@ async function logPresentationEvent(slideIndex: number, stageType?: SlideType) {
 
 async function fetchLessonRow(lessonId: string, headers: Record<string, string>): Promise<LessonRow | null> {
   const selectAttempts = [
-    "lesson_mode,canonical_skill,cognitive_verb,dok_target,grade,lesson_text",
-    "lesson_mode,standard_label,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band",
+    "lesson_mode,canonical_skill,cognitive_verb,dok_target,grade,lesson_text,lesson_plan",
+    "lesson_mode,standard_label,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band,lesson_text,lesson_plan",
     "lesson_mode,standard_label,canonical_skill,cognitive_verb,dok_target",
     "lesson_mode,standard_label,canonical_skill,cognitive_verb",
     "lesson_mode,standard_label,canonical_skill",
-    "lesson_mode,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band,lesson_text",
+    "lesson_mode,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band,lesson_text,lesson_plan",
     "lesson_mode,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band",
     "lesson_mode,canonical_skill,cognitive_verb,dok_target",
     "lesson_mode,canonical_skill,cognitive_verb",
@@ -2360,6 +2613,7 @@ async function fetchLessonRow(lessonId: string, headers: Record<string, string>)
         body.includes("grade") ||
         body.includes("grade_band") ||
         body.includes("standard_label") ||
+        body.includes("lesson_plan") ||
         body.includes("lesson_text"));
 
     if (!isMissingColumn) {
@@ -2407,6 +2661,8 @@ function coerceLessonRow(input: unknown): LessonRow | null {
     grade_level: (raw.grade_level ?? raw.gradeLevel ?? raw.grade ?? undefined) as LessonRow["grade_level"],
     grade: (raw.grade ?? raw.grade_level ?? undefined) as LessonRow["grade"],
     grade_band: String(raw.grade_band || raw.gradeBand || "").trim() || undefined,
+    lesson_plan: String(raw.lesson_plan || raw.lessonPlan || "").trim() || undefined,
+    lesson_text: String(raw.lesson_text || raw.lessonText || "").trim() || undefined,
   };
   if (!row.standard_label && !row.canonical_skill) return null;
   return row;
@@ -2538,6 +2794,7 @@ async function loadSlides(incomingSlides: any[] = []) {
   currentPriority = priority;
   currentTek = tekDescription;
   const grade = normalizeGrade(row.grade_level ?? row.grade ?? row.grade_band);
+  currentGradeLabel = String(grade || row.grade_level || row.grade || row.grade_band || "").trim();
   currentSkillType = skillType;
   applyPresentationTheme();
 
@@ -2592,12 +2849,21 @@ baseSlides.unshift(buildBrandedSplashSlide(
 ));
 
 
-// Inject lesson content LAST
-if (row.lesson_text) {
-
-  const parsed = parseLessonTextBlocks(row.lesson_text);
-
-  console.log("Parsed lesson text:", parsed);
+  if (parsedSlides.length) {
+    baseSlides = parsedSlides.map(cloneSlide);
+  } else {
+    const lockedTemplateSlides = buildSkillLockedDeck(
+      skillType,
+      tekDescription,
+      dok,
+      grade,
+      verb,
+      priority,
+      executionConfig,
+    );
+    baseSlides = lockedTemplateSlides.map(cloneSlide);
+    baseSlides = enforceSkillLock(baseSlides, skillType);
+  }
 
   baseSlides = enforceSkillLock(baseSlides, skillType);
   baseSlides.unshift(buildBrandedSplashSlide(
@@ -2634,7 +2900,13 @@ if (row.lesson_text) {
 
 const assessmentExists = baseSlides.some(slide => slide.type === "question");
 
-if (!assessmentExists) {
+function ensureAssessmentSlide(
+  deck: SlideDefinition[],
+  skillType: SkillType,
+): SlideDefinition[] {
+  const next = deck.map(cloneSlide);
+  const assessmentExists = next.some((slide) => slide.type === "question");
+  if (assessmentExists) return next;
 
     baseSlides.splice(insertIndex, 0, {
       type: "question",
@@ -2806,6 +3078,11 @@ function currentQuestionId() {
   return `slide${currentIndex + 1}`;
 }
 
+function currentSessionQuestionId() {
+  const slide = slides[currentIndex];
+  return slide?.type === "question" ? currentQuestionId() : "";
+}
+
 function stopLiveResultsPolling() {
   if (liveResultsPoll) {
     window.clearInterval(liveResultsPoll);
@@ -2829,6 +3106,33 @@ function closeLiveRealtime() {
     liveRealtimeSocket.close();
     liveRealtimeSocket = null;
   }
+}
+
+async function syncLiveSessionState(force = false) {
+  if (!liveSessionId) return;
+
+  const activeQuestionId = currentSessionQuestionId();
+  const shouldLock = activeQuestionId ? liveAnswersLocked : true;
+  if (!force && lastSyncedQuestionId === activeQuestionId && lastSyncedLockState === shouldLock) return;
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/sessions?id=eq.${encodeURIComponent(liveSessionId)}`, {
+    method: "PATCH",
+    headers: {
+      ...buildSupabaseHeaders(true),
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify({
+      active_question_id: activeQuestionId || null,
+      is_locked: shouldLock,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Unable to sync active question (${res.status})`);
+  }
+
+  lastSyncedQuestionId = activeQuestionId;
+  lastSyncedLockState = shouldLock;
 }
 
 function realtimeWebsocketUrl() {
@@ -2929,6 +3233,537 @@ function getCorrectPercentFromSnapshot(snapshot?: LiveResultsSnapshot): number {
   return snapshot.counts[slide.correctIndex as number] / snapshot.answeredCount;
 }
 
+function correctIndexByQuestionId(questionId: string): number {
+  const match = String(questionId || "").match(/^slide(\d+)$/i);
+  if (!match) return -1;
+  const index = Number(match[1]) - 1;
+  const slide = slides[index];
+  return slide?.type === "question" && Number.isInteger(slide.correctIndex)
+    ? Number(slide.correctIndex)
+    : -1;
+}
+
+async function refreshLeaderboard() {
+  if (!liveSessionId) {
+    leaderboardHtml = `<div><b>Leaderboard</b><br/>Waiting for responses...</div>`;
+    return;
+  }
+
+  const headers = buildSupabaseHeaders(false);
+  const responsesQuery = `select=student_id,question_id,answer_index,created_at&session_id=eq.${encodeURIComponent(liveSessionId)}&order=created_at.asc`;
+  const studentsQuery = `select=id,student_name&session_id=eq.${encodeURIComponent(liveSessionId)}`;
+
+  try {
+    const [responsesRes, studentsRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/responses?${responsesQuery}`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/session_students?${studentsQuery}`, { headers }),
+    ]);
+    if (!responsesRes.ok || !studentsRes.ok) return;
+
+    const responseRows = await parseJsonResponse<ResponseRow[]>(responsesRes, "Failed to load leaderboard responses");
+    const studentRows = await parseJsonResponse<SessionStudentRow[]>(studentsRes, "Failed to load leaderboard students");
+    const studentNames = new Map(studentRows.map((row) => [String(row.id), String(row.student_name || "Student").trim() || "Student"]));
+    const questionOrderMap = new Map<string, ResponseRow[]>();
+    for (const row of responseRows || []) {
+      const questionId = String(row.question_id || "");
+      if (!questionId) continue;
+      const list = questionOrderMap.get(questionId) || [];
+      list.push(row);
+      questionOrderMap.set(questionId, list);
+    }
+
+    const playerStats = new Map<string, { xp: number; streak: number; bestStreak: number; correct: number }>();
+    const ensurePlayer = (studentId: string) => {
+      const existing = playerStats.get(studentId);
+      if (existing) return existing;
+      const fresh = { xp: 0, streak: 0, bestStreak: 0, correct: 0 };
+      playerStats.set(studentId, fresh);
+      return fresh;
+    };
+
+    const orderedQuestions = [...questionOrderMap.keys()].sort((a, b) => {
+      const aIndex = Number(String(a).replace(/^slide/i, "")) || 0;
+      const bIndex = Number(String(b).replace(/^slide/i, "")) || 0;
+      return aIndex - bIndex;
+    });
+
+    orderedQuestions.forEach((questionId) => {
+      const rowsForQuestion = questionOrderMap.get(questionId) || [];
+      rowsForQuestion.forEach((row, responseIndex) => {
+        const studentId = String(row.student_id || "");
+        if (!studentId) return;
+        const stats = ensurePlayer(studentId);
+        const correctIndex = correctIndexByQuestionId(questionId);
+        const isCorrect = correctIndex >= 0 && row.answer_index === correctIndex;
+        if (!isCorrect) {
+          stats.streak = 0;
+          return;
+        }
+
+        const speedBonus = responseIndex < 3 ? 50 : responseIndex < 6 ? 25 : 0;
+        stats.correct += 1;
+        stats.streak += 1;
+        stats.bestStreak = Math.max(stats.bestStreak, stats.streak);
+        stats.xp += 100 + speedBonus + (stats.streak >= 2 ? 25 : 0);
+      });
+    });
+
+    const top = [...playerStats.entries()]
+      .map(([studentId, stats]) => ({
+        name: studentNames.get(studentId) || "Student",
+        xp: stats.xp,
+        streak: stats.streak,
+        bestStreak: stats.bestStreak,
+        title: stats.bestStreak >= 4 ? "Legend" : stats.bestStreak >= 3 ? "Hot Streak" : stats.bestStreak >= 2 ? "Rising" : "Ready",
+      }))
+      .sort((a, b) => b.xp - a.xp || b.bestStreak - a.bestStreak || a.name.localeCompare(b.name))
+      .slice(0, 3);
+
+    if (!top.length) {
+      leaderboardHtml = `<div><b>Leaderboard</b><br/>No scores yet. First correct answer wins the board.</div>`;
+      return;
+    }
+
+    leaderboardHtml = `<div><b>Leaderboard</b>${top.map((row, index) => `<div>${index + 1}. ${escHtml(row.name)} — ${row.xp} XP • 🔥 ${row.bestStreak} best • ${escHtml(row.title)}</div>`).join("")}</div>`;
+  } catch {
+    // ignore leaderboard refresh issues
+  }
+}
+
+function dokBadgeHtml(): string {
+  const level = Math.max(1, Math.min(3, normalizeDok(currentDok || "2")));
+  const badgeMap: Record<number, string> = {
+    1: "🟢 DOK 1",
+    2: "🟡 DOK 2",
+    3: "🔴 DOK 3",
+  };
+  return `<div class="alignmentChip">${escHtml(badgeMap[level] || "🟡 DOK 2")}</div>`;
+}
+
+function autoAdvanceSlide() {
+  if (currentIndex >= slides.length - 1) return;
+  currentIndex += 1;
+  revealStep = 0;
+  renderSlide();
+}
+
+function pickRandomStudent(studentNames: string[]): string {
+  if (!studentNames.length) return "";
+  return studentNames[Math.floor(Math.random() * studentNames.length)] || "";
+}
+
+async function persistQuestionSnapshot(snapshot: QuestionPerformanceSnapshot) {
+  if (!snapshot.session_id || !snapshot.lesson_id) return;
+
+  const signature = JSON.stringify([
+    snapshot.lesson_id,
+    snapshot.standard,
+    snapshot.dok_level,
+    snapshot.correct_percent,
+    snapshot.total_responses,
+    snapshot.correct_responses,
+    snapshot.most_common_wrong,
+    snapshot.misconception,
+    snapshot.student_count,
+    snapshot.teacher_move,
+  ]);
+  const snapshotKey = `${snapshot.session_id}:${snapshot.question_id}`;
+  const existingSignature = persistedQuestionSnapshotSignatures.get(snapshotKey);
+  if (existingSignature === signature) return;
+
+  const headers = {
+    ...buildSupabaseHeaders(true),
+    Prefer: "return=representation",
+  };
+  const body = {
+    session_id: snapshot.session_id,
+    lesson_id: snapshot.lesson_id,
+    question_id: snapshot.question_id,
+    dok_level: snapshot.dok_level,
+    correct_percent: snapshot.correct_percent,
+    total_responses: snapshot.total_responses,
+    correct_responses: snapshot.correct_responses,
+    most_common_wrong: snapshot.most_common_wrong,
+    misconception: snapshot.misconception,
+    teacher_move: snapshot.teacher_move,
+    standard: snapshot.standard,
+    student_count: snapshot.student_count,
+    created_at: snapshot.timestamp,
+  };
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/question_snapshots`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return;
+    persistedQuestionSnapshotSignatures.set(snapshotKey, signature);
+    void refreshWeeklyTeacherDashboard();
+  } catch {
+    // swallow persistence errors so live instruction is not blocked
+  }
+}
+
+async function persistLessonReport(report: LessonReportSnapshot) {
+  if (!report.session_id || !report.lesson_id) return;
+
+  const signature = JSON.stringify(report);
+  if (lastLessonReportSignature === signature) return;
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/lesson_reports`, {
+      method: "POST",
+      headers: {
+        ...buildSupabaseHeaders(true),
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(report),
+    });
+    if (!res.ok) return;
+    lastLessonReportSignature = signature;
+    void refreshWeeklyTeacherDashboard();
+  } catch {
+    // report sync should never block present mode rendering
+  }
+}
+
+async function refreshWeeklyTeacherDashboard() {
+  const since = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000)).toISOString();
+  const query = `select=session_id,lesson_id,average_mastery,strongest_dok,weakest_dok,top_misconception,recommended_next_step,created_at&created_at=gte.${encodeURIComponent(since)}&order=created_at.desc`;
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/lesson_reports?${query}`, {
+      headers: buildSupabaseHeaders(false),
+    });
+    if (!res.ok) return;
+    const rows = await parseJsonResponse<Array<{
+      session_id?: string;
+      lesson_id?: string;
+      average_mastery?: number;
+      strongest_dok?: string;
+      weakest_dok?: string;
+      top_misconception?: string;
+      recommended_next_step?: string;
+    }>>(res, "Failed to load weekly dashboard");
+
+    if (!rows.length) return;
+
+    const uniqueSessions = new Set(rows.map((row) => String(row.session_id || "")).filter(Boolean));
+    const avgMastery = Math.round(rows.reduce((sum, row) => sum + Number(row.average_mastery || 0), 0) / rows.length);
+    const weakestDokCounts = new Map<string, number>();
+    const misconceptionCounts = new Map<string, number>();
+    rows.forEach((row) => {
+      const weakest = String(row.weakest_dok || "").trim();
+      if (weakest) weakestDokCounts.set(weakest, (weakestDokCounts.get(weakest) || 0) + 1);
+      const misconception = String(row.top_misconception || "").trim();
+      if (misconception) misconceptionCounts.set(misconception, (misconceptionCounts.get(misconception) || 0) + 1);
+    });
+    const weakestDok = [...weakestDokCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "Not enough data";
+    const topMisconception = [...misconceptionCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+      || "Students struggle to justify with evidence";
+    const weeklyStatus = summarizeMasteryStatus(avgMastery);
+    const suggestedFocus = rows[0]?.recommended_next_step || weeklyStatus.nextStep;
+
+    weeklyDashboardHtml = `
+      <div class="notesSection">
+        <h3>🗓 Weekly Teacher Dashboard</h3>
+        <div class="notesText">Lessons taught: ${uniqueSessions.size}</div>
+        <div class="notesText">Average mastery: ${renderMeter(avgMastery, 12)}</div>
+        <div class="notesText">Weakest area: ${escHtml(weakestDok)}</div>
+        <div class="notesText">Top misconception: ${escHtml(topMisconception)}</div>
+        <div class="notesText">Status: ${escHtml(weeklyStatus.label)}</div>
+        <div class="notesText">Suggested focus next week: ${escHtml(suggestedFocus)}</div>
+      </div>
+    `;
+
+    if (slides[currentIndex]?.stageType === "exit_ticket" || currentIndex === slides.length - 1) {
+      renderSlide();
+    }
+  } catch {
+    // silent fallback: report can still use current lesson snapshots
+  }
+}
+
+async function refreshTeksTrendInsights() {
+  const standard = String(currentStandard || "").trim();
+  if (!standard) return;
+
+  const query = `select=lesson_id,standard,correct_percent,created_at&standard=eq.${encodeURIComponent(standard)}&order=created_at.desc`;
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/question_snapshots?${query}`, {
+      headers: buildSupabaseHeaders(false),
+    });
+    if (!res.ok) return;
+
+    const rows = await parseJsonResponse<Array<{
+      lesson_id?: string;
+      standard?: string;
+      correct_percent?: number;
+      created_at?: string;
+    }>>(res, "Failed to load TEKS trend");
+
+    const lessonAverages = new Map<string, { created_at: string; values: number[] }>();
+    for (const row of rows) {
+      const lessonId = String(row.lesson_id || "").trim();
+      if (!lessonId) continue;
+      const bucket = lessonAverages.get(lessonId) || {
+        created_at: String(row.created_at || ""),
+        values: [],
+      };
+      bucket.values.push(Number(row.correct_percent || 0));
+      if (!bucket.created_at || String(row.created_at || "") > bucket.created_at) {
+        bucket.created_at = String(row.created_at || "");
+      }
+      lessonAverages.set(lessonId, bucket);
+    }
+
+    const recentLessons = [...lessonAverages.entries()]
+      .map(([lessonId, item]) => ({
+        lessonId,
+        created_at: item.created_at,
+        avg: Math.round(item.values.reduce((sum, value) => sum + value, 0) / Math.max(1, item.values.length)),
+      }))
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+      .slice(0, 10);
+
+    if (!recentLessons.length) return;
+
+    const recentAverage = Math.round(recentLessons.reduce((sum, item) => sum + item.avg, 0) / recentLessons.length);
+    const oldestHalf = recentLessons.slice(Math.ceil(recentLessons.length / 2));
+    const newestHalf = recentLessons.slice(0, Math.ceil(recentLessons.length / 2));
+    const oldestAvg = oldestHalf.length
+      ? oldestHalf.reduce((sum, item) => sum + item.avg, 0) / oldestHalf.length
+      : recentAverage;
+    const newestAvg = newestHalf.length
+      ? newestHalf.reduce((sum, item) => sum + item.avg, 0) / newestHalf.length
+      : recentAverage;
+    const delta = Math.round(newestAvg - oldestAvg);
+    const trendLabel = delta > 3 ? "↑ improving" : delta < -3 ? "↓ declining" : "→ stable";
+
+    teksTrendHtml = `
+      <div class="notesSection">
+        <h3>📚 TEKS Across Recent Lessons</h3>
+        <div class="notesText">TEKS ${escHtml(standard)} Mastery (last ${recentLessons.length} lessons): ${renderMeter(recentAverage, 10)}</div>
+        <div class="notesText">Trend: ${escHtml(trendLabel)}</div>
+      </div>
+    `;
+
+    if (slides[currentIndex]?.stageType === "exit_ticket" || currentIndex === slides.length - 1) {
+      renderSlide();
+    }
+  } catch {
+    // keep local report if historical TEKS data is unavailable
+  }
+}
+
+async function refreshTeacherComparisonInsights() {
+  const standard = String(currentStandard || "").trim();
+  if (!standard) return;
+
+  try {
+    const lessonRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/lessons?select=id,user_id,grade,subject,standard&standard=eq.${encodeURIComponent(standard)}&order=created_at.desc&limit=30`,
+      { headers: buildSupabaseHeaders(false) },
+    );
+    if (!lessonRes.ok) return;
+    const lessons = await parseJsonResponse<Array<{
+      id?: string;
+      user_id?: string;
+      grade?: string | number;
+      subject?: string;
+      standard?: string;
+    }>>(lessonRes, "Failed to load teacher comparison lessons");
+
+    const lessonIds = lessons.map((lesson) => String(lesson.id || "").trim()).filter(Boolean);
+    if (!lessonIds.length) return;
+
+    const encodedLessonIds = lessonIds.map((id) => `"${id}"`).join(",");
+    const reportRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/lesson_reports?select=lesson_id,average_mastery&lesson_id=in.(${encodeURIComponent(encodedLessonIds)})`,
+      { headers: buildSupabaseHeaders(false) },
+    );
+    if (!reportRes.ok) return;
+    const reports = await parseJsonResponse<Array<{
+      lesson_id?: string;
+      average_mastery?: number;
+    }>>(reportRes, "Failed to load teacher comparison reports");
+
+    const lessonToTeacher = new Map(
+      lessons.map((lesson) => [String(lesson.id || ""), String(lesson.user_id || "")]),
+    );
+    const teacherBuckets = new Map<string, number[]>();
+    reports.forEach((report) => {
+      const teacherId = lessonToTeacher.get(String(report.lesson_id || ""));
+      if (!teacherId) return;
+      const list = teacherBuckets.get(teacherId) || [];
+      list.push(Number(report.average_mastery || 0));
+      teacherBuckets.set(teacherId, list);
+    });
+
+    const teacherRows = [...teacherBuckets.entries()]
+      .map(([teacherId, values]) => ({
+        teacherId,
+        avg: Math.round(values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length)),
+      }))
+      .sort((a, b) => b.avg - a.avg)
+      .slice(0, 3);
+
+    if (!teacherRows.length) {
+      teacherComparisonHtml = `
+        <div class="notesSection">
+          <h3>👥 Teacher Comparison</h3>
+          <div class="notesText">Comparison will populate after lesson reports accumulate for this standard.</div>
+        </div>
+      `;
+      return;
+    }
+
+    const comparisonRows = teacherRows
+      .map((row, index) => `<div class="notesText">Teacher ${String.fromCharCode(65 + index)}: ${renderMeter(row.avg, 8)}</div>`)
+      .join("");
+    const comparisonLabel = `${currentGradeLabel ? `Grade ${escHtml(currentGradeLabel)} ` : ""}${escHtml(String(lessons[0]?.subject || "").toUpperCase() || "Current Cohort")}`;
+
+    teacherComparisonHtml = `
+      <div class="notesSection">
+        <h3>👥 Teacher Comparison</h3>
+        <div class="notesText">${comparisonLabel}</div>
+        ${comparisonRows}
+      </div>
+    `;
+
+    if (slides[currentIndex]?.stageType === "exit_ticket" || currentIndex === slides.length - 1) {
+      renderSlide();
+    }
+  } catch {
+    teacherComparisonHtml = `
+      <div class="notesSection">
+        <h3>👥 Teacher Comparison</h3>
+        <div class="notesText">Comparison data is unavailable with the current report dataset.</div>
+      </div>
+    `;
+  }
+}
+
+function recordQuestionPerformanceSnapshot(
+  questionId: string,
+  correctPercent: number,
+  mostCommonWrong: string,
+  misconception: string,
+  teacherMove: string,
+  answeredCount: number,
+  correctResponses: number,
+  studentCount: number,
+) {
+  const snapshot: QuestionPerformanceSnapshot = {
+    session_id: liveSessionId,
+    lesson_id: lessonIdGlobal,
+    question_id: questionId,
+    standard: currentTek || currentStandard || "Not tagged",
+    dok_level: formatDokLevel(normalizeDok(currentDok || "2")),
+    correct_percent: correctPercent,
+    total_responses: answeredCount,
+    correct_responses: correctResponses,
+    most_common_wrong: mostCommonWrong,
+    misconception,
+    student_count: studentCount,
+    timestamp: new Date().toISOString(),
+    teacher_move: teacherMove,
+  };
+
+  const existingIndex = questionPerformanceSnapshots.findIndex((item) => item.question_id === questionId);
+  if (existingIndex >= 0) {
+    questionPerformanceSnapshots[existingIndex] = snapshot;
+  } else {
+    questionPerformanceSnapshots.push(snapshot);
+  }
+
+  void persistQuestionSnapshot(snapshot);
+}
+
+function buildEndOfLessonReport(): string {
+  if (!questionPerformanceSnapshots.length) {
+    return `<div class="notesSection"><h3>📊 Lesson Summary</h3><div class="notesText">No live question snapshots yet.</div></div>${teksTrendHtml || ""}${teacherComparisonHtml || ""}${weeklyDashboardHtml || ""}`;
+  }
+
+  const avgMastery = Math.round(
+    questionPerformanceSnapshots.reduce((sum, item) => sum + item.correct_percent, 0) / questionPerformanceSnapshots.length,
+  );
+
+  const byDok = new Map<string, number[]>();
+  questionPerformanceSnapshots.forEach((item) => {
+    const list = byDok.get(item.dok_level) || [];
+    list.push(item.correct_percent);
+    byDok.set(item.dok_level, list);
+  });
+
+  const dokAverages = [...byDok.entries()].map(([dok, values]) => ({
+    dok,
+    avg: values.reduce((sum, value) => sum + value, 0) / values.length,
+  }));
+  dokAverages.sort((a, b) => b.avg - a.avg);
+
+  const strongestArea = dokAverages.length ? dokAverages[0].dok : "Not enough data";
+  const weakestArea = dokAverages.length ? dokAverages[dokAverages.length - 1].dok : "Not enough data";
+
+  const misconceptionCounts = new Map<string, number>();
+  questionPerformanceSnapshots.forEach((item) => {
+    const key = item.misconception || item.most_common_wrong;
+    misconceptionCounts.set(key, (misconceptionCounts.get(key) || 0) + 1);
+  });
+  const topMisconception = [...misconceptionCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "No repeated misconception detected";
+  const latestSnapshot = questionPerformanceSnapshots[questionPerformanceSnapshots.length - 1];
+  const teksMastery = latestSnapshot?.standard || currentTek || currentStandard || "Not tagged";
+  const teksSnapshots = questionPerformanceSnapshots.filter((item) => item.standard === teksMastery);
+  const teksMasteryPercent = teksSnapshots.length
+    ? Math.round(teksSnapshots.reduce((sum, item) => sum + item.correct_percent, 0) / teksSnapshots.length)
+    : avgMastery;
+  const status = summarizeMasteryStatus(teksMasteryPercent);
+  const dokRows = dokAverages.map((item) => `<div class="notesText">${escHtml(item.dok)}: ${renderMeter(item.avg, 8)}</div>`).join("");
+  const nextStep = latestSnapshot?.teacher_move || status.nextStep;
+  const report: LessonReportSnapshot = {
+    session_id: liveSessionId,
+    lesson_id: lessonIdGlobal,
+    average_mastery: avgMastery,
+    strongest_dok: strongestArea,
+    weakest_dok: weakestArea,
+    top_misconception: topMisconception,
+    recommended_next_step: nextStep,
+  };
+  void persistLessonReport(report);
+
+  return `
+    <div class="notesSection">
+      <h3>📊 Mastery Overview</h3>
+      <div class="notesText">${renderMeter(avgMastery, 10)}</div>
+      <div class="notesText" style="margin-top:8px;"><b>DOK Breakdown:</b></div>
+      ${dokRows}
+      <div class="notesText" style="margin-top:8px;">Strongest Area: ${escHtml(strongestArea)}</div>
+      <div class="notesText">Weakest Area: ${escHtml(weakestArea)}</div>
+      <div class="notesText">Top Misconception: ${escHtml(topMisconception)}</div>
+    </div>
+
+    <div class="notesSection">
+      <h3>🎯 TEKS Mastery</h3>
+      <div class="notesText">TEKS ${escHtml(teksMastery)} Mastery: ${renderMeter(teksMasteryPercent, 10)}</div>
+      <div class="notesText">Status: ${escHtml(status.label)}</div>
+      <div class="notesText">Recommended: ${escHtml(nextStep)}</div>
+    </div>
+
+    ${teksTrendHtml || ""}
+    ${teacherComparisonHtml || ""}
+    ${weeklyDashboardHtml || ""}
+
+    <div class="notesSection">
+      <h3>🧾 Snapshot Sync</h3>
+      <div class="notesText">
+        Saved to Supabase question_snapshots and lesson_reports using session, lesson, DOK, mastery, and misconception fields.
+      </div>
+    </div>
+  `;
+}
+
 function launchAutoReteach() {
   const slide = slides[currentIndex];
   if (!slide || slide.type !== "question") return;
@@ -3021,9 +3856,9 @@ function renderLiveSessionPanel(message?: string, snapshot?: LiveResultsSnapshot
     return;
   }
 
-  const questionId = currentQuestionId();
+  const activeQuestionId = currentSessionQuestionId();
   const joinUrl = `${LIVE_JOIN_BASE}?code=${encodeURIComponent(liveJoinCode)}`;
-  statusEl.innerHTML = `Join Code: <b>${escHtml(liveJoinCode)}</b><br/>Go to: ${escHtml(joinUrl)}<br/>Current Question: ${escHtml(questionId)}`;
+  statusEl.innerHTML = `Join Code: <b>${escHtml(liveJoinCode)}</b><br/>Go to: ${escHtml(joinUrl)}<br/>Active Question: ${escHtml(activeQuestionId || "Waiting for teacher")}<br/>Answer State: <b>${liveAnswersLocked ? "Locked" : "Open"}</b>`;
 
   if (message) {
     resultsEl.textContent = message;
@@ -3059,7 +3894,7 @@ function renderLiveSessionPanel(message?: string, snapshot?: LiveResultsSnapshot
     ? `<div style="margin-top:8px;"><b>Students Joined</b></div>${studentNames.map((name) => `<div>${escHtml(name)}</div>`).join("")}`
     : "";
 
-  const responsesHtml = `<div><b>Live Results</b></div>${progressLine}${rows.join("")}${joinedNames}`;
+  const responsesHtml = `<div><b>Live Results</b></div>${progressLine}${rows.join("")}${joinedNames}<div style="margin-top:10px;">${leaderboardHtml}</div>`;
   const reteachHtml = `${reteachBanner || "<div><b>Reteach</b><br/>No reteach trigger right now. Keep monitoring accuracy.</div>"}`;
   resultsEl.innerHTML = responsesHtml + reteachBanner;
   setDockPanelContent(responsesHtml, `<div><b>Reteach</b></div>${reteachHtml}`);
@@ -3162,7 +3997,12 @@ async function startLiveSession() {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/sessions`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ lesson_id: lessonIdGlobal, join_code: joinCode }),
+    body: JSON.stringify({
+      lesson_id: lessonIdGlobal,
+      join_code: joinCode,
+      active_question_id: currentSessionQuestionId() || null,
+      is_locked: currentSessionQuestionId() ? false : true,
+    }),
   });
 
   if (!res.ok) {
@@ -3178,8 +4018,18 @@ async function startLiveSession() {
 
   liveSessionId = session.id;
   liveJoinCode = session.join_code;
+  questionPerformanceSnapshots = [];
+  persistedQuestionSnapshotSignatures = new Map<string, string>();
+  lastLessonReportSignature = "";
+  liveAnswersLocked = Boolean(session.is_locked);
+  lastSyncedQuestionId = String(session.active_question_id || currentSessionQuestionId() || "");
+  lastSyncedLockState = Boolean(session.is_locked);
   renderLiveSessionPanel("Waiting for student responses...");
   subscribeLiveResponsesRealtime();
+  await syncLiveSessionState(true);
+  void refreshWeeklyTeacherDashboard();
+  void refreshTeksTrendInsights();
+  void refreshTeacherComparisonInsights();
   await refreshLiveResults();
 }
 
@@ -3646,7 +4496,12 @@ function renderSlide() {
   updatePhaseProgress(slide.stageType, slide.section);
   updateNextSlidePreview();
   updateSlideThumbnails();
+  const activeQuestionId = currentSessionQuestionId();
+  if (activeQuestionId && activeQuestionId !== lastSyncedQuestionId) {
+    liveAnswersLocked = false;
+  }
   if (liveSessionId) {
+    syncLiveSessionState().catch(() => {});
     refreshLiveResults().catch(() => {});
   } else {
     renderLiveSessionPanel();
@@ -3904,6 +4759,62 @@ function downloadPresentPdf() {
   }
 }
 
+function downloadReportPdf() {
+  const reportHtml = buildEndOfLessonReport();
+  if (!reportHtml.trim()) {
+    window.alert("No report data is available yet.");
+    return;
+  }
+
+  const printWindow = window.open("about:blank", "_blank", "width=1100,height=900");
+  if (!printWindow) {
+    window.alert("Popup blocked. Please allow popups for this site to download the report PDF.");
+    return;
+  }
+
+  const title = escHtml(currentStandard || currentTek || "Lesson Report");
+  const html = `<!DOCTYPE html><html><head><title>${title} Report</title><style>
+    @page { size: portrait; margin: 14mm; }
+    body { font-family: Inter, Arial, sans-serif; color: #0f172a; margin: 0; padding: 0; }
+    .page { padding: 20px; }
+    h1 { font-size: 28px; margin: 0 0 8px; }
+    .meta { color: #475569; margin-bottom: 20px; }
+    .notesSection { border: 1px solid #cbd5e1; border-radius: 14px; padding: 16px; margin: 0 0 14px; background: #f8fafc; }
+    .notesSection h3 { margin: 0 0 10px; font-size: 18px; }
+    .notesText { font-size: 14px; line-height: 1.5; margin: 6px 0; }
+  </style></head><body><div class="page"><h1>${title} Report</h1><div class="meta">Lesson summary • TEKS mastery • recommendations</div>${reportHtml}</div></body></html>`;
+
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+  const triggerPrint = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
+  if (printWindow.document.readyState === "complete") {
+    setTimeout(triggerPrint, 150);
+  } else {
+    printWindow.addEventListener("load", () => setTimeout(triggerPrint, 150), { once: true });
+  }
+}
+
+async function lockLiveAnswers() {
+  if (!liveSessionId) {
+    window.alert("Start a live session first.");
+    return;
+  }
+  if (!currentSessionQuestionId()) {
+    window.alert("Move to a question slide before locking answers.");
+    return;
+  }
+  liveAnswersLocked = true;
+  await syncLiveSessionState(true);
+  renderLiveSessionPanel("Answers locked... revealing results in 1 second.", latestLiveSnapshot || undefined);
+  window.setTimeout(() => {
+    refreshLiveResults().catch(() => {});
+  }, 1000);
+}
+
 function bindControls() {
   const panelStates: Record<string, boolean> = {
     controls: true,
@@ -4016,8 +4927,20 @@ function bindControls() {
     document.documentElement.requestFullscreen().catch(() => {}),
   );
   document.getElementById("btn-download-pdf")?.addEventListener("click", downloadPresentPdf);
+  document.getElementById("btn-download-report")?.addEventListener("click", downloadReportPdf);
+  document.getElementById("btn-lock-answers")?.addEventListener("click", () => {
+    lockLiveAnswers().catch((e: any) => window.alert(e?.message || "Unable to lock answers."));
+  });
 
   document.getElementById("btn-coldcall")?.addEventListener("click", () => {
+    const liveNames = latestLiveSnapshot?.studentNames || [];
+    const picked = pickRandomStudent(liveNames);
+    const out = document.getElementById("coldcall-result");
+    if (picked) {
+      if (out) out.textContent = `🎯 Call on: ${picked}`;
+      return;
+    }
+
     const raw = window.prompt("Enter student names separated by commas:", "Ava, Mason, Sofia, Liam");
     if (!raw) return;
     const names = raw
@@ -4025,9 +4948,8 @@ function bindControls() {
       .map((n) => n.trim())
       .filter(Boolean);
     if (!names.length) return;
-    const picked = names[Math.floor(Math.random() * names.length)];
-    const out = document.getElementById("coldcall-result");
-    if (out) out.textContent = `Cold call: ${picked}`;
+    const fallbackPick = pickRandomStudent(names);
+    if (out) out.textContent = `🎯 Call on: ${fallbackPick}`;
   });
 
   document.getElementById("slide-thumbnails")?.addEventListener("click", (e) => {
@@ -4124,6 +5046,9 @@ async function boot() {
     bindControls();
     bindKeys();
     refreshDockVisibility();
+    void refreshWeeklyTeacherDashboard();
+    void refreshTeksTrendInsights();
+    void refreshTeacherComparisonInsights();
     renderSlide();
   } catch (e: any) {
     const container = document.getElementById("slide-container");
