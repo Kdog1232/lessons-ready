@@ -14,6 +14,18 @@
     .answerBtn { background: #1e293b; border: 1px solid rgba(148,163,184,.5); }
     #student-view { display: none; }
     .status { font-size: 14px; color: #93c5fd; min-height: 18px; }
+    #questionDisplay { margin: 12px 0; padding: 14px; border-radius: 10px; background: rgba(30,41,59,.85); border: 1px solid rgba(148,163,184,.35); font-size: 18px; min-height: 52px; display: grid; align-items: center; }
+    .answerBtn[disabled] { opacity: .45; cursor: not-allowed; }
+    .answerBtn.is-selected { background: #16a34a; transform: scale(1.02); }
+    #waiting-room { margin-top: 14px; padding: 14px; border-radius: 10px; background: rgba(15,23,42,.7); border: 1px solid rgba(148,163,184,.22); }
+    .joinedRow { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+    .avatarDot { width: 12px; height: 12px; border-radius: 999px; display: inline-block; }
+    .game-pop { animation: gamePop .4s ease; }
+    .game-reveal { animation: revealPulse .45s ease; }
+    .game-lock { animation: lockFlash .45s ease; }
+    @keyframes gamePop { 0% { transform: scale(1); } 35% { transform: scale(1.02); } 100% { transform: scale(1); } }
+    @keyframes revealPulse { 0% { box-shadow: 0 0 0 rgba(56,189,248,0); } 45% { box-shadow: 0 0 0 8px rgba(56,189,248,.18); } 100% { box-shadow: 0 0 0 rgba(56,189,248,0); } }
+    @keyframes lockFlash { 0% { background: rgba(15,23,42,.9); } 40% { background: rgba(245,158,11,.14); } 100% { background: rgba(15,23,42,.9); } }
   </style>
 </head>
 <body>
@@ -31,7 +43,11 @@
     <div id="student-view">
       <h1>Answer Question</h1>
       <div id="session-label"></div>
-      <input id="questionInput" placeholder="Question id (example: slide3)" value="slide1" />
+      <div id="questionDisplay">Waiting for teacher...</div>
+      <div id="waiting-room">
+        <strong>Students joined</strong>
+        <div id="joined-students" class="status">Waiting for classmates...</div>
+      </div>
       <div class="answers">
         <button class="answerBtn" data-index="0">A</button>
         <button class="answerBtn" data-index="1">B</button>
