@@ -26,6 +26,7 @@ type SlideDefinition = {
   notes?: string;
   durationSeconds?: number;
   teacherCue?: string;
+  teacherMove?: string;
 
   answerChoices?: string[];
   correctIndex?: number;
@@ -38,6 +39,13 @@ type PresentSettings = {
   short30: boolean;
   interventionPace: boolean;
   coachingMode: boolean;
+  includeModel: boolean;
+  includeCompareDefend: boolean;
+  includeExitTicket: boolean;
+  mini15: boolean;
+  increaseRigor: boolean;
+  theme: "default" | "fortnite" | "sports" | "real_world" | "academic";
+  showTeacherNotes: boolean;
 };
 
 type SkillType = string;
@@ -60,6 +68,7 @@ type LessonRow = {
   grade_level?: number | string;
   grade?: number | string;
   grade_band?: string;
+  lesson_plan?: string;
   lesson_text?: string;
 };
 
@@ -73,13 +82,23 @@ type GenerateLessonPayload = {
   stream: boolean;
 };
 
+type SavedSession = {
+  access_token?: string;
+  refresh_token?: string;
+};
+
 type LiveSessionRow = {
   id: string;
   join_code: string;
+  active_question_id?: string;
+  is_locked?: boolean;
 };
 
 type ResponseRow = {
   answer_index: number;
+  question_id?: string;
+  student_id?: string;
+  created_at?: string;
 };
 
 type SessionStudentRow = {
@@ -92,6 +111,32 @@ type LiveResultsSnapshot = {
   answeredCount: number;
   studentCount: number;
   studentNames: string[];
+};
+
+type QuestionPerformanceSnapshot = {
+  session_id: string;
+  lesson_id: string;
+  question_id: string;
+  standard: string;
+  dok_level: string;
+  correct_percent: number;
+  total_responses: number;
+  correct_responses: number;
+  most_common_wrong: string;
+  misconception: string;
+  student_count: number;
+  timestamp: string;
+  teacher_move: string;
+};
+
+type LessonReportSnapshot = {
+  session_id: string;
+  lesson_id: string;
+  average_mastery: number;
+  strongest_dok: string;
+  weakest_dok: string;
+  top_misconception: string;
+  recommended_next_step: string;
 };
 
 type GradeBand = "3-4" | "5-6" | "7-8";
@@ -177,6 +222,7 @@ let currentPriority = "";
 let currentTek = "";
 let currentVerb = "";
 let currentStandard = "";
+let currentGradeLabel = "";
 let currentExecutionConfig: ExecutionConfig | null = null;
 let slideContainerEl: HTMLElement | null = null;
 let masteryTracker: MasteryTracker = {
@@ -192,8 +238,36 @@ let liveResultsPoll: number | null = null;
 let liveRealtimeSocket: WebSocket | null = null;
 let liveRealtimeHeartbeat: number | null = null;
 let liveRealtimeRef = 1;
+let liveAnswersLocked = false;
+let lastSyncedQuestionId = "";
+let lastSyncedLockState: boolean | null = null;
+let leaderboardHtml = `<div><b>Leaderboard</b><br/>Waiting for responses...</div>`;
 const AUTO_RETEACH_THRESHOLD = 0.6;
+const AUTO_ADVANCE_RESPONSE_THRESHOLD = 0.8;
 let activeDockPanel: "responses" | "reteach" | "notes" = "responses";
+let latestLiveSnapshot: LiveResultsSnapshot | null = null;
+let lastAutoAdvanceQuestionKey = "";
+let questionPerformanceSnapshots: QuestionPerformanceSnapshot[] = [];
+let persistedQuestionSnapshotSignatures = new Map<string, string>();
+let lastLessonReportSignature = "";
+let teksTrendHtml = `
+  <div class="notesSection">
+    <h3>📚 TEKS Across Recent Lessons</h3>
+    <div class="notesText">TEKS trend will appear after recent lesson snapshots are available.</div>
+  </div>
+`;
+let teacherComparisonHtml = `
+  <div class="notesSection">
+    <h3>👥 Teacher Comparison</h3>
+    <div class="notesText">Comparison cards will appear when enough lesson-report data is available.</div>
+  </div>
+`;
+let weeklyDashboardHtml = `
+  <div class="notesSection">
+    <h3>🗓 Weekly Teacher Dashboard</h3>
+    <div class="notesText">Weekly analytics will appear after question snapshots sync.</div>
+  </div>
+`;
 
 
 const stageSignals: Record<string, string[]> = {
@@ -283,6 +357,13 @@ const settings: PresentSettings = {
   short30: false,
   interventionPace: false,
   coachingMode: false,
+  includeModel: true,
+  includeCompareDefend: true,
+  includeExitTicket: true,
+  mini15: false,
+  increaseRigor: false,
+  theme: "default",
+  showTeacherNotes: true,
 };
 
 function escHtml(value: unknown) {
@@ -306,8 +387,61 @@ function getSavedToken(): string {
   try {
     const raw = localStorage.getItem(LS_SESSION_KEY);
     if (!raw) return "";
-    const parsed = JSON.parse(raw) as { access_token?: string };
+    const parsed = JSON.parse(raw) as SavedSession;
     return String(parsed?.access_token || "");
+  } catch {
+    return "";
+  }
+}
+
+function getSavedSession(): SavedSession | null {
+  try {
+    const raw = localStorage.getItem(LS_SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as SavedSession;
+  } catch {
+    return null;
+  }
+}
+
+function setSavedSession(session: SavedSession | null) {
+  if (!session) {
+    localStorage.removeItem(LS_SESSION_KEY);
+    return;
+  }
+  localStorage.setItem(LS_SESSION_KEY, JSON.stringify(session));
+}
+
+function isJwtExpiredError(status: number, body: string): boolean {
+  if (status !== 401) return false;
+  const text = String(body || "").toLowerCase();
+  return text.includes("jwt expired") || text.includes("pgrst303") || text.includes("invalid jwt");
+}
+
+async function refreshTokenIfPossible(): Promise<string> {
+  const session = getSavedSession();
+  const refreshToken = String(session?.refresh_token || "").trim();
+  if (!refreshToken) return "";
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    const text = await res.text();
+    if (!res.ok) return "";
+    const parsed = JSON.parse(text) as SavedSession;
+    const next: SavedSession = {
+      access_token: String(parsed?.access_token || ""),
+      refresh_token: String(parsed?.refresh_token || refreshToken),
+    };
+    if (!next.access_token) return "";
+    setSavedSession(next);
+    return next.access_token;
   } catch {
     return "";
   }
@@ -356,6 +490,35 @@ async function parseJsonResponse<T>(res: Response, context: string): Promise<T> 
   }
 }
 
+function renderMeter(percent: number, width = 10): string {
+  const safePercent = Math.max(0, Math.min(100, Math.round(percent)));
+  const filled = Math.round((safePercent / 100) * width);
+  return `${"█".repeat(filled)}${"░".repeat(Math.max(0, width - filled))} ${safePercent}%`;
+}
+
+function formatDokLevel(dok: number): string {
+  return `DOK${Math.max(1, Math.min(3, Math.round(dok || 1)))}`;
+}
+
+function summarizeMasteryStatus(percent: number): { label: string; nextStep: string } {
+  if (percent >= 80) {
+    return {
+      label: "✅ Mastery on track",
+      nextStep: "Extend with compare-and-defend writing that cites multiple pieces of evidence.",
+    };
+  }
+  if (percent >= 60) {
+    return {
+      label: "⚠️ Approaching mastery",
+      nextStep: "Small group reteach on inference + evidence before the next independent task.",
+    };
+  }
+  return {
+    label: "🚨 Intensive reteach needed",
+    nextStep: "Re-model with think-aloud, guided evidence annotation, and immediate revision practice.",
+  };
+}
+
 function themeForMode(mode: string) {
   const m = String(mode || "generic").toLowerCase();
   if (m === "bluebonnet") return { accent: "#2563eb", border: "#1d4ed8", bg: "#0f172a" };
@@ -372,7 +535,7 @@ function accentForSkill(skillType: SkillType) {
   return "";
 }
 
-function applyTheme() {
+function applyPresentationTheme() {
   const t = themeForMode(lessonMode);
   const root = document.documentElement;
   const skillAccent = accentForSkill(currentSkillType);
@@ -389,64 +552,275 @@ function cloneSlide(slide: SlideDefinition): SlideDefinition {
   return { ...slide, items: Array.isArray(slide.items) ? [...slide.items] : undefined };
 }
 
-function parseLessonTextBlocks(lessonText: string) {
+type ParsedLessonQuestion = {
+  raw: string;
+  question: string;
+  choices: string[];
+  correctIndex?: number;
+};
 
-  if (!lessonText) return { passage: "", questions: [] };
+type ParsedLessonBlocks = {
+  passage: string;
+  questions: ParsedLessonQuestion[];
+};
 
-  const passageMatch =
-    lessonText.match(/PASSAGE:\s*([\s\S]*?)(?:QUESTION|$)/i);
+type StructuredLessonSections = {
+  objective?: string;
+  vocab?: string[];
+  modeling?: string;
+  guided?: string;
+  independent?: string;
+  exit?: string;
+  cfu?: {
+    tier1?: string;
+    tier2?: string;
+    tier3?: string;
+  };
+};
 
+function parseLessonTextBlocks(lessonText: string): ParsedLessonBlocks {
+  const normalized = String(lessonText || "").trim();
+  if (!normalized) return { passage: "", questions: [] };
+
+  const jsonMatch = normalized.match(/\{[\s\S]*\}/);
+  const jsonCandidate = jsonMatch ? jsonMatch[0] : normalized;
+
+  try {
+    const parsed = JSON.parse(jsonCandidate) as {
+      passage?: string;
+      questions?: Array<{ question?: string; choices?: string[]; correctIndex?: number }>;
+    };
+
+    if (parsed && (parsed.passage || Array.isArray(parsed.questions))) {
+      return {
+        passage: cleanText(String(parsed.passage || "")),
+        questions: Array.isArray(parsed.questions)
+          ? parsed.questions.map((question) => ({
+              raw: JSON.stringify(question),
+              question: cleanText(String(question?.question || "Practice Question")),
+              choices: Array.isArray(question?.choices)
+                ? question.choices.map((choice) => cleanText(String(choice || ""))).filter(Boolean)
+                : [],
+              correctIndex: Number.isInteger(question?.correctIndex)
+                ? Number(question.correctIndex)
+                : undefined,
+            }))
+          : [],
+      };
+    }
+  } catch {
+    // fallback to text parsing
+  }
+
+  const passageMatch = normalized.match(/PASSAGE:\s*([\s\S]*?)(?:QUESTION|$)/i);
   const passage = passageMatch ? passageMatch[1].trim() : "";
 
-  const questions =
-    lessonText.split(/QUESTION/i).slice(1).map(block => ({
-      raw: block.trim()
+  const questions = normalized
+    .split(/QUESTION/i)
+    .slice(1)
+    .map((block) => ({
+      raw: block.trim(),
+      question: block.trim() || "Practice Question",
+      choices: [],
     }));
 
   return { passage, questions };
 }
-const TEST_LESSON = `
-PASSAGE:
 
-In the heart of the forest, there is an ancient tree that tells stories.
+function extractSectionText(source: string, label: string): string {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = source.match(new RegExp(`${escaped}\\s*:?\\s*([\\s\\S]*?)(?=\\n[A-Z][A-Z\\s&/]{2,}:|$)`, "i"));
+  return match ? match[1].trim() : "";
+}
 
-QUESTION
+function cleanLines(block: string): string[] {
+  return String(block || "")
+    .split("\n")
+    .map((line) => line.trim().replace(/^[-•]\s*/, ""))
+    .filter(Boolean);
+}
 
-question: What is the central idea?
+function firstLine(lines: string[]): string {
+  return lines.find(Boolean) || "";
+}
 
-A) The forest is old
-B) Animals gather around the tree
-C) The tree is magical
-D) The owl tells stories
-
-correctIndex: 1
-`;
-
-console.log("TEST PARSER RESULT:", parseLessonTextBlocks(TEST_LESSON));
-function applyLessonTextToDeck(deck: SlideDefinition[], lessonText?: string): SlideDefinition[] {
-  console.log("Applying lesson text to deck:", lessonText);
-  const parsed = parseLessonTextBlocks(String(lessonText || ""));
-  if (!parsed.passage && !parsed.questions.length) return deck;
-
-  const next = deck.map(cloneSlide);
-  const questionIndexes = next
-  .map((slide, idx) => ({ slide, idx }))
-  .filter(({ slide }) =>
-    slide.type === "question" ||
-    slide.stageType === "guided_dok_ladder" ||
-    slide.section === "Guided" ||
-    slide.section === "Assessment"
-  )
-  .map(({ idx }) => idx);
-
-  for (let i = 0; i < parsed.questions.length && i < questionIndexes.length; i += 1) {
-    const deckIndex = questionIndexes[i];
-    const parsedQuestion = parsed.questions[i];
-    const current = next[deckIndex];
-    current.question = parsedQuestion.raw
-    current.answerChoices = []
+function findBlock(source: string, pattern: RegExp): string {
+  const headings = source.match(/^[A-Z][A-Z\s&/]{2,}:/gm) || [];
+  for (const heading of headings) {
+    if (!pattern.test(heading)) continue;
+    return extractSectionText(source, heading.replace(/:$/, ""));
   }
-  return next;
+  return "";
+}
+
+function buildStructuredSectionsFromLesson(lessonText: string): StructuredLessonSections {
+  const source = String(lessonText || "").replaceAll("\r\n", "\n").trim();
+  if (!source) return {};
+
+  const objective = firstLine(cleanLines(findBlock(source, /objective|i can/i)));
+  const vocab = cleanLines(findBlock(source, /academic vocabulary|vocabulary/i));
+  const modeling = firstLine(cleanLines(findBlock(source, /modeling|model|i do/i)));
+  const guided = firstLine(cleanLines(findBlock(source, /guided practice|we do/i)));
+  const independent = firstLine(cleanLines(findBlock(source, /independent|you do/i)));
+  const exit = firstLine(cleanLines(findBlock(source, /exit ticket|closure/i)));
+
+  const cfu: StructuredLessonSections["cfu"] = {
+    tier1: firstLine(cleanLines(findBlock(source, /cfu tier 1/i))),
+    tier2: firstLine(cleanLines(findBlock(source, /cfu tier 2/i))),
+    tier3: firstLine(cleanLines(findBlock(source, /cfu tier 3/i))),
+  };
+
+  return {
+    objective: objective || undefined,
+    vocab: vocab.length ? vocab : undefined,
+    modeling: modeling || undefined,
+    guided: guided || undefined,
+    independent: independent || undefined,
+    exit: exit || undefined,
+    cfu: cfu.tier1 || cfu.tier2 || cfu.tier3 ? cfu : undefined,
+  };
+}
+
+function buildFullTeksDeck(parsed: ParsedLessonBlocks, sections: StructuredLessonSections): SlideDefinition[] {
+  const slides: SlideDefinition[] = [];
+
+  if (sections?.objective) {
+    slides.push({
+      type: "headline",
+      stageType: "objective_lock",
+      heading: "Objective",
+      subtext: sections.objective,
+      section: "Objective",
+      durationSeconds: 90,
+    });
+  }
+
+  if (sections?.vocab?.length) {
+    slides.push({
+      type: "split",
+      stageType: "verb_definition",
+      heading: "Academic Vocabulary",
+      items: sections.vocab,
+      section: "Vocabulary",
+      durationSeconds: 90,
+    });
+  }
+
+  slides.push({
+    type: "headline",
+    stageType: "strategy_formula",
+    heading: "Today’s Strategy",
+    subtext: "Analyze how character choices impact plot using text evidence.",
+    section: "Strategy",
+    durationSeconds: 90,
+  });
+
+  if (sections?.modeling) {
+    slides.push({
+      type: "discussion",
+      stageType: "model_think_aloud",
+      heading: "I Do (Teacher Model)",
+      prompt: sections.modeling,
+      section: "Modeling",
+      durationSeconds: 120,
+    });
+  }
+
+  if (sections?.cfu) {
+    slides.push({
+      type: "question",
+      stageType: "guided_dok_ladder",
+      heading: "Check for Understanding",
+      question: sections.cfu.tier2 || sections.cfu.tier1 || "Check for Understanding",
+      answerChoices: [
+        "Strong evidence-based answer",
+        "Partial reasoning",
+        "Misconception",
+        "Irrelevant",
+      ],
+      correctIndex: 0,
+      section: "Guided",
+      durationSeconds: 120,
+    });
+  }
+
+  if (sections?.guided) {
+    slides.push({
+      type: "discussion",
+      stageType: "compare_defend",
+      heading: "We Do",
+      prompt: sections.guided,
+      section: "Guided",
+      durationSeconds: 120,
+    });
+    slides.push({
+      type: "discussion",
+      stageType: "compare_defend",
+      heading: "Turn & Talk",
+      prompt: "Which choice had the biggest impact on the plot? Defend your answer with evidence.",
+      section: "Discussion",
+      durationSeconds: 75,
+    });
+    slides.push({
+      type: "energy",
+      stageType: "compare_defend",
+      heading: "Debate Time",
+      subtext: "Stand on the side you agree with and defend it.",
+      section: "Energy",
+      durationSeconds: 60,
+    });
+  }
+
+  if (sections?.independent) {
+    slides.push({
+      type: "writing",
+      stageType: "independent_transfer",
+      heading: "You Do",
+      prompt: sections.independent,
+      subtext: sections.independent,
+      section: "Independent",
+      durationSeconds: 180,
+    });
+  }
+
+  if (sections?.exit) {
+    slides.push({
+      type: "question",
+      stageType: "exit_ticket",
+      heading: "Exit Ticket",
+      question: sections.exit,
+      section: "Exit",
+      durationSeconds: 120,
+    });
+  }
+
+  if (parsed.passage) {
+    slides.push({
+      type: "headline",
+      heading: "Read the Passage",
+      subtext: parsed.passage,
+      section: "Passage",
+      durationSeconds: 150,
+    });
+  }
+
+  if (parsed.questions?.length) {
+    parsed.questions.forEach((q, i) => {
+      slides.push({
+        type: "question",
+        stageType: "guided_dok_ladder",
+        heading: `Question ${i + 1}`,
+        question: q.question,
+        prompt: parsed.passage || "",
+        answerChoices: q.choices,
+        correctIndex: q.correctIndex,
+        section: "Practice",
+        durationSeconds: 150,
+      });
+    });
+  }
+
+  return slides;
 }
 
 function sanitizeQuestionSlide(slide: SlideDefinition): SlideDefinition {
@@ -1615,13 +1989,243 @@ function normalizeSlides(deck: SlideDefinition[]) {
   return [...splash, ...ordered, ...nonStaged];
 }
 
+const STAGE_ORDER: SlideType[] = [
+  "objective_lock",
+  "verb_definition",
+  "strategy_formula",
+  "model_think_aloud",
+  "guided_dok_ladder",
+  "compare_defend",
+  "independent_transfer",
+  "exit_ticket",
+];
+
+function dedupeSlides(deck: SlideDefinition[]): SlideDefinition[] {
+  const seen = new Set<string>();
+  return deck.filter((slide) => {
+    const key = [
+      slide.stageType || "",
+      String(slide.heading || "").trim().toLowerCase(),
+      String(slide.question || "").trim().toLowerCase(),
+      String(slide.prompt || "").trim().toLowerCase(),
+      Array.isArray(slide.items) ? slide.items.map((i) => String(i || "").trim().toLowerCase()).join("|") : "",
+    ].join("||");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function stripJunkSlides(deck: SlideDefinition[]): SlideDefinition[] {
+  return deck.filter((slide) => {
+    const text = [slide.heading, slide.subtext, slide.question, slide.prompt, slide.notes]
+      .map((t) => String(t || ""))
+      .join(" ")
+      .toLowerCase()
+      .trim();
+
+    if (!text) return false;
+    if (text.includes("practice question") && text.length < 25) return false;
+    if (text.includes("_id:")) return false;
+    if (text.includes("correctindex")) return false;
+    return true;
+  });
+}
+
+function sortSlides(deck: SlideDefinition[]): SlideDefinition[] {
+  const orderOf = (stage?: SlideType) => {
+    const idx = STAGE_ORDER.indexOf(stage as SlideType);
+    return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+  };
+  return [...deck].sort((a, b) => orderOf(a.stageType) - orderOf(b.stageType));
+}
+
+function capSlides(deck: SlideDefinition[], max = 12): SlideDefinition[] {
+  return deck.slice(0, max);
+}
+
+function buildSlidesFinal(rawSlides: SlideDefinition[]): SlideDefinition[] {
+  return capSlides(sortSlides(dedupeSlides(stripJunkSlides(rawSlides))), 12);
+}
+
 function validateDeck(deck: SlideDefinition[]) {
   return deck.filter((slide): slide is SlideDefinition => Boolean(slide && slide.type));
+}
+
+function applyTeacherToggles(deck: SlideDefinition[], opts: PresentSettings): SlideDefinition[] {
+  let next = deck.map(cloneSlide);
+
+  if (!opts.includeModel) {
+    next = next.filter((slide) => slide.stageType !== "model_think_aloud");
+  }
+  if (!opts.includeCompareDefend) {
+    next = next.filter((slide) => slide.stageType !== "compare_defend");
+  }
+  if (!opts.includeExitTicket) {
+    next = next.filter((slide) => slide.stageType !== "exit_ticket");
+  }
+
+  if (opts.increaseRigor) {
+    next = next.map((slide) => {
+      if (slide.type !== "question" && slide.type !== "discussion" && slide.type !== "writing") return slide;
+      const promptBits = [slide.question || "", slide.prompt || ""].join(" ").toLowerCase();
+      const rigorSuffix = promptBits.includes("justify") ? "" : " Justify with two pieces of evidence (DOK 3).";
+      return {
+        ...slide,
+        prompt: `${slide.prompt || ""}${rigorSuffix}`.trim(),
+        teacherCue: `${slide.teacherCue || ""} Push students to compare evidence quality.`.trim(),
+      };
+    });
+  }
+
+  if (opts.mini15) {
+    const total = next.reduce((sum, s) => sum + (s.durationSeconds || 90), 0);
+    const scale = total > 0 ? 900 / total : 1;
+    next = next.map((slide) => ({
+      ...slide,
+      durationSeconds: Math.max(15, Math.round((slide.durationSeconds || 90) * scale)),
+    }));
+  }
+
+  return next;
+}
+
+function applyTheme(deck: SlideDefinition[], theme: PresentSettings["theme"]): SlideDefinition[] {
+  if (theme === "default") return deck;
+
+  const replacements: Record<PresentSettings["theme"], Array<[RegExp, string]>> = {
+    default: [],
+    fortnite: [
+      [/\bstorm\b/gi, "storm circle"],
+      [/\bchallenge\b/gi, "quest"],
+      [/\bstrategy\b/gi, "loadout strategy"],
+    ],
+    sports: [
+      [/\bstorm\b/gi, "defensive pressure"],
+      [/\bchallenge\b/gi, "play"],
+      [/\bstrategy\b/gi, "game plan"],
+    ],
+    real_world: [
+      [/\bstorm\b/gi, "real-world pressure"],
+      [/\bchallenge\b/gi, "real scenario"],
+      [/\bstrategy\b/gi, "decision path"],
+    ],
+    academic: [
+      [/\bstorm\b/gi, "complexity"],
+      [/\bchallenge\b/gi, "cognitive demand"],
+      [/\bstrategy\b/gi, "analytical method"],
+    ],
+  };
+
+  const injectTone = (value?: string): string | undefined => {
+    if (!value) return value;
+    let next = value;
+    for (const [pattern, replacement] of replacements[theme]) {
+      next = next.replace(pattern, replacement);
+    }
+    return next;
+  };
+
+  const themeLabel: Record<PresentSettings["theme"], string> = {
+    default: "",
+    fortnite: "🎮 Fortnite Mode",
+    sports: "🏈 Sports Mode",
+    real_world: "🌍 Real-World Mode",
+    academic: "🎓 Academic Mode",
+  };
+
+  return deck.map((slide) => ({
+    ...slide,
+    heading: injectTone(slide.heading),
+    subtext: injectTone(slide.subtext),
+    question: injectTone(slide.question),
+    prompt: injectTone(slide.prompt),
+    notes: injectTone(slide.notes),
+    teacherCue: injectTone(slide.teacherCue),
+    items: Array.isArray(slide.items) ? slide.items.map((item) => injectTone(item) || item) : slide.items,
+    section: theme !== "default" ? `${slide.section || "Lesson"} • ${themeLabel[theme]}` : slide.section,
+  }));
+}
+
+function insertEngagementSlides(deck: SlideDefinition[]): SlideDefinition[] {
+  const next: SlideDefinition[] = [];
+  let injected = 0;
+  for (const slide of deck) {
+    next.push(slide);
+    if (slide.type !== "question" || slide.stageType !== "guided_dok_ladder") continue;
+    if (injected === 0) {
+      next.push({
+        type: "discussion",
+        stageType: "guided_dok_ladder",
+        heading: "🗣 Turn & Talk",
+        prompt: "Share your answer with a partner, then upgrade one sentence using stronger evidence.",
+        section: "Engagement",
+        durationSeconds: 60,
+        teacherCue: "Listen for evidence language and cold-call one pair.",
+      });
+      injected += 1;
+      continue;
+    }
+    if (injected === 1) {
+      next.push({
+        type: "writing",
+        stageType: "independent_transfer",
+        heading: "✍️ Quick Write",
+        subtext: "In 2-3 sentences, explain your answer with claim + evidence + reasoning.",
+        section: "Engagement",
+        durationSeconds: 90,
+        teacherCue: "Have students box the claim and underline evidence.",
+      });
+      next.push({
+        type: "discussion",
+        stageType: "compare_defend",
+        heading: "🤝 Partner Task",
+        prompt: "Swap responses and identify the strongest evidence your partner used.",
+        section: "Engagement",
+        durationSeconds: 75,
+        teacherCue: "Prompt students to defend why one response is strongest.",
+      });
+      injected += 1;
+    }
+  }
+  return next;
+}
+
+function insertEnergyMoments(deck: SlideDefinition[]): SlideDefinition[] {
+  const next = [...deck];
+  const hasEnergy = next.some((slide) => slide.type === "energy");
+  if (hasEnergy) return next;
+  const anchor = next.findIndex((slide) => slide.stageType === "guided_dok_ladder");
+  const insertAt = anchor >= 0 ? anchor + 1 : Math.min(2, next.length);
+  next.splice(insertAt, 0,
+    {
+      type: "energy",
+      stageType: "guided_dok_ladder",
+      heading: "⚡ Lightning Round",
+      subtext: "Speed Round: You have 20 seconds to justify your choice with one text detail.",
+      section: "Challenge Mode",
+      durationSeconds: 45,
+      teacherCue: "Celebrate fast, evidence-based responses.",
+    },
+    {
+      type: "energy",
+      stageType: "guided_dok_ladder",
+      heading: "🧠 Brain Boost",
+      subtext: "Challenge Mode: Revise one weak answer into a high-rigor response.",
+      section: "Energy",
+      durationSeconds: 60,
+      teacherCue: "Ask what changed and why the revision is stronger.",
+    },
+  );
+  return next;
 }
 
 function normalizeSlidesForSettings() {
   let next = baseSlides.map(cloneSlide);
   next = injectCoachingInsight(next);
+  next = applyTheme(next, settings.theme);
+  next = insertEngagementSlides(next);
+  next = insertEnergyMoments(next);
 
   if (settings.moreDiscussion) {
     const withDiscussion: SlideDefinition[] = [];
@@ -1684,7 +2288,8 @@ function normalizeSlidesForSettings() {
     }));
   }
 
-  slides = normalizeSlides(validateDeck(next).map(sanitizeQuestionSlide));
+  const toggled = applyTeacherToggles(next, settings);
+  slides = buildSlidesFinal(normalizeSlides(validateDeck(toggled).map(sanitizeQuestionSlide)));
   if (currentIndex >= slides.length) currentIndex = Math.max(0, slides.length - 1);
 }
 
@@ -1716,12 +2321,12 @@ async function logPresentationEvent(slideIndex: number, stageType?: SlideType) {
 
 async function fetchLessonRow(lessonId: string, headers: Record<string, string>): Promise<LessonRow | null> {
   const selectAttempts = [
-    "lesson_mode,canonical_skill,cognitive_verb,dok_target,grade,lesson_text",
-    "lesson_mode,standard_label,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band",
+    "lesson_mode,canonical_skill,cognitive_verb,dok_target,grade,lesson_text,lesson_plan",
+    "lesson_mode,standard_label,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band,lesson_text,lesson_plan",
     "lesson_mode,standard_label,canonical_skill,cognitive_verb,dok_target",
     "lesson_mode,standard_label,canonical_skill,cognitive_verb",
     "lesson_mode,standard_label,canonical_skill",
-    "lesson_mode,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band,lesson_text",
+    "lesson_mode,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band,lesson_text,lesson_plan",
     "lesson_mode,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band",
     "lesson_mode,canonical_skill,cognitive_verb,dok_target",
     "lesson_mode,canonical_skill,cognitive_verb",
@@ -1751,6 +2356,10 @@ async function fetchLessonRow(lessonId: string, headers: Record<string, string>)
 
     lastErrorMessage = `Failed to load slides (${res.status}): ${body.slice(0, 120)}`;
 
+    if (isJwtExpiredError(res.status, body)) {
+      throw new Error("SESSION_EXPIRED");
+    }
+
     const isMissingColumn =
       res.status === 400 &&
       (body.includes("canonical_skill") ||
@@ -1762,6 +2371,7 @@ async function fetchLessonRow(lessonId: string, headers: Record<string, string>)
         body.includes("grade") ||
         body.includes("grade_band") ||
         body.includes("standard_label") ||
+        body.includes("lesson_plan") ||
         body.includes("lesson_text"));
 
     if (!isMissingColumn) {
@@ -1809,6 +2419,8 @@ function coerceLessonRow(input: unknown): LessonRow | null {
     grade_level: (raw.grade_level ?? raw.gradeLevel ?? raw.grade ?? undefined) as LessonRow["grade_level"],
     grade: (raw.grade ?? raw.grade_level ?? undefined) as LessonRow["grade"],
     grade_band: String(raw.grade_band || raw.gradeBand || "").trim() || undefined,
+    lesson_plan: String(raw.lesson_plan || raw.lessonPlan || "").trim() || undefined,
+    lesson_text: String(raw.lesson_text || raw.lessonText || "").trim() || undefined,
   };
   if (!row.standard_label && !row.canonical_skill) return null;
   return row;
@@ -1848,6 +2460,17 @@ async function loadSlides() {
       row = await fetchLessonRow(lessonId, headers);
     } catch (e: any) {
       lessonLookupError = String(e?.message || e || "");
+      if (lessonLookupError === "SESSION_EXPIRED") {
+        const refreshedToken = await refreshTokenIfPossible();
+        if (refreshedToken) {
+          headers.Authorization = `Bearer ${refreshedToken}`;
+          row = await fetchLessonRow(lessonId, headers);
+          lessonLookupError = "";
+        } else {
+          setSavedSession(null);
+          throw new Error("Session expired. Please return to the main page, sign in again, and reopen Present mode.");
+        }
+      }
     }
   }
 
@@ -1884,7 +2507,9 @@ async function loadSlides() {
   currentPriority = priority;
   currentTek = tekDescription;
   const grade = normalizeGrade(row.grade_level ?? row.grade ?? row.grade_band);
+  currentGradeLabel = String(grade || row.grade_level || row.grade || row.grade_band || "").trim();
   currentSkillType = skillType;
+  applyPresentationTheme();
 
   const selectedMode = String(params.get("instruction_mode") || "core").toLowerCase();
   const skillPlaybook = await fetchSkillPlaybook(skillType, headers);
@@ -1901,83 +2526,33 @@ async function loadSlides() {
   renderSkillPanel();
   renderAlignmentProof(row);
 
-  const lockedTemplateSlides = buildSkillLockedDeck(
-    skillType,
-    tekDescription,
-    dok,
-    grade,
-    verb,
-    priority,
-    executionConfig,
-  );
-  baseSlides = lockedTemplateSlides.map(cloneSlide);
+  const lessonPlanSource = String(row.lesson_plan || row.lesson_text || "").trim();
+  const parsedLesson = lessonPlanSource ? parseLessonTextBlocks(lessonPlanSource) : { passage: "", questions: [] };
+  const structuredSections = lessonPlanSource ? buildStructuredSectionsFromLesson(lessonPlanSource) : {};
+  const parsedSlides = buildFullTeksDeck(parsedLesson, structuredSections);
 
-baseSlides = enforceSkillLock(baseSlides, skillType);
-
-baseSlides.unshift(buildBrandedSplashSlide(
-  tekDescription,
-  grade,
-  priority,
-  dok
-));
-
-
-// Inject lesson content LAST
-if (row.lesson_text) {
-
-  const parsed = parseLessonTextBlocks(row.lesson_text);
-
-  console.log("Parsed lesson text:", parsed);
-
-  // Fill template slides first
-  baseSlides = applyLessonTextToDeck(baseSlides, row.lesson_text);
-
-  // Add AI questions as additional slides
-  if (parsed.questions && parsed.questions.length > 0) {
-
-    parsed.questions.forEach(q => {
-
-      baseSlides.push({
-        type: "question",
-        stageType: "guided_dok_ladder",
-        heading: "Practice Question",
-        question: q.raw || "Practice Question",
-        prompt: parsed.passage || "",
-        answerChoices: [],
-        correctIndex: 0,
-        section: "Practice",
-        durationSeconds: 150
-      });
-
-    });
-
+  if (parsedSlides.length) {
+    baseSlides = parsedSlides.map(cloneSlide);
+  } else {
+    const lockedTemplateSlides = buildSkillLockedDeck(
+      skillType,
+      tekDescription,
+      dok,
+      grade,
+      verb,
+      priority,
+      executionConfig,
+    );
+    baseSlides = lockedTemplateSlides.map(cloneSlide);
+    baseSlides = enforceSkillLock(baseSlides, skillType);
   }
 
-}
+  baseSlides = ensureSingleSplashSlide(baseSlides, tekDescription, grade, priority, dok);
+  baseSlides = ensureAssessmentSlide(baseSlides, skillType);
 
-const assessmentExists = baseSlides.some(slide => slide.type === "question");
-
-if (!assessmentExists) {
-
-  const mc = generateSkillAlignedMCQ(skillType);
-  const dokLevel = normalizeDok(dok);
-  const insertIndex = resolveAssessmentInsertIndex(baseSlides);
-
-  baseSlides.splice(insertIndex, 0, {
-    type: "question",
-    stageType: "guided_dok_ladder",
-    heading: "Check for Understanding",
-    question: mc.question,
-    answerChoices: mc.answerChoices,
-    correctIndex: mc.correctIndex,
-    section: "Assessment",
-    durationSeconds: 150
-  });
   normalizeSlidesForSettings();
-}
-slides = baseSlides;
-currentIndex = 0;
-renderSlide();
+  currentIndex = 0;
+  renderSlide();
 }
 function buildBrandedSplashSlide(
   tekDescription: string,
@@ -2005,6 +2580,41 @@ function buildBrandedSplashSlide(
     teacherCue: "Open with objective confidence, then transition into TEKS focus.",
   };
 
+}
+
+function ensureSingleSplashSlide(
+  deck: SlideDefinition[],
+  tekDescription: string,
+  grade: number,
+  priority: string,
+  dok: string,
+): SlideDefinition[] {
+  const next = deck.filter((slide) => slide.type !== "splash").map(cloneSlide);
+  next.unshift(buildBrandedSplashSlide(tekDescription, grade, priority, dok));
+  return next;
+}
+
+function ensureAssessmentSlide(
+  deck: SlideDefinition[],
+  skillType: SkillType,
+): SlideDefinition[] {
+  const next = deck.map(cloneSlide);
+  const assessmentExists = next.some((slide) => slide.type === "question");
+  if (assessmentExists) return next;
+
+  const mc = generateSkillAlignedMCQ(skillType);
+  const insertIndex = resolveAssessmentInsertIndex(next);
+  next.splice(insertIndex, 0, {
+    type: "question",
+    stageType: "guided_dok_ladder",
+    heading: "Check for Understanding",
+    question: mc.question,
+    answerChoices: mc.answerChoices,
+    correctIndex: mc.correctIndex,
+    section: "Assessment",
+    durationSeconds: 150,
+  });
+  return next;
 }
 
 function formatSeconds(sec: number) {
@@ -2063,6 +2673,11 @@ function currentQuestionId() {
   return `slide${currentIndex + 1}`;
 }
 
+function currentSessionQuestionId() {
+  const slide = slides[currentIndex];
+  return slide?.type === "question" ? currentQuestionId() : "";
+}
+
 function stopLiveResultsPolling() {
   if (liveResultsPoll) {
     window.clearInterval(liveResultsPoll);
@@ -2086,6 +2701,33 @@ function closeLiveRealtime() {
     liveRealtimeSocket.close();
     liveRealtimeSocket = null;
   }
+}
+
+async function syncLiveSessionState(force = false) {
+  if (!liveSessionId) return;
+
+  const activeQuestionId = currentSessionQuestionId();
+  const shouldLock = activeQuestionId ? liveAnswersLocked : true;
+  if (!force && lastSyncedQuestionId === activeQuestionId && lastSyncedLockState === shouldLock) return;
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/sessions?id=eq.${encodeURIComponent(liveSessionId)}`, {
+    method: "PATCH",
+    headers: {
+      ...buildSupabaseHeaders(true),
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify({
+      active_question_id: activeQuestionId || null,
+      is_locked: shouldLock,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Unable to sync active question (${res.status})`);
+  }
+
+  lastSyncedQuestionId = activeQuestionId;
+  lastSyncedLockState = shouldLock;
 }
 
 function realtimeWebsocketUrl() {
@@ -2186,6 +2828,537 @@ function getCorrectPercentFromSnapshot(snapshot?: LiveResultsSnapshot): number {
   return snapshot.counts[slide.correctIndex as number] / snapshot.answeredCount;
 }
 
+function correctIndexByQuestionId(questionId: string): number {
+  const match = String(questionId || "").match(/^slide(\d+)$/i);
+  if (!match) return -1;
+  const index = Number(match[1]) - 1;
+  const slide = slides[index];
+  return slide?.type === "question" && Number.isInteger(slide.correctIndex)
+    ? Number(slide.correctIndex)
+    : -1;
+}
+
+async function refreshLeaderboard() {
+  if (!liveSessionId) {
+    leaderboardHtml = `<div><b>Leaderboard</b><br/>Waiting for responses...</div>`;
+    return;
+  }
+
+  const headers = buildSupabaseHeaders(false);
+  const responsesQuery = `select=student_id,question_id,answer_index,created_at&session_id=eq.${encodeURIComponent(liveSessionId)}&order=created_at.asc`;
+  const studentsQuery = `select=id,student_name&session_id=eq.${encodeURIComponent(liveSessionId)}`;
+
+  try {
+    const [responsesRes, studentsRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/responses?${responsesQuery}`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/session_students?${studentsQuery}`, { headers }),
+    ]);
+    if (!responsesRes.ok || !studentsRes.ok) return;
+
+    const responseRows = await parseJsonResponse<ResponseRow[]>(responsesRes, "Failed to load leaderboard responses");
+    const studentRows = await parseJsonResponse<SessionStudentRow[]>(studentsRes, "Failed to load leaderboard students");
+    const studentNames = new Map(studentRows.map((row) => [String(row.id), String(row.student_name || "Student").trim() || "Student"]));
+    const questionOrderMap = new Map<string, ResponseRow[]>();
+    for (const row of responseRows || []) {
+      const questionId = String(row.question_id || "");
+      if (!questionId) continue;
+      const list = questionOrderMap.get(questionId) || [];
+      list.push(row);
+      questionOrderMap.set(questionId, list);
+    }
+
+    const playerStats = new Map<string, { xp: number; streak: number; bestStreak: number; correct: number }>();
+    const ensurePlayer = (studentId: string) => {
+      const existing = playerStats.get(studentId);
+      if (existing) return existing;
+      const fresh = { xp: 0, streak: 0, bestStreak: 0, correct: 0 };
+      playerStats.set(studentId, fresh);
+      return fresh;
+    };
+
+    const orderedQuestions = [...questionOrderMap.keys()].sort((a, b) => {
+      const aIndex = Number(String(a).replace(/^slide/i, "")) || 0;
+      const bIndex = Number(String(b).replace(/^slide/i, "")) || 0;
+      return aIndex - bIndex;
+    });
+
+    orderedQuestions.forEach((questionId) => {
+      const rowsForQuestion = questionOrderMap.get(questionId) || [];
+      rowsForQuestion.forEach((row, responseIndex) => {
+        const studentId = String(row.student_id || "");
+        if (!studentId) return;
+        const stats = ensurePlayer(studentId);
+        const correctIndex = correctIndexByQuestionId(questionId);
+        const isCorrect = correctIndex >= 0 && row.answer_index === correctIndex;
+        if (!isCorrect) {
+          stats.streak = 0;
+          return;
+        }
+
+        const speedBonus = responseIndex < 3 ? 50 : responseIndex < 6 ? 25 : 0;
+        stats.correct += 1;
+        stats.streak += 1;
+        stats.bestStreak = Math.max(stats.bestStreak, stats.streak);
+        stats.xp += 100 + speedBonus + (stats.streak >= 2 ? 25 : 0);
+      });
+    });
+
+    const top = [...playerStats.entries()]
+      .map(([studentId, stats]) => ({
+        name: studentNames.get(studentId) || "Student",
+        xp: stats.xp,
+        streak: stats.streak,
+        bestStreak: stats.bestStreak,
+        title: stats.bestStreak >= 4 ? "Legend" : stats.bestStreak >= 3 ? "Hot Streak" : stats.bestStreak >= 2 ? "Rising" : "Ready",
+      }))
+      .sort((a, b) => b.xp - a.xp || b.bestStreak - a.bestStreak || a.name.localeCompare(b.name))
+      .slice(0, 3);
+
+    if (!top.length) {
+      leaderboardHtml = `<div><b>Leaderboard</b><br/>No scores yet. First correct answer wins the board.</div>`;
+      return;
+    }
+
+    leaderboardHtml = `<div><b>Leaderboard</b>${top.map((row, index) => `<div>${index + 1}. ${escHtml(row.name)} — ${row.xp} XP • 🔥 ${row.bestStreak} best • ${escHtml(row.title)}</div>`).join("")}</div>`;
+  } catch {
+    // ignore leaderboard refresh issues
+  }
+}
+
+function dokBadgeHtml(): string {
+  const level = Math.max(1, Math.min(3, normalizeDok(currentDok || "2")));
+  const badgeMap: Record<number, string> = {
+    1: "🟢 DOK 1",
+    2: "🟡 DOK 2",
+    3: "🔴 DOK 3",
+  };
+  return `<div class="alignmentChip">${escHtml(badgeMap[level] || "🟡 DOK 2")}</div>`;
+}
+
+function autoAdvanceSlide() {
+  if (currentIndex >= slides.length - 1) return;
+  currentIndex += 1;
+  revealStep = 0;
+  renderSlide();
+}
+
+function pickRandomStudent(studentNames: string[]): string {
+  if (!studentNames.length) return "";
+  return studentNames[Math.floor(Math.random() * studentNames.length)] || "";
+}
+
+async function persistQuestionSnapshot(snapshot: QuestionPerformanceSnapshot) {
+  if (!snapshot.session_id || !snapshot.lesson_id) return;
+
+  const signature = JSON.stringify([
+    snapshot.lesson_id,
+    snapshot.standard,
+    snapshot.dok_level,
+    snapshot.correct_percent,
+    snapshot.total_responses,
+    snapshot.correct_responses,
+    snapshot.most_common_wrong,
+    snapshot.misconception,
+    snapshot.student_count,
+    snapshot.teacher_move,
+  ]);
+  const snapshotKey = `${snapshot.session_id}:${snapshot.question_id}`;
+  const existingSignature = persistedQuestionSnapshotSignatures.get(snapshotKey);
+  if (existingSignature === signature) return;
+
+  const headers = {
+    ...buildSupabaseHeaders(true),
+    Prefer: "return=representation",
+  };
+  const body = {
+    session_id: snapshot.session_id,
+    lesson_id: snapshot.lesson_id,
+    question_id: snapshot.question_id,
+    dok_level: snapshot.dok_level,
+    correct_percent: snapshot.correct_percent,
+    total_responses: snapshot.total_responses,
+    correct_responses: snapshot.correct_responses,
+    most_common_wrong: snapshot.most_common_wrong,
+    misconception: snapshot.misconception,
+    teacher_move: snapshot.teacher_move,
+    standard: snapshot.standard,
+    student_count: snapshot.student_count,
+    created_at: snapshot.timestamp,
+  };
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/question_snapshots`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return;
+    persistedQuestionSnapshotSignatures.set(snapshotKey, signature);
+    void refreshWeeklyTeacherDashboard();
+  } catch {
+    // swallow persistence errors so live instruction is not blocked
+  }
+}
+
+async function persistLessonReport(report: LessonReportSnapshot) {
+  if (!report.session_id || !report.lesson_id) return;
+
+  const signature = JSON.stringify(report);
+  if (lastLessonReportSignature === signature) return;
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/lesson_reports`, {
+      method: "POST",
+      headers: {
+        ...buildSupabaseHeaders(true),
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(report),
+    });
+    if (!res.ok) return;
+    lastLessonReportSignature = signature;
+    void refreshWeeklyTeacherDashboard();
+  } catch {
+    // report sync should never block present mode rendering
+  }
+}
+
+async function refreshWeeklyTeacherDashboard() {
+  const since = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000)).toISOString();
+  const query = `select=session_id,lesson_id,average_mastery,strongest_dok,weakest_dok,top_misconception,recommended_next_step,created_at&created_at=gte.${encodeURIComponent(since)}&order=created_at.desc`;
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/lesson_reports?${query}`, {
+      headers: buildSupabaseHeaders(false),
+    });
+    if (!res.ok) return;
+    const rows = await parseJsonResponse<Array<{
+      session_id?: string;
+      lesson_id?: string;
+      average_mastery?: number;
+      strongest_dok?: string;
+      weakest_dok?: string;
+      top_misconception?: string;
+      recommended_next_step?: string;
+    }>>(res, "Failed to load weekly dashboard");
+
+    if (!rows.length) return;
+
+    const uniqueSessions = new Set(rows.map((row) => String(row.session_id || "")).filter(Boolean));
+    const avgMastery = Math.round(rows.reduce((sum, row) => sum + Number(row.average_mastery || 0), 0) / rows.length);
+    const weakestDokCounts = new Map<string, number>();
+    const misconceptionCounts = new Map<string, number>();
+    rows.forEach((row) => {
+      const weakest = String(row.weakest_dok || "").trim();
+      if (weakest) weakestDokCounts.set(weakest, (weakestDokCounts.get(weakest) || 0) + 1);
+      const misconception = String(row.top_misconception || "").trim();
+      if (misconception) misconceptionCounts.set(misconception, (misconceptionCounts.get(misconception) || 0) + 1);
+    });
+    const weakestDok = [...weakestDokCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "Not enough data";
+    const topMisconception = [...misconceptionCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+      || "Students struggle to justify with evidence";
+    const weeklyStatus = summarizeMasteryStatus(avgMastery);
+    const suggestedFocus = rows[0]?.recommended_next_step || weeklyStatus.nextStep;
+
+    weeklyDashboardHtml = `
+      <div class="notesSection">
+        <h3>🗓 Weekly Teacher Dashboard</h3>
+        <div class="notesText">Lessons taught: ${uniqueSessions.size}</div>
+        <div class="notesText">Average mastery: ${renderMeter(avgMastery, 12)}</div>
+        <div class="notesText">Weakest area: ${escHtml(weakestDok)}</div>
+        <div class="notesText">Top misconception: ${escHtml(topMisconception)}</div>
+        <div class="notesText">Status: ${escHtml(weeklyStatus.label)}</div>
+        <div class="notesText">Suggested focus next week: ${escHtml(suggestedFocus)}</div>
+      </div>
+    `;
+
+    if (slides[currentIndex]?.stageType === "exit_ticket" || currentIndex === slides.length - 1) {
+      renderSlide();
+    }
+  } catch {
+    // silent fallback: report can still use current lesson snapshots
+  }
+}
+
+async function refreshTeksTrendInsights() {
+  const standard = String(currentStandard || "").trim();
+  if (!standard) return;
+
+  const query = `select=lesson_id,standard,correct_percent,created_at&standard=eq.${encodeURIComponent(standard)}&order=created_at.desc`;
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/question_snapshots?${query}`, {
+      headers: buildSupabaseHeaders(false),
+    });
+    if (!res.ok) return;
+
+    const rows = await parseJsonResponse<Array<{
+      lesson_id?: string;
+      standard?: string;
+      correct_percent?: number;
+      created_at?: string;
+    }>>(res, "Failed to load TEKS trend");
+
+    const lessonAverages = new Map<string, { created_at: string; values: number[] }>();
+    for (const row of rows) {
+      const lessonId = String(row.lesson_id || "").trim();
+      if (!lessonId) continue;
+      const bucket = lessonAverages.get(lessonId) || {
+        created_at: String(row.created_at || ""),
+        values: [],
+      };
+      bucket.values.push(Number(row.correct_percent || 0));
+      if (!bucket.created_at || String(row.created_at || "") > bucket.created_at) {
+        bucket.created_at = String(row.created_at || "");
+      }
+      lessonAverages.set(lessonId, bucket);
+    }
+
+    const recentLessons = [...lessonAverages.entries()]
+      .map(([lessonId, item]) => ({
+        lessonId,
+        created_at: item.created_at,
+        avg: Math.round(item.values.reduce((sum, value) => sum + value, 0) / Math.max(1, item.values.length)),
+      }))
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+      .slice(0, 10);
+
+    if (!recentLessons.length) return;
+
+    const recentAverage = Math.round(recentLessons.reduce((sum, item) => sum + item.avg, 0) / recentLessons.length);
+    const oldestHalf = recentLessons.slice(Math.ceil(recentLessons.length / 2));
+    const newestHalf = recentLessons.slice(0, Math.ceil(recentLessons.length / 2));
+    const oldestAvg = oldestHalf.length
+      ? oldestHalf.reduce((sum, item) => sum + item.avg, 0) / oldestHalf.length
+      : recentAverage;
+    const newestAvg = newestHalf.length
+      ? newestHalf.reduce((sum, item) => sum + item.avg, 0) / newestHalf.length
+      : recentAverage;
+    const delta = Math.round(newestAvg - oldestAvg);
+    const trendLabel = delta > 3 ? "↑ improving" : delta < -3 ? "↓ declining" : "→ stable";
+
+    teksTrendHtml = `
+      <div class="notesSection">
+        <h3>📚 TEKS Across Recent Lessons</h3>
+        <div class="notesText">TEKS ${escHtml(standard)} Mastery (last ${recentLessons.length} lessons): ${renderMeter(recentAverage, 10)}</div>
+        <div class="notesText">Trend: ${escHtml(trendLabel)}</div>
+      </div>
+    `;
+
+    if (slides[currentIndex]?.stageType === "exit_ticket" || currentIndex === slides.length - 1) {
+      renderSlide();
+    }
+  } catch {
+    // keep local report if historical TEKS data is unavailable
+  }
+}
+
+async function refreshTeacherComparisonInsights() {
+  const standard = String(currentStandard || "").trim();
+  if (!standard) return;
+
+  try {
+    const lessonRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/lessons?select=id,user_id,grade,subject,standard&standard=eq.${encodeURIComponent(standard)}&order=created_at.desc&limit=30`,
+      { headers: buildSupabaseHeaders(false) },
+    );
+    if (!lessonRes.ok) return;
+    const lessons = await parseJsonResponse<Array<{
+      id?: string;
+      user_id?: string;
+      grade?: string | number;
+      subject?: string;
+      standard?: string;
+    }>>(lessonRes, "Failed to load teacher comparison lessons");
+
+    const lessonIds = lessons.map((lesson) => String(lesson.id || "").trim()).filter(Boolean);
+    if (!lessonIds.length) return;
+
+    const encodedLessonIds = lessonIds.map((id) => `"${id}"`).join(",");
+    const reportRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/lesson_reports?select=lesson_id,average_mastery&lesson_id=in.(${encodeURIComponent(encodedLessonIds)})`,
+      { headers: buildSupabaseHeaders(false) },
+    );
+    if (!reportRes.ok) return;
+    const reports = await parseJsonResponse<Array<{
+      lesson_id?: string;
+      average_mastery?: number;
+    }>>(reportRes, "Failed to load teacher comparison reports");
+
+    const lessonToTeacher = new Map(
+      lessons.map((lesson) => [String(lesson.id || ""), String(lesson.user_id || "")]),
+    );
+    const teacherBuckets = new Map<string, number[]>();
+    reports.forEach((report) => {
+      const teacherId = lessonToTeacher.get(String(report.lesson_id || ""));
+      if (!teacherId) return;
+      const list = teacherBuckets.get(teacherId) || [];
+      list.push(Number(report.average_mastery || 0));
+      teacherBuckets.set(teacherId, list);
+    });
+
+    const teacherRows = [...teacherBuckets.entries()]
+      .map(([teacherId, values]) => ({
+        teacherId,
+        avg: Math.round(values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length)),
+      }))
+      .sort((a, b) => b.avg - a.avg)
+      .slice(0, 3);
+
+    if (!teacherRows.length) {
+      teacherComparisonHtml = `
+        <div class="notesSection">
+          <h3>👥 Teacher Comparison</h3>
+          <div class="notesText">Comparison will populate after lesson reports accumulate for this standard.</div>
+        </div>
+      `;
+      return;
+    }
+
+    const comparisonRows = teacherRows
+      .map((row, index) => `<div class="notesText">Teacher ${String.fromCharCode(65 + index)}: ${renderMeter(row.avg, 8)}</div>`)
+      .join("");
+    const comparisonLabel = `${currentGradeLabel ? `Grade ${escHtml(currentGradeLabel)} ` : ""}${escHtml(String(lessons[0]?.subject || "").toUpperCase() || "Current Cohort")}`;
+
+    teacherComparisonHtml = `
+      <div class="notesSection">
+        <h3>👥 Teacher Comparison</h3>
+        <div class="notesText">${comparisonLabel}</div>
+        ${comparisonRows}
+      </div>
+    `;
+
+    if (slides[currentIndex]?.stageType === "exit_ticket" || currentIndex === slides.length - 1) {
+      renderSlide();
+    }
+  } catch {
+    teacherComparisonHtml = `
+      <div class="notesSection">
+        <h3>👥 Teacher Comparison</h3>
+        <div class="notesText">Comparison data is unavailable with the current report dataset.</div>
+      </div>
+    `;
+  }
+}
+
+function recordQuestionPerformanceSnapshot(
+  questionId: string,
+  correctPercent: number,
+  mostCommonWrong: string,
+  misconception: string,
+  teacherMove: string,
+  answeredCount: number,
+  correctResponses: number,
+  studentCount: number,
+) {
+  const snapshot: QuestionPerformanceSnapshot = {
+    session_id: liveSessionId,
+    lesson_id: lessonIdGlobal,
+    question_id: questionId,
+    standard: currentTek || currentStandard || "Not tagged",
+    dok_level: formatDokLevel(normalizeDok(currentDok || "2")),
+    correct_percent: correctPercent,
+    total_responses: answeredCount,
+    correct_responses: correctResponses,
+    most_common_wrong: mostCommonWrong,
+    misconception,
+    student_count: studentCount,
+    timestamp: new Date().toISOString(),
+    teacher_move: teacherMove,
+  };
+
+  const existingIndex = questionPerformanceSnapshots.findIndex((item) => item.question_id === questionId);
+  if (existingIndex >= 0) {
+    questionPerformanceSnapshots[existingIndex] = snapshot;
+  } else {
+    questionPerformanceSnapshots.push(snapshot);
+  }
+
+  void persistQuestionSnapshot(snapshot);
+}
+
+function buildEndOfLessonReport(): string {
+  if (!questionPerformanceSnapshots.length) {
+    return `<div class="notesSection"><h3>📊 Lesson Summary</h3><div class="notesText">No live question snapshots yet.</div></div>${teksTrendHtml || ""}${teacherComparisonHtml || ""}${weeklyDashboardHtml || ""}`;
+  }
+
+  const avgMastery = Math.round(
+    questionPerformanceSnapshots.reduce((sum, item) => sum + item.correct_percent, 0) / questionPerformanceSnapshots.length,
+  );
+
+  const byDok = new Map<string, number[]>();
+  questionPerformanceSnapshots.forEach((item) => {
+    const list = byDok.get(item.dok_level) || [];
+    list.push(item.correct_percent);
+    byDok.set(item.dok_level, list);
+  });
+
+  const dokAverages = [...byDok.entries()].map(([dok, values]) => ({
+    dok,
+    avg: values.reduce((sum, value) => sum + value, 0) / values.length,
+  }));
+  dokAverages.sort((a, b) => b.avg - a.avg);
+
+  const strongestArea = dokAverages.length ? dokAverages[0].dok : "Not enough data";
+  const weakestArea = dokAverages.length ? dokAverages[dokAverages.length - 1].dok : "Not enough data";
+
+  const misconceptionCounts = new Map<string, number>();
+  questionPerformanceSnapshots.forEach((item) => {
+    const key = item.misconception || item.most_common_wrong;
+    misconceptionCounts.set(key, (misconceptionCounts.get(key) || 0) + 1);
+  });
+  const topMisconception = [...misconceptionCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "No repeated misconception detected";
+  const latestSnapshot = questionPerformanceSnapshots[questionPerformanceSnapshots.length - 1];
+  const teksMastery = latestSnapshot?.standard || currentTek || currentStandard || "Not tagged";
+  const teksSnapshots = questionPerformanceSnapshots.filter((item) => item.standard === teksMastery);
+  const teksMasteryPercent = teksSnapshots.length
+    ? Math.round(teksSnapshots.reduce((sum, item) => sum + item.correct_percent, 0) / teksSnapshots.length)
+    : avgMastery;
+  const status = summarizeMasteryStatus(teksMasteryPercent);
+  const dokRows = dokAverages.map((item) => `<div class="notesText">${escHtml(item.dok)}: ${renderMeter(item.avg, 8)}</div>`).join("");
+  const nextStep = latestSnapshot?.teacher_move || status.nextStep;
+  const report: LessonReportSnapshot = {
+    session_id: liveSessionId,
+    lesson_id: lessonIdGlobal,
+    average_mastery: avgMastery,
+    strongest_dok: strongestArea,
+    weakest_dok: weakestArea,
+    top_misconception: topMisconception,
+    recommended_next_step: nextStep,
+  };
+  void persistLessonReport(report);
+
+  return `
+    <div class="notesSection">
+      <h3>📊 Mastery Overview</h3>
+      <div class="notesText">${renderMeter(avgMastery, 10)}</div>
+      <div class="notesText" style="margin-top:8px;"><b>DOK Breakdown:</b></div>
+      ${dokRows}
+      <div class="notesText" style="margin-top:8px;">Strongest Area: ${escHtml(strongestArea)}</div>
+      <div class="notesText">Weakest Area: ${escHtml(weakestArea)}</div>
+      <div class="notesText">Top Misconception: ${escHtml(topMisconception)}</div>
+    </div>
+
+    <div class="notesSection">
+      <h3>🎯 TEKS Mastery</h3>
+      <div class="notesText">TEKS ${escHtml(teksMastery)} Mastery: ${renderMeter(teksMasteryPercent, 10)}</div>
+      <div class="notesText">Status: ${escHtml(status.label)}</div>
+      <div class="notesText">Recommended: ${escHtml(nextStep)}</div>
+    </div>
+
+    ${teksTrendHtml || ""}
+    ${teacherComparisonHtml || ""}
+    ${weeklyDashboardHtml || ""}
+
+    <div class="notesSection">
+      <h3>🧾 Snapshot Sync</h3>
+      <div class="notesText">
+        Saved to Supabase question_snapshots and lesson_reports using session, lesson, DOK, mastery, and misconception fields.
+      </div>
+    </div>
+  `;
+}
+
 function launchAutoReteach() {
   const slide = slides[currentIndex];
   if (!slide || slide.type !== "question") return;
@@ -2278,9 +3451,9 @@ function renderLiveSessionPanel(message?: string, snapshot?: LiveResultsSnapshot
     return;
   }
 
-  const questionId = currentQuestionId();
+  const activeQuestionId = currentSessionQuestionId();
   const joinUrl = `${LIVE_JOIN_BASE}?code=${encodeURIComponent(liveJoinCode)}`;
-  statusEl.innerHTML = `Join Code: <b>${escHtml(liveJoinCode)}</b><br/>Go to: ${escHtml(joinUrl)}<br/>Current Question: ${escHtml(questionId)}`;
+  statusEl.innerHTML = `Join Code: <b>${escHtml(liveJoinCode)}</b><br/>Go to: ${escHtml(joinUrl)}<br/>Active Question: ${escHtml(activeQuestionId || "Waiting for teacher")}<br/>Answer State: <b>${liveAnswersLocked ? "Locked" : "Open"}</b>`;
 
   if (message) {
     resultsEl.textContent = message;
@@ -2316,11 +3489,102 @@ function renderLiveSessionPanel(message?: string, snapshot?: LiveResultsSnapshot
     ? `<div style="margin-top:8px;"><b>Students Joined</b></div>${studentNames.map((name) => `<div>${escHtml(name)}</div>`).join("")}`
     : "";
 
-  const responsesHtml = `<div><b>Live Results</b></div>${progressLine}${rows.join("")}${joinedNames}`;
+  const responsesHtml = `<div><b>Live Results</b></div>${progressLine}${rows.join("")}${joinedNames}<div style="margin-top:10px;">${leaderboardHtml}</div>`;
   const reteachHtml = `${reteachBanner || "<div><b>Reteach</b><br/>No reteach trigger right now. Keep monitoring accuracy.</div>"}`;
   resultsEl.innerHTML = responsesHtml + reteachBanner;
   setDockPanelContent(responsesHtml, `<div><b>Reteach</b></div>${reteachHtml}`);
   refreshDockVisibility();
+}
+
+function renderLiveQuestionResults(snapshot?: LiveResultsSnapshot) {
+  const host = document.getElementById("live-question-results");
+  const slide = slides[currentIndex];
+  if (!host || !slide || slide.type !== "question") return;
+
+  if (!liveSessionId) {
+    host.innerHTML = "";
+    return;
+  }
+
+  const counts = snapshot?.counts || [0, 0, 0, 0];
+  const answeredCount = snapshot?.answeredCount || 0;
+  const choices = Array.isArray(slide.answerChoices) ? slide.answerChoices : ["A", "B", "C", "D"];
+  const letters = ["A", "B", "C", "D"];
+  const total = Math.max(1, answeredCount);
+  const correctIndex = Number.isInteger(slide.correctIndex) ? Number(slide.correctIndex) : -1;
+
+  const rows = letters
+    .map((letter, i) => {
+      if (i >= choices.length) return "";
+      const pct = answeredCount ? Math.round((counts[i] / total) * 100) : 0;
+      return `<div>${letter}: ${"█".repeat(Math.max(1, Math.round((pct / 100) * 10)))} ${pct}%</div>`;
+    })
+    .filter(Boolean)
+    .join("");
+
+  const correctPct =
+    answeredCount && correctIndex >= 0 && correctIndex < counts.length
+      ? Math.round((counts[correctIndex] / total) * 100)
+      : 0;
+
+  let mostCommonWrong = "—";
+  let misconception = "No dominant misconception detected yet.";
+  let teacherMove = "Keep monitoring responses and press for text evidence.";
+  if (answeredCount && correctIndex >= 0) {
+    const wrongEntries = counts
+      .map((count, i) => ({ count, i }))
+      .filter(({ i, count }) => i !== correctIndex && i < choices.length && count > 0)
+      .sort((a, b) => b.count - a.count);
+    if (wrongEntries.length) {
+      const topWrong = wrongEntries[0];
+      mostCommonWrong = `${letters[topWrong.i]} (${String(choices[topWrong.i] || "").trim() || "choice"})`;
+      const choiceText = String(choices[topWrong.i] || "").toLowerCase();
+      if (choiceText.includes("misconception")) {
+        misconception = "Students confused motivation with theme.";
+        teacherMove = "Students are confusing motivation with theme. Re-model using think-aloud and require text evidence.";
+      } else if (choiceText.includes("partial")) {
+        misconception = "Students identified a partial truth but did not justify the strongest answer.";
+        teacherMove = "Prompt for deeper evidence and have students explain why the answer is only partially correct.";
+      } else if (choiceText.includes("irrelevant")) {
+        misconception = "Students selected evidence that does not match the prompt focus.";
+        teacherMove = "Redirect students back to the question focus and identify which evidence actually matches the prompt.";
+      } else {
+        misconception = `Students are over-selecting ${letters[topWrong.i]} without sufficient evidence.`;
+        teacherMove = "Re-teach using model + think aloud, then require students to cite the strongest text evidence.";
+      }
+    }
+  }
+  slide.teacherMove = teacherMove;
+
+  if (
+    snapshot &&
+    slide.type === "question" &&
+    snapshot.studentCount > 0 &&
+    snapshot.answeredCount / Math.max(1, snapshot.studentCount) >= AUTO_ADVANCE_RESPONSE_THRESHOLD
+  ) {
+    const questionKey = `${currentQuestionId()}_${snapshot.answeredCount}_${snapshot.studentCount}`;
+    if (lastAutoAdvanceQuestionKey !== questionKey) {
+      lastAutoAdvanceQuestionKey = questionKey;
+      window.setTimeout(() => autoAdvanceSlide(), 600);
+    }
+  }
+
+  const correctResponses =
+    answeredCount && correctIndex >= 0 && correctIndex < counts.length
+      ? counts[correctIndex]
+      : 0;
+  recordQuestionPerformanceSnapshot(
+    currentQuestionId(),
+    correctPct,
+    mostCommonWrong,
+    misconception,
+    teacherMove,
+    answeredCount,
+    correctResponses,
+    snapshot?.studentCount || 0,
+  );
+
+  host.innerHTML = `<div class="notesTitle" style="margin-top:10px;">Live Student Results</div><div><b>Correct:</b> ${correctPct}%</div><div><b>Most common mistake:</b> ${escHtml(mostCommonWrong)}</div><div><b>Misconception:</b> ${escHtml(misconception)}</div><div><b>Teacher Move:</b><br/>1. ${escHtml(teacherMove.split(". ")[0] || teacherMove)}<br/>2. Ask: "What evidence supports that?"<br/>3. Have students revise answer</div>${rows || "<div>No responses yet.</div>"}`;
 }
 
 async function getLiveResults(questionId: string): Promise<LiveResultsSnapshot> {
@@ -2367,9 +3631,13 @@ async function refreshLiveResults() {
 
   try {
     const snapshot = await getLiveResults(currentQuestionId());
+    latestLiveSnapshot = snapshot;
+    void refreshLeaderboard();
     renderLiveSessionPanel(undefined, snapshot);
+    renderLiveQuestionResults(snapshot);
   } catch (e: any) {
     renderLiveSessionPanel(e?.message || "Unable to load live results.");
+    renderLiveQuestionResults();
   }
 }
 
@@ -2388,7 +3656,12 @@ async function startLiveSession() {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/sessions`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ lesson_id: lessonIdGlobal, join_code: joinCode }),
+    body: JSON.stringify({
+      lesson_id: lessonIdGlobal,
+      join_code: joinCode,
+      active_question_id: currentSessionQuestionId() || null,
+      is_locked: currentSessionQuestionId() ? false : true,
+    }),
   });
 
   if (!res.ok) {
@@ -2404,8 +3677,18 @@ async function startLiveSession() {
 
   liveSessionId = session.id;
   liveJoinCode = session.join_code;
+  questionPerformanceSnapshots = [];
+  persistedQuestionSnapshotSignatures = new Map<string, string>();
+  lastLessonReportSignature = "";
+  liveAnswersLocked = Boolean(session.is_locked);
+  lastSyncedQuestionId = String(session.active_question_id || currentSessionQuestionId() || "");
+  lastSyncedLockState = Boolean(session.is_locked);
   renderLiveSessionPanel("Waiting for student responses...");
   subscribeLiveResponsesRealtime();
+  await syncLiveSessionState(true);
+  void refreshWeeklyTeacherDashboard();
+  void refreshTeksTrendInsights();
+  void refreshTeacherComparisonInsights();
   await refreshLiveResults();
 }
 
@@ -2545,19 +3828,125 @@ function stageClass(stageType?: SlideType): string {
 }
 
 const stageLabels: Record<string, string> = {
-  objective_lock: "Objective",
-  verb_definition: "Academic Verb",
-  strategy_formula: "Strategy",
-  model_think_aloud: "Model (I Do)",
-  guided_dok_ladder: "Guided Practice",
-  compare_defend: "Compare & Defend",
-  independent_transfer: "Independent Practice",
-  exit_ticket: "Exit Ticket",
+  objective_lock: "🎯 Objective",
+  verb_definition: "🧠 Skill",
+  strategy_formula: "🛠 Strategy",
+  model_think_aloud: "👀 I Do",
+  guided_dok_ladder: "🤝 We Do",
+  compare_defend: "⚖️ Debate",
+  independent_transfer: "✍️ You Do",
+  exit_ticket: "🚪 Exit Ticket",
 };
 
 function stageBadge(stageType?: SlideType): string {
   if (!stageType) return "";
-  return `<div class="stageBadge">${escHtml(stageLabels[stageType] || "")}</div>`;
+  return `<div class="stageBadge stage-chip">${escHtml(stageLabels[stageType] || "")}</div>`;
+}
+
+function getLayoutClass(stageType: string): string {
+  const stageLayouts: Record<string, string> = {
+    objective_lock: "layout-center",
+    verb_definition: "layout-vocab",
+    strategy_formula: "layout-center",
+    model_think_aloud: "layout-story",
+    guided_dok_ladder: "layout-question",
+    compare_defend: "layout-debate",
+    independent_transfer: "layout-writing",
+    exit_ticket: "layout-exit",
+  };
+  return stageLayouts[stageType] || "layout-default";
+}
+
+function cleanText(text: string): string {
+  return String(text || "")
+    .replace(/_id:.*$/gm, "")
+    .replace(/correctIndex:.*$/gm, "")
+    .replace(/STAGE:.*$/gm, "")
+    .replace(/TEACHER CUE:.*$/gm, "")
+    .replace(/choices:/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function cleanItems(items: unknown): string[] {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => cleanText(String(item || ""))).filter(Boolean);
+}
+
+function limitText(text: string, maxLength = 220): string {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, maxLength).trimEnd()}...`;
+}
+
+function splitContent(text: string): string[] {
+  const cleaned = cleanText(text);
+  if (!cleaned) return [];
+  const chunks = cleaned.match(/.{1,220}(\s|$)/g) || [];
+  return chunks.map((t) => t.trim()).filter(Boolean);
+}
+
+function cleanHeading(text: string): string {
+  return String(text || "").replace(/Practice Question/gi, "").trim();
+}
+
+function limitItems(items: string[], max = 4): string[] {
+  return items.slice(0, max);
+}
+
+function renderMultipleChoice(
+  slide: SlideDefinition,
+  extraClass: string,
+  layoutClass: string,
+  stage: string,
+  coachingTag: string,
+  coachLine: string,
+  alignment: string,
+): string {
+  const choicesRaw = Array.isArray(slide.answerChoices)
+    ? slide.answerChoices
+    : Array.isArray((slide as any).choices)
+      ? ((slide as any).choices as string[])
+      : [];
+  const choicesClean = cleanItems(choicesRaw);
+  const choices = choicesClean.length
+    ? `<ul class="mcChoices answers fade-in" style="animation-delay:0.25s">${choicesClean
+        .map((c, i) => `<li class="mcChoice answer${revealStep > 0 && i === slide.correctIndex ? " mcChoice--correct correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
+        .join("")}</ul>`
+    : "";
+
+  const rationale =
+    revealStep > 0 && slide.distractorRationale
+      ? `<div class="whyWinsTitle fade-in" style="animation-delay:0.3s">Why This Answer Wins</div><div class="rationaleGrid fade-in" style="animation-delay:0.35s">${slide.distractorRationale
+          .map((r, i) => `<div class="rationaleCard${i === slide.correctIndex ? " rationaleCard--correct" : ""}"><strong>${String.fromCharCode(65 + i)}</strong> ${escHtml(cleanText(r))}</div>`)
+          .join("")}</div>`
+      : "";
+
+  return `
+    <div class="slide slide-content ${layoutClass} slide--question${extraClass}">
+      ${stage}${coachingTag}<h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 80)) || "Question")}</h2>
+      <p class="promptPrimary fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.question || "")), 260))}</p>
+      <p class="fade-in" style="animation-delay:0.2s">${escHtml(limitText(cleanText(String(slide.prompt || "")), 220))}</p>
+      ${choices}
+      <div id="live-question-results" class="liveQuestionResults"></div>
+      ${rationale}
+      ${coachLine}${alignment}
+    </div>
+  `;
+}
+
+function adjustSlideText() {
+  const slide = document.querySelector(".slide-content") as HTMLElement | null;
+  if (!slide) return;
+
+  let fontSize = 48;
+  slide.style.fontSize = `${fontSize}px`;
+
+  while (slide.scrollHeight > slide.clientHeight && fontSize > 24) {
+    fontSize -= 2;
+    slide.style.fontSize = `${fontSize}px`;
+  }
 }
 
 function preferredStageDuration(stageType?: SlideType): number {
@@ -2572,15 +3961,136 @@ function preferredStageDuration(stageType?: SlideType): number {
   return 90;
 }
 
+function buildRenderedSlideHtml(
+  slide: SlideDefinition,
+  layoutClass: string,
+  extraClass: string,
+  stage: string,
+  coachingTag: string,
+  coachLine: string,
+  alignment: string,
+): string {
+  if (slide.stageType === "model_think_aloud") {
+    const modelSource = [
+      cleanHeading(String(slide.heading || "")),
+      String(slide.subtext || ""),
+      String(slide.prompt || ""),
+      String(slide.question || ""),
+      cleanItems(slide.items || []).join(" "),
+      String(slide.notes || ""),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const parts = splitContent(modelSource).slice(0, 3);
+    const content = parts.length ? parts : ["Model the reasoning in short, explicit steps and narrate evidence use."];
+    return `
+      <div class="slide slide-content ${layoutClass} slide--headline${extraClass}">
+        ${stage}${coachingTag}
+        ${content
+          .map(
+            (part, i) => `<div class="sectionTag fade-in" style="animation-delay:${0.08 + i * 0.08}s">Model (${i + 1}/${content.length})</div><div class="story-text fade-in" style="animation-delay:${0.14 + i * 0.08}s">${escHtml(limitText(part, 220))}</div>`,
+          )
+          .join("")}
+        ${coachLine}${alignment}
+      </div>
+    `;
+  }
+
+  if (slide.type === "splash") {
+    return `
+      <div class="slide slide-content ${layoutClass} slide--splash${extraClass}">
+        <div class="brandMark">LR</div>
+        <div class="brandKicker">Instruction Launch</div>
+        <h1 class="fade-in" style="animation-delay:0.05s">${escHtml(limitText(cleanText(String(slide.heading || "Lessons-Ready")), 80))}</h1>
+        <p class="splashSubtext fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.subtext || "")), 220))}</p>
+        <div class="splashMeta fade-in" style="animation-delay:0.25s">${escHtml(limitText(cleanText(String(slide.notes || "")), 180))}</div>
+      </div>
+    `;
+  }
+
+  if (slide.type === "headline") {
+    const headlineBody =
+      slide.stageType === "verb_definition"
+        ? `<div class="vocab-box interactive fade-in" style="animation-delay:0.05s"><h2>${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 90)) || "Skill Focus")}</h2><p>${escHtml(limitText(cleanText(String(slide.subtext || "")), 240))}</p></div><div class="vocab-box interactive fade-in" style="animation-delay:0.15s"><h2>Student-Friendly Move</h2><p>Say the verb in your own words, then name the evidence you need.</p></div>`
+        : `<div class="sectionTag fade-in" style="animation-delay:0.05s">${escHtml(limitText(cleanText(String(slide.section || "")), 40))}</div><h1 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 90)) || "Lesson Focus")}</h1><p class="fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.subtext || "")), 240))}</p>`;
+
+    return `<div class="slide slide-content ${layoutClass} slide--headline${extraClass}">${stage}${coachingTag}${headlineBody}${coachLine}${alignment}</div>`;
+  }
+
+  if (slide.type === "split") {
+    const items = limitItems(cleanItems(slide.items || []), 4);
+    const visibleCount = revealStep > 0 ? Math.min(revealStep, items.length) : Math.min(1, items.length);
+    return `
+      <div class="slide slide-content ${layoutClass} slide--split${extraClass}">
+        ${stage}${coachingTag}
+        <h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 80)) || "Key Ideas")}</h2>
+        <p class="slideSubtext fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.subtext || "")), 220))}</p>
+        <ul class="fade-in" style="animation-delay:0.25s">${items.slice(0, visibleCount).map((item) => `<li>${escHtml(limitText(item, 120))}</li>`).join("")}</ul>
+        ${coachLine}${alignment}
+      </div>
+    `;
+  }
+
+  if (slide.type === "question") {
+    return renderMultipleChoice(slide, extraClass, layoutClass, stage, coachingTag, coachLine, alignment);
+  }
+
+  if (slide.type === "writing") {
+    const cerFrame = revealStep > 0 ? `<p class="cerFrame">CER: Claim → Evidence → Reasoning</p>` : "";
+    const model =
+      revealStep > 1
+        ? `<p class="revealBlock">${escHtml(currentSkillType === "context_clues" ? "Model paragraph reveal: The word \"obscured\" means hidden because the nearby detail says thick fog blocked visibility." : "Model paragraph reveal: Explain your claim with direct evidence and reasoning from the text.")}</p>`
+        : "";
+
+    return `
+      <div class="slide slide-content ${layoutClass} slide--writing${extraClass}">
+        ${stage}${coachingTag}<h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 80)) || "Writing")}</h2>
+        <div class="${slide.stageType === "exit_ticket" ? "question-box" : "writing-box"} interactive fade-in" style="animation-delay:0.15s">
+          <p class="promptPrimary">${escHtml(limitText(cleanText(String(slide.subtext || "")), 240))}</p>
+          <div class="cerScaffold"><div>Claim</div><div>Evidence</div><div>Reasoning</div></div>
+          ${cerFrame}
+          ${model}
+        </div>
+        ${coachLine}${alignment}
+      </div>
+    `;
+  }
+
+  if (slide.type === "energy") {
+    const contrastClass = currentIndex % 4 === 0 ? " slide--contrast" : "";
+    return `<div class="slide slide-content ${layoutClass} slide--energy${contrastClass}${extraClass}">${stage}${coachingTag}<h1 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 80)) || "Energy Break")}</h1><p class="fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.subtext || "")), 200))}</p>${coachLine}${alignment}</div>`;
+  }
+
+  if (slide.type === "discussion") {
+    const stem = revealStep > 0 ? `<p class="revealBlock">Sentence stem reveal: "I agree because the text says..."</p>` : "";
+    const promptClean = escHtml(limitText(cleanText(String(slide.prompt || "Discuss with your partner.")), 220));
+    const discussionBody =
+      slide.stageType === "compare_defend"
+        ? `<div class="debate-box interactive fade-in" style="animation-delay:0.15s"><h3>Option A</h3><p>${promptClean}</p></div><div class="debate-box interactive fade-in" style="animation-delay:0.25s"><h3>Option B</h3><p>Defend the stronger answer with evidence.</p></div>`
+        : `<p class="promptPrimary fade-in" style="animation-delay:0.15s">${promptClean}</p>`;
+
+    return `
+      <div class="slide slide-content ${layoutClass} slide--discussion${extraClass}">
+        ${stage}${coachingTag}<h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "Discuss")), 80)) || "Discuss")}</h2>
+        ${discussionBody}
+        ${stem}
+        ${coachLine}${alignment}
+      </div>
+    `;
+  }
+
+  return `<div class="slide slide-content ${layoutClass}${extraClass}">${stage}${coachingTag}<h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "Slide")), 80)) || "Slide")}</h2>${coachLine}${alignment}</div>`;
+}
+
 function renderSlide() {
   const slide = slides[currentIndex];
   const container = slideContainerEl;
   if (!container) return;
   const counter = document.getElementById("slide-counter");
-  const notesPanel = document.getElementById("notes-panel");
+  const notesPanel = document.getElementById("teacher-notes");
 
   if (!slide) {
-    container.innerHTML = `<div class="slide"><h2>No slide found</h2></div>`;
+    container.innerHTML = `<div class="slide slide-content"><h2>No slide found</h2></div>`;
     if (counter) counter.textContent = "";
     if (notesPanel) notesPanel.innerHTML = "";
     return;
@@ -2598,103 +4108,31 @@ function renderSlide() {
   updatePhaseProgress(slide.stageType, slide.section);
   updateNextSlidePreview();
   updateSlideThumbnails();
+  const activeQuestionId = currentSessionQuestionId();
+  if (activeQuestionId && activeQuestionId !== lastSyncedQuestionId) {
+    liveAnswersLocked = false;
+  }
   if (liveSessionId) {
+    syncLiveSessionState().catch(() => {});
     refreshLiveResults().catch(() => {});
   } else {
     renderLiveSessionPanel();
   }
 
-  const coachLine = slide.teacherCue ? `<div class="coachLine">Coach: ${escHtml(slide.teacherCue)}</div>` : "";
-  const alignment = `<div class="alignmentChip">${escHtml(alignmentChip(slide))}</div>`;
+  const coachLine = settings.showTeacherNotes && slide.teacherCue
+    ? `<div class="coachLine">Coach: ${escHtml(cleanText(slide.teacherCue))}</div>`
+    : "";
+  const alignment = `<div class="alignmentChip">${escHtml(alignmentChip(slide))}</div>${dokBadgeHtml()}`;
   const stage = stageBadge(slide.stageType);
+  const layoutClass = getLayoutClass(String(slide.stageType || ""));
   const coachingTag = String(slide.section || "").toLowerCase().includes("coaching") ? `<div class="coachingTag">Coaching Insight</div>` : "";
   const extraClass = `${stageClass(slide.stageType)}${String(slide.section || "").toLowerCase().includes("coaching") ? " slide--coaching" : ""}`;
 
   try {
-  if (slide.type === "splash") {
-    container.innerHTML = `
-      <div class="slide slide--splash${extraClass}">
-        <div class="brandMark">LR</div>
-        <div class="brandKicker">Instruction Launch</div>
-        <h1>${escHtml(slide.heading || "Lessons-Ready")}</h1>
-        <p class="splashSubtext">${escHtml(slide.subtext || "")}</p>
-        <div class="splashMeta">${escHtml(slide.notes || "")}</div>
-      </div>
-    `;
-  } else if (slide.type === "headline") {
-    container.innerHTML = `<div class="slide slide--headline${extraClass}">${stage}${coachingTag}<div class="sectionTag">${escHtml(slide.section || "")}</div><h1>${escHtml(slide.heading)}</h1><p>${escHtml(slide.subtext)}</p>${coachLine}${alignment}</div>`;
-  } else if (slide.type === "split") {
-    const items = slide.items || [];
-    const visibleCount = revealStep > 0 ? Math.min(revealStep, items.length) : Math.min(1, items.length);
-    container.innerHTML = `
-      <div class="slide slide--split${extraClass}">
-        ${stage}${coachingTag}
-        <h2>${escHtml(slide.heading)}</h2>
-        <p class="slideSubtext">${escHtml(slide.subtext)}</p>
-        <ul>${items.slice(0, visibleCount).map((item) => `<li>${escHtml(item)}</li>`).join("")}</ul>
-        ${coachLine}${alignment}
-      </div>
-    `;
-  } else if (slide.type === "question") {
-    const choices =
-      slide.answerChoices && slide.answerChoices.length
-        ? `<ul class="mcChoices">${slide.answerChoices
-            .map((c, i) => `<li class="mcChoice${revealStep > 0 && i === slide.correctIndex ? " mcChoice--correct" : ""}"><span class="choiceLetter">${String.fromCharCode(65 + i)}.</span> ${escHtml(c)}</li>`)
-            .join("")}</ul>`
-        : "";
-
-    const rationale =
-      revealStep > 0 && slide.distractorRationale
-        ? `<div class="whyWinsTitle">Why This Answer Wins</div><div class="rationaleGrid">${slide.distractorRationale
-            .map((r, i) => `<div class="rationaleCard${i === slide.correctIndex ? " rationaleCard--correct" : ""}"><strong>${String.fromCharCode(65 + i)}</strong> ${escHtml(r)}</div>`)
-            .join("")}</div>`
-        : "";
-
-    container.innerHTML = `
-      <div class="slide slide--question${extraClass}">
-        ${stage}${coachingTag}<h2>${escHtml(slide.heading)}</h2>
-        <p class="promptPrimary">${escHtml(slide.question)}</p>
-        <p>${escHtml(slide.prompt)}</p>
-        ${choices}
-        ${rationale}
-        ${coachLine}${alignment}
-      </div>
-    `;
-  } else if (slide.type === "writing") {
-    const cerFrame = revealStep > 0 ? `<p class="cerFrame">CER: Claim → Evidence → Reasoning</p>` : "";
-    const model =
-      revealStep > 1
-        ? `<p class="revealBlock">${escHtml(currentSkillType === "context_clues" ? "Model paragraph reveal: The word \"obscured\" means hidden because the nearby detail says thick fog blocked visibility." : "Model paragraph reveal: Explain your claim with direct evidence and reasoning from the text.")}</p>`
-        : "";
-    container.innerHTML = `
-      <div class="slide slide--writing${extraClass}">
-        ${stage}${coachingTag}<h2>${escHtml(slide.heading)}</h2>
-        <p class="promptPrimary">${escHtml(slide.subtext)}</p>
-        <div class="cerScaffold"><div>Claim</div><div>Evidence</div><div>Reasoning</div></div>
-        ${cerFrame}
-        ${model}
-        ${coachLine}${alignment}
-      </div>
-    `;
-  } else if (slide.type === "energy") {
-    const contrastClass = currentIndex % 4 === 0 ? " slide--contrast" : "";
-    container.innerHTML = `<div class="slide slide--energy${contrastClass}${extraClass}">${stage}${coachingTag}<h1>${escHtml(slide.heading)}</h1><p>${escHtml(slide.subtext || "")}</p>${coachLine}${alignment}</div>`;
-  } else if (slide.type === "discussion") {
-    const stem = revealStep > 0 ? `<p class="revealBlock">Sentence stem reveal: "I agree because the text says..."</p>` : "";
-    container.innerHTML = `
-      <div class="slide slide--discussion${extraClass}">
-        ${stage}${coachingTag}<h2>${escHtml(slide.heading || "Discuss")}</h2>
-        <p class="promptPrimary">${escHtml(slide.prompt || "Discuss with your partner.")}</p>
-        ${stem}
-        ${coachLine}${alignment}
-      </div>
-    `;
-  } else {
-    container.innerHTML = `<div class="slide${extraClass}">${stage}${coachingTag}<h2>${escHtml(slide.heading || "Slide")}</h2>${coachLine}${alignment}</div>`;
-  }
-
+    const html = buildRenderedSlideHtml(slide, layoutClass, extraClass, stage, coachingTag, coachLine, alignment);
+    container.innerHTML = html;
   } catch (e: any) {
-    container.innerHTML = `<div class="slide"><h2>Slide render error</h2><p>${escHtml(e?.message || e)}</p></div>`;
+    container.innerHTML = `<div class="slide slide-content"><h2>Slide render error</h2><p>${escHtml(e?.message || e)}</p></div>`;
   }
 
   const renderedSlide = container.querySelector(".slide") as HTMLElement | null;
@@ -2704,6 +4142,9 @@ function renderSlide() {
       renderedSlide.classList.add("slide-enter-active");
     });
   }
+
+  adjustSlideText();
+  renderLiveQuestionResults(latestLiveSnapshot || undefined);
 
   const section = slide.section ? ` • ${slide.section}` : "";
   const stageDuration = slide.durationSeconds || preferredStageDuration(slide.stageType);
@@ -2718,13 +4159,40 @@ function renderSlide() {
   }
 
   const noteText = slide.notes ? escHtml(slide.notes) : "No teacher notes for this slide.";
-  const cueText = slide.teacherCue
-    ? `<div class="notesTitle" style="margin-top:10px;">Teacher Cue</div><div class="notesText">${escHtml(slide.teacherCue)}</div>`
-    : "";
-  const notesHtml = `<div class="notesInner"><div class="notesTitle">Teacher Notes</div><div class="notesText">${noteText}</div>${cueText}</div>`;
+  const cueText = slide.teacherCue ? escHtml(slide.teacherCue) : "Use the prompt and circulate for evidence-based responses.";
+  const teacherMoveText = slide.teacherMove ? escHtml(slide.teacherMove) : "No live misconception pattern detected yet.";
+  const notesHtml = `
+    <div class="notesSection">
+      <h3>🎯 Teacher Cue</h3>
+      <div class="notesText">${cueText}</div>
+    </div>
+    <div class="notesSection">
+      <h3>🧠 Teacher Move</h3>
+      <div class="notesText">${teacherMoveText}</div>
+    </div>
+    <div class="notesSection">
+      <h3>⚠️ Misconceptions</h3>
+      <div class="notesText">Watch for unsupported claims, text evidence that does not match the claim, or summary without reasoning.</div>
+    </div>
+    <div class="notesSection">
+      <h3>🛠 Reteach Plan</h3>
+      <div class="notesText">${noteText}</div>
+    </div>
+    ${slide.stageType === "exit_ticket" || currentIndex === slides.length - 1 ? buildEndOfLessonReport() : ""}
+  `;
+
+  if (settings.showTeacherNotes) {
+    if (slide.stageType === "model_think_aloud") notesOpen = true;
+    if (slide.stageType === "independent_transfer" || slide.stageType === "exit_ticket") notesOpen = false;
+  } else {
+    notesOpen = false;
+  }
+  localStorage.setItem(LS_PRESENT_NOTES_KEY, notesOpen ? "1" : "0");
+
   if (notesPanel) {
-    notesPanel.innerHTML = notesHtml;
-    notesPanel.style.display = notesOpen ? "block" : "none";
+    const content = document.getElementById("teacher-notes-content") as HTMLElement | null;
+    if (content) content.innerHTML = notesHtml;
+    notesPanel.classList.toggle("is-open", notesOpen);
   }
   const dockNotesPanel = document.getElementById("dock-notes-panel");
   if (dockNotesPanel) dockNotesPanel.innerHTML = notesHtml;
@@ -2734,40 +4202,6 @@ function renderSlide() {
   if (slide.stageType) {
     logPresentationEvent(currentIndex, slide.stageType).catch(() => {});
   }
-}
-
-function bindControlsDrag() {
-  const panel = document.getElementById("controls") as HTMLElement | null;
-  const handle = document.getElementById("controlsHeader") as HTMLElement | null;
-  if (!panel || !handle) return;
-
-  let dragging = false;
-  let offsetX = 0;
-  let offsetY = 0;
-
-  handle.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    panel.setPointerCapture?.(e.pointerId);
-    const rect = panel.getBoundingClientRect();
-    offsetX = e.clientX - rect.left;
-    offsetY = e.clientY - rect.top;
-  });
-
-  window.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    const maxX = Math.max(0, window.innerWidth - panel.offsetWidth);
-    const maxY = Math.max(0, window.innerHeight - panel.offsetHeight);
-    const nextLeft = Math.min(maxX, Math.max(0, e.clientX - offsetX));
-    const nextTop = Math.min(maxY, Math.max(0, e.clientY - offsetY));
-    panel.style.left = `${nextLeft}px`;
-    panel.style.top = `${nextTop}px`;
-  });
-
-  const stop = () => {
-    dragging = false;
-  };
-  window.addEventListener("pointerup", stop);
-  window.addEventListener("pointercancel", stop);
 }
 
 function downloadPresentPdf() {
@@ -2824,7 +4258,92 @@ function downloadPresentPdf() {
   }
 }
 
+function downloadReportPdf() {
+  const reportHtml = buildEndOfLessonReport();
+  if (!reportHtml.trim()) {
+    window.alert("No report data is available yet.");
+    return;
+  }
+
+  const printWindow = window.open("about:blank", "_blank", "width=1100,height=900");
+  if (!printWindow) {
+    window.alert("Popup blocked. Please allow popups for this site to download the report PDF.");
+    return;
+  }
+
+  const title = escHtml(currentStandard || currentTek || "Lesson Report");
+  const html = `<!DOCTYPE html><html><head><title>${title} Report</title><style>
+    @page { size: portrait; margin: 14mm; }
+    body { font-family: Inter, Arial, sans-serif; color: #0f172a; margin: 0; padding: 0; }
+    .page { padding: 20px; }
+    h1 { font-size: 28px; margin: 0 0 8px; }
+    .meta { color: #475569; margin-bottom: 20px; }
+    .notesSection { border: 1px solid #cbd5e1; border-radius: 14px; padding: 16px; margin: 0 0 14px; background: #f8fafc; }
+    .notesSection h3 { margin: 0 0 10px; font-size: 18px; }
+    .notesText { font-size: 14px; line-height: 1.5; margin: 6px 0; }
+  </style></head><body><div class="page"><h1>${title} Report</h1><div class="meta">Lesson summary • TEKS mastery • recommendations</div>${reportHtml}</div></body></html>`;
+
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+  const triggerPrint = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
+  if (printWindow.document.readyState === "complete") {
+    setTimeout(triggerPrint, 150);
+  } else {
+    printWindow.addEventListener("load", () => setTimeout(triggerPrint, 150), { once: true });
+  }
+}
+
+async function lockLiveAnswers() {
+  if (!liveSessionId) {
+    window.alert("Start a live session first.");
+    return;
+  }
+  if (!currentSessionQuestionId()) {
+    window.alert("Move to a question slide before locking answers.");
+    return;
+  }
+  liveAnswersLocked = true;
+  await syncLiveSessionState(true);
+  renderLiveSessionPanel("Answers locked... revealing results in 1 second.", latestLiveSnapshot || undefined);
+  window.setTimeout(() => {
+    refreshLiveResults().catch(() => {});
+  }, 1000);
+}
+
 function bindControls() {
+  const panelStates: Record<string, boolean> = {
+    controls: true,
+    "teacher-notes": notesOpen,
+    "alignment-proof": true,
+    "skill-panel": true,
+    "mastery-tracker": true,
+  };
+
+  const refreshPanelVisibility = () => {
+    Object.entries(panelStates).forEach(([id, isOpen]) => {
+      const panel = document.getElementById(id);
+      if (panel) panel.classList.toggle("is-open", isOpen);
+    });
+  };
+
+  document.querySelectorAll("[data-panel-target]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = String((button as HTMLElement).dataset.panelTarget || "");
+      if (!id || !(id in panelStates)) return;
+      panelStates[id] = !panelStates[id];
+      if (id === "teacher-notes") {
+        notesOpen = panelStates[id];
+        localStorage.setItem(LS_PRESENT_NOTES_KEY, notesOpen ? "1" : "0");
+      }
+      refreshPanelVisibility();
+    });
+  });
+  refreshPanelVisibility();
+
   const bindToggle = (id: string, key: keyof PresentSettings) => {
     const el = document.getElementById(id) as HTMLInputElement | null;
     if (!el) return;
@@ -2842,6 +4361,23 @@ function bindControls() {
   bindToggle("toggle-short30", "short30");
   bindToggle("toggle-intervention", "interventionPace");
   bindToggle("toggle-coaching", "coachingMode");
+  bindToggle("toggle-include-model", "includeModel");
+  bindToggle("toggle-include-compare", "includeCompareDefend");
+  bindToggle("toggle-include-exit", "includeExitTicket");
+  bindToggle("toggle-mini15", "mini15");
+  bindToggle("toggle-rigor", "increaseRigor");
+  bindToggle("toggle-teacher-notes", "showTeacherNotes");
+
+  const themeSelect = document.getElementById("theme-select") as HTMLSelectElement | null;
+  if (themeSelect) {
+    themeSelect.value = settings.theme;
+    themeSelect.addEventListener("change", () => {
+      settings.theme = themeSelect.value as PresentSettings["theme"];
+      normalizeSlidesForSettings();
+      revealStep = 0;
+      renderSlide();
+    });
+  }
 
   document.getElementById("btn-reveal")?.addEventListener("click", () => {
     revealStep += 1;
@@ -2889,8 +4425,20 @@ function bindControls() {
     document.documentElement.requestFullscreen().catch(() => {}),
   );
   document.getElementById("btn-download-pdf")?.addEventListener("click", downloadPresentPdf);
+  document.getElementById("btn-download-report")?.addEventListener("click", downloadReportPdf);
+  document.getElementById("btn-lock-answers")?.addEventListener("click", () => {
+    lockLiveAnswers().catch((e: any) => window.alert(e?.message || "Unable to lock answers."));
+  });
 
   document.getElementById("btn-coldcall")?.addEventListener("click", () => {
+    const liveNames = latestLiveSnapshot?.studentNames || [];
+    const picked = pickRandomStudent(liveNames);
+    const out = document.getElementById("coldcall-result");
+    if (picked) {
+      if (out) out.textContent = `🎯 Call on: ${picked}`;
+      return;
+    }
+
     const raw = window.prompt("Enter student names separated by commas:", "Ava, Mason, Sofia, Liam");
     if (!raw) return;
     const names = raw
@@ -2898,9 +4446,8 @@ function bindControls() {
       .map((n) => n.trim())
       .filter(Boolean);
     if (!names.length) return;
-    const picked = names[Math.floor(Math.random() * names.length)];
-    const out = document.getElementById("coldcall-result");
-    if (out) out.textContent = `Cold call: ${picked}`;
+    const fallbackPick = pickRandomStudent(names);
+    if (out) out.textContent = `🎯 Call on: ${fallbackPick}`;
   });
 
   document.getElementById("slide-thumbnails")?.addEventListener("click", (e) => {
@@ -2915,7 +4462,6 @@ function bindControls() {
     renderSlide();
   });
 
-  bindControlsDrag();
 }
 
 function bindKeys() {
@@ -2952,7 +4498,7 @@ async function boot() {
   slideContainerEl = document.getElementById("slide-container") as HTMLElement | null;
   if (slideContainerEl) {
     slideContainerEl.innerHTML = `
-      <div class="slide">
+      <div class="slide slide-content">
         <h2>Loading lesson...</h2>
       </div>
     `;
@@ -2963,11 +4509,14 @@ async function boot() {
     bindControls();
     bindKeys();
     refreshDockVisibility();
+    void refreshWeeklyTeacherDashboard();
+    void refreshTeksTrendInsights();
+    void refreshTeacherComparisonInsights();
     renderSlide();
   } catch (e: any) {
     const container = document.getElementById("slide-container");
     if (container) {
-      container.innerHTML = `<div class="slide"><h2>Present mode unavailable</h2><p>${escHtml(e?.message || e)}</p></div>`;
+      container.innerHTML = `<div class="slide slide-content"><h2>Present mode unavailable</h2><p>${escHtml(e?.message || e)}</p></div>`;
     }
   }
 }
