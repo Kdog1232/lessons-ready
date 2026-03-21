@@ -581,7 +581,10 @@ type StructuredLessonSections = {
   };
 };
 
+function parseLessonTextBlocks(lessonText: string): ParsedLessonBlocks {
   const normalized = String(lessonText || "").trim();
+
+  // Try JSON first
   const jsonMatch = normalized.match(/\{[\s\S]*\}/);
   const jsonCandidate = jsonMatch ? jsonMatch[0] : normalized;
 
@@ -598,25 +601,34 @@ type StructuredLessonSections = {
           ? parsed.questions.map((question) => ({
               raw: JSON.stringify(question),
               question: cleanText(String(question?.question || "Practice Question")),
-              choices: Array.isArray(question?.choices) ? question.choices.map((choice) => cleanText(String(choice || ""))).filter(Boolean) : [],
-              correctIndex: Number.isInteger(question?.correctIndex) ? Number(question?.correctIndex) : undefined,
+              choices: Array.isArray(question?.choices)
+                ? question.choices.map((choice) => cleanText(String(choice || ""))).filter(Boolean)
+                : [],
+              correctIndex: Number.isInteger(question?.correctIndex)
+                ? Number(question.correctIndex)
+                : undefined,
             }))
           : [],
       };
     }
   } catch {
-    // fall through to text parsing
+    // fallback to text parsing
   }
 
-  const passageMatch =
-    normalized.match(/PASSAGE:\s*([\s\S]*?)(?:QUESTION|$)/i);
+  // TEXT PARSING (ONLY ONE declaration)
+  const passageMatch = normalized.match(
+    /PASSAGE:\s*([\s\S]*?)(?:QUESTION|$)/i
+  );
 
-  const passageMatch = source.match(/PASSAGE:\s*([\s\S]*?)(?=\nQUESTION\b|$)/i);
   const passage = passageMatch ? passageMatch[1].trim() : "";
 
-  const questions =
-    normalized.split(/QUESTION/i).slice(1).map(block => ({
-      raw: block.trim()
+  const questions = normalized
+    .split(/QUESTION/i)
+    .slice(1)
+    .map((block) => ({
+      raw: block.trim(),
+      question: block.trim(),
+      choices: [],
     }));
 
   return { passage, questions };
