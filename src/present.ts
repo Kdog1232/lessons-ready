@@ -21,9 +21,6 @@ function getLessonId(): string | null {
     return null;
   }
 
-  const data = await res.json();
-  return data?.[0] || null;
-}
 
 // -------------------------
 // TYPES
