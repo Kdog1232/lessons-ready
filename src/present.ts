@@ -35,18 +35,34 @@ async function loadLesson(id: string) {
   }
 
   const data = await res.json();
-
-  if (!data || !data.length) {
-    console.warn("⚠️ No lesson found");
-    return null;
-  }
-
-  return data[0];
+  return data?.[0] || null;
 }
 
 // -------------------------
 // TYPES
 // -------------------------
+type SkillType =
+  | "context_clues"
+  | "inference"
+  | "theme"
+  | "text_structure"
+  | "author_purpose"
+  | "central_idea"
+  | "supporting_details"
+  | "characterization"
+  | "character_relationships"
+  | "figurative_language"
+  | "research"
+  | "composition"
+  | "writing_process"
+  | "argument"
+  | "point_of_view"
+  | "setting"
+  | "plot"
+  | "listening_speaking"
+  | "foundational_literacy"
+  | "generic";
+
 type SlideType =
   | "objective_lock"
   | "verb_definition"
@@ -86,23 +102,10 @@ type LessonRow = {
 };
 
 // -------------------------
-// STATE (AFTER TYPES)
+// STATE
 // -------------------------
 let savedLesson: (LessonRow & { slide_definitions?: any[]; id?: string }) | null = null;
 let prefetchedLessonRow: LessonRow | null = null;
-
-  lesson_mode?: "bluebonnet" | "amplify" | "generic";
-  standard_label?: string;
-  canonical_skill?: string;
-  cognitive_verb?: string;
-  dok_target?: string;
-  staar_priority?: string;
-  skill_display_name?: string;
-  grade_level?: number | string;
-  grade?: number | string;
-  grade_band?: string;
-  lesson_text?: string;
-};
 
 type GenerateLessonPayload = {
   grade: string;
