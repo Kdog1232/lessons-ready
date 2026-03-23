@@ -6,6 +6,10 @@ const LS_SESSION_KEY = "lr_supabase_session_v1"; // legacy auth session key for 
 const LS_PRESENT_NOTES_KEY = "lr_present_notes_open_v1";
 const LIVE_JOIN_BASE = `${window.location.origin}/join.html`;
 const LR_CURRENT_LESSON_KEY = "lr_current_lesson"
+function getLessonId(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("lessonId");
+}
 
 let savedLesson: (LessonRow & { slide_definitions?: any[]; id?: string }) | null = null;
 
