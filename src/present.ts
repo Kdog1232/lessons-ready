@@ -16,12 +16,6 @@ function getLessonId(): string | null {
   return params.get("lessonId");
 }
 
-  if (!res.ok) {
-    console.error("❌ Failed to load lesson", await res.text());
-    return null;
-  }
-
-
 // -------------------------
 // TYPES
 // -------------------------
