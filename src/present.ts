@@ -44,11 +44,6 @@ let savedLesson: (LessonRow & { slide_definitions?: any[]; id?: string }) | null
 
 let prefetchedLessonRow: LessonRow | null = null;
 
-type SlideType =
-
-let savedLesson: (LessonRow & { slide_definitions?: any[]; id?: string }) | null = null;
-
-let prefetchedLessonRow: LessonRow | null = null;
 
 type SlideType =
   | "objective_lock"
