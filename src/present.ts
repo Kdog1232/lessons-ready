@@ -3351,19 +3351,20 @@ function pickRandomStudent(studentNames: string[]): string {
 async function persistQuestionSnapshot(snapshot: QuestionPerformanceSnapshot) {
   if (!snapshot.session_id || !snapshot.lesson_id) return;
 
-  const signature = JSON.stringify([
-    snapshot.lesson_id,
-    snapshot.standard,
-    snapshot.dok_level,
-    snapshot.correct_percent,
-    snapshot.total_responses,
-    snapshot.correct_responses,
-    snapshot.most_common_wrong,
-    snapshot.misconception,
-    snapshot.student_count,
-    snapshot.teacher_move,
-  
-  const snapshotKey = `${snapshot.session_id}:${snapshot.question_id}`;
+const signature = JSON.stringify([;
+  snapshot.lesson_id,
+  snapshot.standard,
+  snapshot.dok_level,
+  snapshot.correct_percent,
+  snapshot.total_responses,
+  snapshot.correct_responses,
+  snapshot.most_common_wrong,
+  snapshot.misconception,
+  snapshot.student_count,
+  snapshot.teacher_move,
+]);
+
+const snapshotKey = `${snapshot.session_id}:${snapshot.question_id}`;
   const existingSignature = persistedQuestionSnapshotSignatures.get(snapshotKey);
   if (existingSignature === signature) return;
 
