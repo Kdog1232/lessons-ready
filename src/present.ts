@@ -5,7 +5,53 @@ const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
 const LS_SESSION_KEY = "lr_supabase_session_v1"; // legacy auth session key for optional Supabase calls
 const LS_PRESENT_NOTES_KEY = "lr_present_notes_open_v1";
 const LIVE_JOIN_BASE = `${window.location.origin}/join.html`;
+console.log("🔥 NEW BUILD LOADED");
+console.log("🔥 NEW CODE IS RUNNING");
+const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
+const LS_SESSION_KEY = "lr_supabase_session_v1"; // legacy auth session key for optional Supabase calls
+const LS_PRESENT_NOTES_KEY = "lr_present_notes_open_v1";
+const LIVE_JOIN_BASE = `${window.location.origin}/join.html`;
 const LR_CURRENT_LESSON_KEY = "lr_current_lesson"
+
+function getLessonId(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("lessonId");
+}
+
+async function loadLesson(id: string) {
+  console.log("📦 Loading lesson from Supabase:", id);
+
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/lessons?id=eq.${id}&select=*`,
+    {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+    }
+  );
+
+  if (!res.ok) {
+    console.error("❌ Failed to load lesson", await res.text());
+    return null;
+  }
+
+  const data = await res.json();
+
+  if (!data || !data.length) {
+    console.warn("⚠️ No lesson found");
+    return null;
+  }
+
+  return data[0];
+}
+
+let savedLesson: (LessonRow & { slide_definitions?: any[]; id?: string }) | null = null;
+
+let prefetchedLessonRow: LessonRow | null = null;
+
+type SlideType =
 
 let savedLesson: (LessonRow & { slide_definitions?: any[]; id?: string }) | null = null;
 
