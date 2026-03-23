@@ -16,19 +16,6 @@ function getLessonId(): string | null {
   return params.get("lessonId");
 }
 
-async function loadLesson(id: string) {
-  console.log("📦 Loading lesson from Supabase:", id);
-
-  const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/lessons?id=eq.${id}&select=*`,
-    {
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-    }
-  );
-
   if (!res.ok) {
     console.error("❌ Failed to load lesson", await res.text());
     return null;
