@@ -1,12 +1,16 @@
 console.log("🔥 NEW BUILD LOADED");
 console.log("🔥 NEW CODE IS RUNNING");
+
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
-const LS_SESSION_KEY = "lr_supabase_session_v1"; // legacy auth session key for optional Supabase calls
+const LS_SESSION_KEY = "lr_supabase_session_v1";
 const LS_PRESENT_NOTES_KEY = "lr_present_notes_open_v1";
 const LIVE_JOIN_BASE = `${window.location.origin}/join.html`;
 const LR_CURRENT_LESSON_KEY = "lr_current_lesson";
 
+// -------------------------
+// HELPERS
+// -------------------------
 function getLessonId(): string | null {
   const params = new URLSearchParams(window.location.search);
   return params.get("lessonId");
@@ -40,6 +44,9 @@ async function loadLesson(id: string) {
   return data[0];
 }
 
+// -------------------------
+// TYPES
+// -------------------------
 type SlideType =
   | "objective_lock"
   | "verb_definition"
@@ -56,49 +63,32 @@ type SlideDefinition = {
   heading?: string;
   subtext?: string;
   items?: string[];
-  passage?: string;
-  passagePart?: number;
-  totalParts?: number;
-  layout?: string;
   question?: string;
   prompt?: string;
   section?: string;
   notes?: string;
   durationSeconds?: number;
   teacherCue?: string;
-
   answerChoices?: string[];
   correctIndex?: number;
-  distractorRationale?: string[];
-};
-
-type PresentSettings = {
-  moreDiscussion: boolean;
-  moreWriting: boolean;
-  short30: boolean;
-  interventionPace: boolean;
-  coachingMode: boolean;
-  includeModel: boolean;
-  includeCompareDefend: boolean;
-  includeExitTicket: boolean;
-  mini15: boolean;
-  increaseRigor: boolean;
-  theme: "default" | "fortnite" | "sports" | "real_world" | "academic";
-  showTeacherNotes: boolean;
-};
-
-type SkillType = string;
-
-type MasteryTracker = {
-  guidedQuestions: number;
-  writingMoments: number;
-  turnTalkMoments: number;
-  evidencePrompts: number;
 };
 
 type LessonRow = {
-let savedLesson: (LessonRow & { slide_definitions?: any[]; id?: string }) | null = null;
+  lesson_mode?: "bluebonnet" | "amplify" | "generic";
+  standard_label?: string;
+  canonical_skill?: string;
+  cognitive_verb?: string;
+  dok_target?: string;
+  staar_priority?: string;
+  skill_display_name?: string;
+  grade_level?: number | string;
+  lesson_text?: string;
+};
 
+// -------------------------
+// STATE (AFTER TYPES)
+// -------------------------
+let savedLesson: (LessonRow & { slide_definitions?: any[]; id?: string }) | null = null;
 let prefetchedLessonRow: LessonRow | null = null;
 
   lesson_mode?: "bluebonnet" | "amplify" | "generic";
