@@ -9,7 +9,7 @@ const LR_CURRENT_LESSON_KEY = "lr_current_lesson"
 
 let savedLesson: (LessonRow & { slide_definitions?: any[]; id?: string }) | null = null;
 
-let prefetchedLessonRow: LessonRow | null = null;
+let prefetchedLessonRow: LessonRow | null = null; 
 
 type SlideType =
   | "objective_lock"
@@ -3351,7 +3351,7 @@ function pickRandomStudent(studentNames: string[]): string {
 async function persistQuestionSnapshot(snapshot: QuestionPerformanceSnapshot) {
   if (!snapshot.session_id || !snapshot.lesson_id) return;
 
-const signature = JSON.stringify([;
+const signature = JSON.stringify([
   snapshot.lesson_id,
   snapshot.standard,
   snapshot.dok_level,
