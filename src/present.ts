@@ -2422,10 +2422,6 @@ function coerceLessonRow(input: unknown): LessonRow | null {
   return row;
 }
 
-function getLessonId(): string {
-  const params = new URLSearchParams(window.location.search);
-  return String(params.get("lessonId") || params.get("id") || "").trim();
-}
 
 async function loadLesson(lessonId: string): Promise<LessonRow | null> {
   if (!lessonId) return null;
