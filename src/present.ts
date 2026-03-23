@@ -5,13 +5,6 @@ const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
 const LS_SESSION_KEY = "lr_supabase_session_v1"; // legacy auth session key for optional Supabase calls
 const LS_PRESENT_NOTES_KEY = "lr_present_notes_open_v1";
 const LIVE_JOIN_BASE = `${window.location.origin}/join.html`;
-console.log("🔥 NEW BUILD LOADED");
-console.log("🔥 NEW CODE IS RUNNING");
-const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
-const LS_SESSION_KEY = "lr_supabase_session_v1"; // legacy auth session key for optional Supabase calls
-const LS_PRESENT_NOTES_KEY = "lr_present_notes_open_v1";
-const LIVE_JOIN_BASE = `${window.location.origin}/join.html`;
 const LR_CURRENT_LESSON_KEY = "lr_current_lesson"
 
 function getLessonId(): string | null {
