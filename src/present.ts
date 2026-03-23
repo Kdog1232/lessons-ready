@@ -100,6 +100,12 @@ type LessonRow = {
   grade_level?: number | string;
   lesson_text?: string;
 };
+type MasteryTracker = {
+  guidedQuestions: number;
+  writingMoments: number;
+  turnTalkMoments: number;
+  evidencePrompts: number;
+};
 
 // -------------------------
 // STATE
