@@ -48,6 +48,7 @@ type SlideType =
   | "vocabulary"
   | "steps"
   | "strategy_formula"
+  | "passage"
   | "model_think_aloud"
   | "guided_dok_ladder"
   | "compare_defend"
@@ -604,11 +605,14 @@ function cloneSlide(slide: SlideDefinition): SlideDefinition {
 function getStructuredSlides(row: LessonRow | null | undefined): SlideDefinition[] {
   if (!row) return [];
 
-  const candidates = [row.slide_definitions, row.slide_defs, row.slides];
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate) && candidate.length > 0) {
-      return candidate.map((slide) => cloneSlide(slide));
-    }
+  const slideDefs =
+    row.slide_definitions ||
+    row.slide_defs ||
+    row.slides ||
+    extractSlideDefs(row.lesson_text || "");
+
+  if (Array.isArray(slideDefs) && slideDefs.length > 0) {
+    return slideDefs.map((slide) => cloneSlide(slide));
   }
 
   return [];
@@ -658,7 +662,12 @@ function getQuestionSet(slide: SlideDefinition): QuestionSet | undefined {
     type: "mc",
     question,
     choices,
-    correctIndex: correctIndex ?? 0,
+   correctIndex:
+  typeof correctIndex === "number" &&
+  correctIndex >= 0 &&
+  correctIndex < choices.length
+    ? correctIndex
+    : 0
   };
 }
 
@@ -922,7 +931,12 @@ function sanitizeQuestionSlide(slide: SlideDefinition): SlideDefinition {
             ? {
                 ...questionSet,
                 choices: choices.length ? choices : [],
-                correctIndex: correctIndex ?? 0,
+                correctIndex:
+  typeof correctIndex === "number" &&
+  correctIndex >= 0 &&
+  correctIndex < choices.length
+    ? correctIndex
+    : 0
               }
             : questionSet?.type === "multi_select"
               ? {
@@ -1321,10 +1335,10 @@ function buildModelSlides(plan: SkillPlan, skillType: SkillType, grade: number):
     subtext: example.excerpt,
     section: "Model",
     durationSeconds: 180,
-    teacherCue: `Step 1: I notice the key clue. Step 2: This shows what answer is supported. Step 3: So I can conclude the strongest choice. ${example.teacherReasoning} ${plan.model}`.trim(),
+    teacherCue: `${example.teacherReasoning} ${plan.model}`.trim(),
     frame: {
       title: "Let's Model This",
-      teacherCue: "Think aloud explicitly: I notice… This shows… So I conclude…",
+      teacherCue: "Model Part A first, then justify it with Part B evidence.",
     },
     content: {
       passage: example.excerpt,
@@ -3080,10 +3094,6 @@ async function loadSlides(incomingSlides: any[] = []) {
   applyPresentationTheme();
 
   const storedSlideDefinitions = getStructuredSlides(row);
-  const embeddedSlideDefinitions = extractSlideDefs(String(row.lesson_text || ""));
-  const resolvedSlideDefinitions = storedSlideDefinitions.length > 0
-    ? storedSlideDefinitions
-    : embeddedSlideDefinitions;
 
   if (resolvedSlideDefinitions.length > 0) {
     currentExecutionConfig = null;
@@ -3931,24 +3941,6 @@ function limitItems(items: string[], max = 4): string[] {
   return items.slice(0, max);
 }
 
-function normalizeVocabItems(items: string[]): Array<{ word: string; definition: string; example?: string }> {
-  return items
-    .map((item) => cleanText(item))
-    .filter(Boolean)
-    .map((item) => {
-      const [left, ...rest] = item.split(/[:—-]/);
-      const word = cleanText(left || "");
-      const definitionRaw = cleanText(rest.join(" ").trim());
-      const [definition, example] = definitionRaw.split(/\bexample\b[:\-]?\s*/i);
-      return {
-        word: word || "Term",
-        definition: cleanText(definition || definitionRaw || "Student-friendly meaning"),
-        example: cleanText(example || "") || undefined,
-      };
-    })
-    .slice(0, 5);
-}
-
 function renderQuestionPart(label: string, part: QuestionPart | undefined, revealCorrect: boolean): string {
   if (!part) return "";
   const choices = cleanItems(part.choices || []);
@@ -4067,14 +4059,6 @@ function renderMultipleChoice(
   const slideDataStage = passageText ? "passage-heavy" : "question";
   const showCorrect = isTeacherMode() && isAnswerRevealedForCurrentSlide();
   const questionHtml = renderQuestionSet(questionSet, showCorrect);
-  const guidedScaffold =
-    slide.stageType === "guided_dok_ladder"
-      ? `<div class="writing-box fade-in" style="animation-delay:0.2s">
-          <div class="question-part__label">Guided scaffold</div>
-          <p class="slideSubtext">Sentence stem: <b>I chose ___ because the text says ___.</b></p>
-          <p class="slideSubtext">Partner cue: Share your evidence with a partner, then defend why one answer is stronger.</p>
-        </div>`
-      : "";
 
   const rationale =
     isTeacherMode() && revealStep > 0 && slide.distractorRationale
@@ -4104,7 +4088,6 @@ function renderMultipleChoice(
         ${passageMeta}
         ${passageHtml}
         ${questionHtml}
-        ${guidedScaffold}
         ${promptHtml}
         <div id="live-question-results" class="liveQuestionResults"></div>
         ${thinkTimeHtml}
