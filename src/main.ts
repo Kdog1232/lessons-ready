@@ -612,8 +612,13 @@ function requireSession(): Session {
 function buildFunctionAuthHeaders(accessToken: string): Record<string, string> {
   const token = String(accessToken || "").trim();
   if (!token) throw new Error("No active session token available for function call.");
+
+  const anon = getAnonKey();
+  if (!anon) throw new Error("Missing Supabase anon key in main.ts.");
+
   return {
     "Content-Type": "application/json",
+    apikey: anon,
     Authorization: `Bearer ${token}`,
   };
 }
@@ -3301,6 +3306,45 @@ Include:
       const contentType = (res.headers.get("content-type") || "").toLowerCase();
       let lessonText = "";
       let lessonSections: StructuredLessonSections | undefined;
+      let slideDefs: any[] = [];
+      let slidesStarted = false;
+      let slidesPromise: Promise<void> | null = null;
+
+      const generateSlides = async (text: string) => {
+        const trimmed = String(text || "").trim();
+        if (!trimmed) return;
+
+        try {
+          const slidesRes = await fetch(`${SUPABASE_URL}/functions/v1/generate-slides`, {
+            method: "POST",
+            headers: buildFunctionAuthHeaders(session.access_token),
+            body: JSON.stringify({
+              lessonText: trimmed,
+            }),
+          });
+
+          if (!slidesRes.ok) {
+            const rawSlidesErr = await slidesRes.text();
+            throw new Error(`Slides request failed (${slidesRes.status}): ${rawSlidesErr}`);
+          }
+
+          const slidesData = await slidesRes.json();
+          slideDefs = Array.isArray(slidesData?.slide_definitions) ? slidesData.slide_definitions : [];
+
+          slideDefs = slideDefs.map((s: any) => ({
+            type: s?.type || "headline",
+            stageType: s?.stageType || "objective_lock",
+            heading: s?.heading || "",
+            ...s,
+          }));
+
+          if (!slideDefs.length) {
+            console.warn("⚠️ No slides returned — fallback triggered");
+          }
+        } catch (err) {
+          console.error("❌ Slide generation failed", err);
+        }
+      };
 
       if (wantsStream && contentType.includes("text/event-stream")) {
         let liveText = "";
@@ -3320,6 +3364,12 @@ Include:
               liveText = merged.text;
               lastChunk = merged.lastChunk || lastChunk;
               finalLessonText = liveText;
+
+              if (liveText.length > 800 && liveText.includes("Independent") && !slidesStarted) {
+                slidesStarted = true;
+                const snapshotText = liveText;
+                slidesPromise = generateSlides(snapshotText);
+              }
 
               if (liveText !== lastRendered) {
                 lastRendered = liveText;
@@ -3394,29 +3444,11 @@ Include:
       // =============================
 // 🎬 GENERATE SLIDES (NEW)
 // =============================
-let slideDefs: any[] = [];
-
-try {
-  const slidesRes = await fetch(`${SUPABASE_URL}/functions/v1/generate-slides`, {
-    method: "POST",
-    headers: buildFunctionAuthHeaders(session.access_token),
-    body: JSON.stringify({
-      lessonText: lessonText?.trim() ? lessonText : "",
-    }),
-  });
-
-  const slidesData = await slidesRes.json();
-
-  try {
-    const parsed = JSON.parse(slidesData.slidesRaw || "{}");
-    slideDefs = parsed.slide_definitions || [];
-  } catch (e) {
-    console.error("❌ Slide JSON parse failed", e);
-  }
-
-} catch (err) {
-  console.error("❌ Slide generation failed", err);
+if (!slidesStarted) {
+  slidesStarted = true;
+  slidesPromise = generateSlides(lessonText);
 }
+await slidesPromise;
       
       lastLessonPlainText = htmlToPlainText(output.innerHTML);
       downloadPdfBtn.disabled = !lastLessonPlainText.trim();
@@ -3509,7 +3541,7 @@ const row = {
 localStorage.setItem(
   "lr_current_lesson",
   JSON.stringify({
-    lesson_text: finalLessonText || liveText || "",
+    lesson_text: lessonText || "",
     slide_definitions: slideDefs,
   })
 );
