@@ -48,6 +48,7 @@ type SlideType =
   | "vocabulary"
   | "steps"
   | "strategy_formula"
+  | "passage"
   | "model_think_aloud"
   | "guided_dok_ladder"
   | "compare_defend"
@@ -658,7 +659,12 @@ function getQuestionSet(slide: SlideDefinition): QuestionSet | undefined {
     type: "mc",
     question,
     choices,
-    correctIndex: correctIndex ?? 0,
+   correctIndex:
+  typeof correctIndex === "number" &&
+  correctIndex >= 0 &&
+  correctIndex < choices.length
+    ? correctIndex
+    : 0
   };
 }
 
@@ -922,7 +928,12 @@ function sanitizeQuestionSlide(slide: SlideDefinition): SlideDefinition {
             ? {
                 ...questionSet,
                 choices: choices.length ? choices : [],
-                correctIndex: correctIndex ?? 0,
+                correctIndex:
+  typeof correctIndex === "number" &&
+  correctIndex >= 0 &&
+  correctIndex < choices.length
+    ? correctIndex
+    : 0
               }
             : questionSet?.type === "multi_select"
               ? {
