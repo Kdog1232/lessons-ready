@@ -3401,7 +3401,7 @@ try {
     method: "POST",
     headers: buildFunctionAuthHeaders(session.access_token),
     body: JSON.stringify({
-      lessonText: finalLessonText || liveText || "",
+      lessonText: lessonText?.trim() ? lessonText : "",
     }),
   });
 
