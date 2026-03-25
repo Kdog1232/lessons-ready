@@ -3319,6 +3319,7 @@ Include:
               const merged = applyStreamChunk(liveText, chunk, lastChunk);
               liveText = merged.text;
               lastChunk = merged.lastChunk || lastChunk;
+              finalLessonText = liveText;
 
               if (liveText !== lastRendered) {
                 lastRendered = liveText;
@@ -3390,6 +3391,32 @@ Include:
     unit: unit.value.trim() || "",
     lesson: lesson.value.trim() || "",
 });
+      // =============================
+// 🎬 GENERATE SLIDES (NEW)
+// =============================
+let slideDefs: any[] = [];
+
+try {
+  const slidesRes = await fetch(`${SUPABASE_URL}/functions/v1/generate-slides`, {
+    method: "POST",
+    headers: buildFunctionAuthHeaders(session.access_token),
+    body: JSON.stringify({
+      lessonText: finalLessonText || liveText || "",
+    }),
+  });
+
+  const slidesData = await slidesRes.json();
+
+  try {
+    const parsed = JSON.parse(slidesData.slidesRaw || "{}");
+    slideDefs = parsed.slide_definitions || [];
+  } catch (e) {
+    console.error("❌ Slide JSON parse failed", e);
+  }
+
+} catch (err) {
+  console.error("❌ Slide generation failed", err);
+}
       
       lastLessonPlainText = htmlToPlainText(output.innerHTML);
       downloadPdfBtn.disabled = !lastLessonPlainText.trim();
@@ -3440,7 +3467,7 @@ const row = {
         lesson_text: lessonText || "(empty)",
         lesson_html: output.innerHTML || null,
         structured_sections: lessonSections || null,
-        slide_definitions: undefined,
+        slide_definitions: slideDefs,
         lesson_mode: lessonModeForRow,
         is_favorite: false,
       };
@@ -3467,7 +3494,7 @@ const row = {
         const fallbackRow = {
           ...row,
           structured_sections: undefined,
-          slide_definitions: undefined,
+          slide_definitions: slideDefs,
           lesson_mode: undefined,
         };
 
@@ -3479,14 +3506,13 @@ const row = {
 
       const saved = Array.isArray(inserted) ? inserted[0] : inserted;
 
-const safeSlides =
-  saved?.slide_definitions ||
-  saved?.slides ||
-  [];
-
-localStorage.setItem("lr_current_lesson", JSON.stringify({
-  slide_definitions: safeSlides,
-}));
+localStorage.setItem(
+  "lr_current_lesson",
+  JSON.stringify({
+    lesson_text: finalLessonText || liveText || "",
+    slide_definitions: slideDefs,
+  })
+);
       lastLessonId = saved?.id || null;
       lastLessonFavorite = false;
 
