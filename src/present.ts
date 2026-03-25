@@ -43,7 +43,10 @@ type SkillType =
 
 type SlideType =
   | "objective_lock"
+  | "hook"
   | "verb_definition"
+  | "vocabulary"
+  | "steps"
   | "strategy_formula"
   | "model_think_aloud"
   | "guided_dok_ladder"
@@ -119,6 +122,7 @@ type SlideContent = {
 type SlideDefinition = {
   type?: "splash" | "headline" | "split" | "question" | "writing" | "energy" | "discussion";
   stageType?: SlideType;
+  hookType?: "image" | "video" | "scenario";
   heading?: string;
   subtext?: string;
   items?: string[];
@@ -127,6 +131,9 @@ type SlideDefinition = {
   section?: string;
   notes?: string;
   durationSeconds?: number;
+  teacherAction?: string;
+  studentAction?: string;
+  cognitiveLoad?: "low" | "medium" | "high";
   teacherCue?: string;
   answerChoices?: string[];
   correctIndex?: number;
@@ -294,6 +301,8 @@ let currentTek = "";
 let currentVerb = "";
 let currentStandard = "";
 let currentExecutionConfig: ExecutionConfig | null = null;
+const PASSAGE_SPLIT_THRESHOLD = 320;
+const QUESTION_COMPLEXITY_CHOICE_THRESHOLD = 4;
 let slideContainerEl: HTMLElement | null = null;
 let masteryTracker: MasteryTracker = {
   guidedQuestions: 0,
@@ -728,6 +737,46 @@ function parseLessonTextBlocks(lessonText: string) {
     }));
 
   return { passage, questions };
+}
+
+function extractSlideDefs(text: string): SlideDefinition[] {
+  const raw = String(text || "");
+  if (!raw) return [];
+
+  const start = raw.indexOf('"slide_definitions"');
+  if (start === -1) return [];
+
+  const jsonStart = raw.lastIndexOf("{", start);
+  if (jsonStart === -1) return [];
+
+  let depth = 0;
+  let jsonEnd = -1;
+  for (let i = jsonStart; i < raw.length; i += 1) {
+    const char = raw[i];
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        jsonEnd = i;
+        break;
+      }
+    }
+  }
+
+  if (jsonEnd === -1) return [];
+  const candidate = raw.slice(jsonStart, jsonEnd + 1);
+
+  try {
+    const parsed = JSON.parse(candidate) as { slide_definitions?: unknown };
+    const slides = parsed.slide_definitions;
+    if (!Array.isArray(slides)) return [];
+
+    return slides
+      .filter((slide): slide is Record<string, unknown> => Boolean(slide && typeof slide === "object"))
+      .map((slide) => cloneSlide({ ...(slide as SlideDefinition) }));
+  } catch {
+    return [];
+  }
 }
 const TEST_LESSON = `
 PASSAGE:
@@ -1288,19 +1337,23 @@ function buildModelSlides(plan: SkillPlan, skillType: SkillType, grade: number):
 
 
 function buildObjectiveSlide(plan: SkillPlan, objectiveLabel: string): SlideDefinition {
-  return { type: "headline", stageType: "objective_lock", heading: "Objective", subtext: `${plan.objective} (${objectiveLabel})`, section: "Objective", durationSeconds: 90 };
+  return { type: "headline", stageType: "objective_lock", heading: "Objective", subtext: `${plan.objective} (${objectiveLabel})`, section: "Objective", durationSeconds: 90, teacherAction: "Set lesson target and success criteria.", studentAction: "Restate objective in own words.", cognitiveLoad: "low" };
 }
 function buildHookSlide(plan: SkillPlan): SlideDefinition {
-  return { type: "energy", heading: "Hook", subtext: plan.hook, section: "Hook", durationSeconds: 60 };
+  return { type: "energy", stageType: "hook", hookType: "scenario", heading: "Hook", subtext: plan.hook, section: "Hook", durationSeconds: 60, teacherAction: "Launch attention question or quick scenario.", studentAction: "Turn and talk for 20-30 seconds.", cognitiveLoad: "low" };
 }
 function buildFrontloadSlide(plan: SkillPlan): SlideDefinition {
   return {
     type: "split",
+    stageType: "vocabulary",
     heading: "Vocabulary / Frontload",
     subtext: "Word/Concept • Context • Key clue • Best meaning",
     items: plan.vocab,
     section: "Frontload",
     durationSeconds: 120,
+    teacherAction: "Define critical words using context and examples.",
+    studentAction: "Use each term in a quick oral sentence.",
+    cognitiveLoad: "medium",
   };
 }
 function buildGuidedSlide(plan: SkillPlan, mc: ReturnType<typeof generateSkillAlignedMCQ>, cognitiveVerb: string): SlideDefinition {
@@ -1315,7 +1368,10 @@ function buildGuidedSlide(plan: SkillPlan, mc: ReturnType<typeof generateSkillAl
     distractorRationale: mc.distractorRationale,
     section: "Guided",
     durationSeconds: 150,
-    teacherCue: "Require students to explain why one answer is stronger and another is weaker.",
+    teacherAction: "Prompt evidence-based discussion with sentence stems.",
+    studentAction: "Answer with partner and defend strongest evidence.",
+    cognitiveLoad: "medium",
+    teacherCue: "Use stem: 'I chose __ because the text says __.' Partner talk for 30 seconds, then justify strongest vs weaker evidence.",
   };
 }
 function buildAssessmentSlide(mc: ReturnType<typeof generateSkillAlignedMCQ>, cognitiveVerb: string, dokLevel: number): SlideDefinition {
@@ -1330,6 +1386,9 @@ function buildAssessmentSlide(mc: ReturnType<typeof generateSkillAlignedMCQ>, co
     distractorRationale: mc.distractorRationale,
     section: "Assessment",
     durationSeconds: dokLevel >= 3 ? 210 : 180,
+    teacherAction: "Monitor independently and probe reasoning.",
+    studentAction: "Select answer and justify with textual evidence.",
+    cognitiveLoad: dokLevel >= 3 ? "high" : "medium",
   };
 }
 function buildWritingSlide(plan: SkillPlan, grade: number, skillType: SkillType): SlideDefinition {
@@ -2131,7 +2190,10 @@ function injectCoachingInsight(deck: SlideDefinition[]): SlideDefinition[] {
 function normalizeSlides(deck: SlideDefinition[]) {
   const stageOrder: SlideType[] = [
     "objective_lock",
+    "hook",
     "verb_definition",
+    "vocabulary",
+    "steps",
     "strategy_formula",
     "model_think_aloud",
     "guided_dok_ladder",
@@ -2147,6 +2209,18 @@ function normalizeSlides(deck: SlideDefinition[]) {
       heading: "Today's Objective",
       subtext: "We will practice a new skill today.",
       section: "Objective",
+      cognitiveLoad: "low",
+    },
+    hook: {
+      type: "energy",
+      stageType: "hook",
+      hookType: "scenario",
+      heading: "Hook",
+      subtext: "Launch with a quick prompt that activates prior knowledge.",
+      section: "Hook",
+      teacherAction: "Give a short attention-getter prompt.",
+      studentAction: "Share a quick response with a partner.",
+      cognitiveLoad: "low",
     },
     verb_definition: {
       type: "split",
@@ -2154,6 +2228,23 @@ function normalizeSlides(deck: SlideDefinition[]) {
       heading: "What the Verb Means",
       items: ["Explain the academic verb in your own words."],
       section: "Frontload",
+      cognitiveLoad: "low",
+    },
+    vocabulary: {
+      type: "split",
+      stageType: "vocabulary",
+      heading: "Vocabulary / Frontload",
+      items: ["Word", "Context clue", "Best meaning"],
+      section: "Frontload",
+      cognitiveLoad: "medium",
+    },
+    steps: {
+      type: "split",
+      stageType: "steps",
+      heading: "Steps",
+      items: ["Step 1", "Step 2", "Step 3"],
+      section: "Frontload",
+      cognitiveLoad: "medium",
     },
     strategy_formula: {
       type: "split",
@@ -2161,6 +2252,7 @@ function normalizeSlides(deck: SlideDefinition[]) {
       heading: "Strategy",
       items: ["Identify the task", "Find evidence", "Explain reasoning"],
       section: "Frontload",
+      cognitiveLoad: "medium",
     },
     model_think_aloud: {
       type: "question",
@@ -2168,6 +2260,7 @@ function normalizeSlides(deck: SlideDefinition[]) {
       heading: "Model (I Do)",
       question: "Watch how the teacher solves the task step-by-step.",
       section: "Model",
+      cognitiveLoad: "medium",
     },
     guided_dok_ladder: {
       type: "question",
@@ -2175,6 +2268,7 @@ function normalizeSlides(deck: SlideDefinition[]) {
       heading: "Guided Practice",
       question: "Work with a partner to justify your answer.",
       section: "Guided",
+      cognitiveLoad: "medium",
     },
     compare_defend: {
       type: "discussion",
@@ -2182,6 +2276,7 @@ function normalizeSlides(deck: SlideDefinition[]) {
       heading: "Compare & Defend",
       prompt: "Which answer is stronger and why?",
       section: "Deepen",
+      cognitiveLoad: "high",
     },
     independent_transfer: {
       type: "writing",
@@ -2189,6 +2284,7 @@ function normalizeSlides(deck: SlideDefinition[]) {
       heading: "Independent Practice",
       subtext: "Apply the strategy independently.",
       section: "Independent",
+      cognitiveLoad: "high",
     },
     exit_ticket: {
       type: "writing",
@@ -2196,6 +2292,7 @@ function normalizeSlides(deck: SlideDefinition[]) {
       heading: "Exit Ticket",
       subtext: "Show what you learned.",
       section: "Exit",
+      cognitiveLoad: "medium",
     },
   };
 
@@ -2235,7 +2332,10 @@ function normalizeSlides(deck: SlideDefinition[]) {
 
 const STAGE_ORDER: SlideType[] = [
   "objective_lock",
+  "hook",
   "verb_definition",
+  "vocabulary",
+  "steps",
   "strategy_formula",
   "model_think_aloud",
   "guided_dok_ladder",
@@ -2288,8 +2388,188 @@ function capSlides(deck: SlideDefinition[], max = 12): SlideDefinition[] {
   return deck.slice(0, max);
 }
 
+function splitDenseInstructionSlides(deck: SlideDefinition[]): SlideDefinition[] {
+  const next: SlideDefinition[] = [];
+
+  for (const slide of deck) {
+    const passage = getSlidePassage(slide);
+    const questionSet = getQuestionSet(slide);
+    const hasQuestion = slide.type === "question" && Boolean(questionSet);
+    const choiceCount =
+      questionSet?.type === "part_a_b"
+        ? Math.max(questionSet.partA.choices.length, questionSet.partB.choices.length)
+        : questionSet?.type === "mc" || questionSet?.type === "multi_select" || questionSet?.type === "vocab" || questionSet?.type === "revision"
+          ? questionSet.choices.length
+          : 0;
+    const isHighLoad = slide.cognitiveLoad === "high";
+    const isComplexQuestion = isHighLoad || questionSet?.type === "part_a_b" || choiceCount > QUESTION_COMPLEXITY_CHOICE_THRESHOLD;
+    const isPassageHeavy = passage.length > PASSAGE_SPLIT_THRESHOLD;
+
+    if (!hasQuestion || !(isPassageHeavy && isComplexQuestion)) {
+      next.push(slide);
+      continue;
+    }
+
+    const passageSlide: SlideDefinition = {
+      ...cloneSlide(slide),
+      type: "headline",
+      heading: slide.heading || "Read the Passage",
+      subtext: passage,
+      question: undefined,
+      answerChoices: undefined,
+      correctIndex: undefined,
+      content: {
+        ...(slide.content || {}),
+        questionSet: undefined,
+        passage,
+      },
+      teacherCue: `${getSlideTeacherCue(slide)} Guide students to annotate key details before answering.`.trim(),
+      frame: {
+        ...(getSlideFrame(slide) || { title: slide.heading || "Read the Passage" }),
+      },
+    };
+
+    const questionSlide: SlideDefinition = {
+      ...cloneSlide(slide),
+      heading: `${slide.heading || "Question"} • Check`,
+      subtext: "",
+      prompt: "",
+      content: {
+        ...(slide.content || {}),
+        passage: undefined,
+        questionSet,
+      },
+      teacherCue: `${getSlideTeacherCue(slide)} Students answer after passage processing.`.trim(),
+    };
+
+    next.push(passageSlide, questionSlide);
+  }
+
+  return next;
+}
+
+function enforceCoreStageOrder(deck: SlideDefinition[]): SlideDefinition[] {
+  const core: SlideType[] = ["objective_lock", "model_think_aloud", "guided_dok_ladder", "independent_transfer", "exit_ticket"];
+  const seen = new Set<SlideType>();
+  const firstPass = deck.filter((slide) => {
+    const stage = slide.stageType as SlideType | undefined;
+    if (!stage || !core.includes(stage)) return true;
+    if (seen.has(stage)) return false;
+    seen.add(stage);
+    return true;
+  });
+  return sortSlides(firstPass);
+}
+
+function enforceInstructionalGuarantees(deck: SlideDefinition[]): SlideDefinition[] {
+  let next = [...deck];
+  const hasStage = (stage: SlideType) => next.some((slide) => slide.stageType === stage);
+  const firstByStage = (stage: SlideType) => next.find((slide) => slide.stageType === stage);
+
+  if (!hasStage("hook")) {
+    next.unshift({
+      type: "energy",
+      stageType: "hook",
+      hookType: "scenario",
+      heading: "Hook",
+      subtext: "Quick attention question to launch learning.",
+      section: "Hook",
+      durationSeconds: 60,
+      teacherAction: "Pose a scenario and cold-call two responses.",
+      studentAction: "Turn and talk using one sentence.",
+      cognitiveLoad: "low",
+    });
+  }
+
+  if (!hasStage("model_think_aloud")) {
+    next.push({
+      type: "question",
+      stageType: "model_think_aloud",
+      heading: "Model (I Do)",
+      question: "Step 1: I notice… Step 2: This shows… Step 3: So I conclude…",
+      section: "Model",
+      durationSeconds: 120,
+      teacherAction: "Think aloud and model decision making explicitly.",
+      studentAction: "Track each model step and annotate evidence.",
+      cognitiveLoad: "medium",
+    });
+  }
+
+  if (!hasStage("guided_dok_ladder")) {
+    next.push({
+      type: "question",
+      stageType: "guided_dok_ladder",
+      heading: "Guided Practice",
+      question: "Use the sentence stem and defend your answer with evidence.",
+      section: "Guided",
+      durationSeconds: 150,
+      teacherAction: "Facilitate partner discussion and evidence checks.",
+      studentAction: "Answer with the scaffold and defend reasoning.",
+      cognitiveLoad: "medium",
+    });
+  }
+
+  if (!hasStage("exit_ticket")) {
+    next.push({
+      type: "writing",
+      stageType: "exit_ticket",
+      heading: "Exit Ticket",
+      subtext: "Answer independently using evidence and reasoning.",
+      section: "Exit",
+      durationSeconds: 120,
+      teacherAction: "Collect responses and note reteach needs.",
+      studentAction: "Submit a concise evidence-based response.",
+      cognitiveLoad: "medium",
+    });
+  }
+
+  // Limits: max 2 guided blocks, max 1 steps slide.
+  let guidedSeen = 0;
+  let stepsSeen = 0;
+  next = next.filter((slide) => {
+    if (slide.stageType === "guided_dok_ladder") {
+      guidedSeen += 1;
+      return guidedSeen <= 2;
+    }
+    if (slide.stageType === "steps") {
+      stepsSeen += 1;
+      return stepsSeen <= 1;
+    }
+    return true;
+  });
+
+  // Illegal combo guard: high-load vocabulary/steps slides are downgraded.
+  next = next.map((slide) => {
+    if ((slide.stageType === "vocabulary" || slide.stageType === "steps") && slide.cognitiveLoad === "high") {
+      return { ...slide, cognitiveLoad: "medium" as const };
+    }
+    return slide;
+  });
+
+  // Ensure core sequence remains coherent after inserts/limits.
+  const objective = firstByStage("objective_lock");
+  if (!objective) {
+    next.unshift({
+      type: "headline",
+      stageType: "objective_lock",
+      heading: "Objective",
+      subtext: "Today we will apply a focused strategy with evidence.",
+      section: "Objective",
+      durationSeconds: 90,
+      cognitiveLoad: "low",
+    });
+  }
+
+  return next;
+}
+
 function buildSlidesFinal(rawSlides: SlideDefinition[]): SlideDefinition[] {
-  return capSlides(sortSlides(dedupeSlides(stripJunkSlides(rawSlides))), 12);
+  const cleaned = stripJunkSlides(rawSlides);
+  const split = splitDenseInstructionSlides(cleaned);
+  const deduped = dedupeSlides(split);
+  const guaranteed = enforceInstructionalGuarantees(deduped);
+  const ordered = enforceCoreStageOrder(guaranteed);
+  return capSlides(ordered, 12);
 }
 
 function validateDeck(deck: SlideDefinition[]) {
@@ -2801,11 +3081,11 @@ async function loadSlides(incomingSlides: any[] = []) {
 
   const storedSlideDefinitions = getStructuredSlides(row);
 
-  if (storedSlideDefinitions.length > 0) {
+  if (resolvedSlideDefinitions.length > 0) {
     currentExecutionConfig = null;
     renderSkillPanel();
     renderAlignmentProof(row);
-    baseSlides = storedSlideDefinitions;
+    baseSlides = resolvedSlideDefinitions;
     normalizeSlidesForSettings();
     currentIndex = 0;
     return;
@@ -3543,7 +3823,10 @@ function stageClass(stageType?: SlideType): string {
 
 const stageLabels: Record<string, string> = {
   objective_lock: "🎯 Objective",
+  hook: "⚡ Hook",
   verb_definition: "🧠 Skill",
+  vocabulary: "📚 Vocabulary",
+  steps: "🧱 Steps",
   strategy_formula: "🛠 Strategy",
   model_think_aloud: "👀 I Do",
   guided_dok_ladder: "🤝 We Do",
@@ -3559,7 +3842,8 @@ function stageBadge(stageType?: SlideType): string {
 
 function slideStageLabel(stageType?: SlideType): string {
   if (!stageType) return "";
-  return `<div class="slide-stage-label">${escHtml(stageType.replaceAll("_", " ").toUpperCase())}</div>`;
+  const label = (stageLabels[stageType] || stageType).replace(/^[^\p{L}\p{N}]+/u, "").trim();
+  return `<div class="slide-stage-label">${escHtml(label)}</div>`;
 }
 
 function isTeacherMode() {
@@ -3579,7 +3863,10 @@ function onSlideChange(newSlideId: number) {
 function getLayoutClass(stageType: string): string {
   const stageLayouts: Record<string, string> = {
     objective_lock: "layout-center",
+    hook: "layout-center",
     verb_definition: "layout-vocab",
+    vocabulary: "layout-vocab",
+    steps: "layout-center",
     strategy_formula: "layout-center",
     model_think_aloud: "layout-story",
     guided_dok_ladder: "layout-question",
@@ -3599,6 +3886,18 @@ function cleanText(text: string): string {
     .replace(/choices:/gi, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function formatPassage(text: string): string {
+  const cleaned = cleanText(text);
+  if (!cleaned) return "";
+
+  return cleaned
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => `<p>${escHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
+    .join("");
 }
 
 function cleanItems(items: unknown): string[] {
@@ -3800,7 +4099,10 @@ function adjustSlideText() {
 
 function preferredStageDuration(stageType?: SlideType): number {
   if (stageType === "objective_lock") return 90;
+  if (stageType === "hook") return 60;
   if (stageType === "verb_definition") return 75;
+  if (stageType === "vocabulary") return 110;
+  if (stageType === "steps") return 100;
   if (stageType === "strategy_formula") return 120;
   if (stageType === "model_think_aloud") return 110;
   if (stageType === "guided_dok_ladder") return 180;
@@ -3868,6 +4170,20 @@ function buildRenderedSlideHtml(
     `;
   }
 
+  if (slide.stageType === "hook") {
+    const hookText = limitText(cleanText(String(slide.subtext || slide.prompt || "")), 160);
+    const hookMode = slide.hookType || "scenario";
+    return `
+      <div class="slide slide-content ${layoutClass} slide--energy${extraClass}">
+        ${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}
+        <div class="sectionTag fade-in" style="animation-delay:0.03s">Hook format: ${escHtml(hookMode)}</div>
+        <h1 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "Hook")), 60)))}</h1>
+        <p class="splashSubtext fade-in" style="animation-delay:0.15s">${escHtml(hookText)}</p>
+        ${coachLine}${alignment}
+      </div>
+    `;
+  }
+
   if (slide.type === "headline") {
     const headlineBody =
       slide.stageType === "verb_definition"
@@ -3878,6 +4194,42 @@ function buildRenderedSlideHtml(
   }
 
   if (slide.type === "split") {
+    if (slide.stageType === "vocabulary") {
+      const vocabCards = normalizeVocabItems(cleanItems(slide.items || []))
+        .map((entry, idx) => `
+          <div class="vocab-box interactive fade-in" style="animation-delay:${0.08 + idx * 0.08}s">
+            <h3>${escHtml(limitText(entry.word, 48))}</h3>
+            <p>${escHtml(limitText(entry.definition, 130))}</p>
+            ${entry.example ? `<p class="slideSubtext"><b>Example:</b> ${escHtml(limitText(entry.example, 120))}</p>` : ""}
+          </div>
+        `)
+        .join("");
+
+      return `
+        <div class="slide slide-content ${layoutClass} slide--split${extraClass}">
+          ${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}
+          <h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "Vocabulary")), 80)))}</h2>
+          <p class="slideSubtext fade-in" style="animation-delay:0.12s">${escHtml(limitText(cleanText(String(slide.subtext || "Word → student-friendly definition → example")), 220))}</p>
+          <div class="fade-in" style="animation-delay:0.2s">${vocabCards}</div>
+          ${coachLine}${alignment}
+        </div>
+      `;
+    }
+
+    if (slide.stageType === "steps" || slide.stageType === "strategy_formula") {
+      const steps = limitItems(cleanItems(slide.items || []), 5);
+      return `
+        <div class="slide slide-content ${layoutClass} slide--split${extraClass}">
+          ${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}
+          <h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "Steps")), 80)))}</h2>
+          <ol class="fade-in" style="animation-delay:0.18s; padding-left: 28px; display:grid; gap:14px;">
+            ${steps.map((item, idx) => `<li><b>Step ${idx + 1}:</b> ${escHtml(limitText(item, 120))}</li>`).join("")}
+          </ol>
+          ${coachLine}${alignment}
+        </div>
+      `;
+    }
+
     const items = limitItems(cleanItems(slide.items || []), 5);
     const visibleCount = revealStep > 0 ? Math.min(revealStep, items.length) : Math.min(1, items.length);
     return `
@@ -4021,10 +4373,16 @@ function renderSlide() {
 
   const noteText = slide.notes ? escHtml(slide.notes) : "No teacher notes for this slide.";
   const cueText = slide.teacherCue ? escHtml(slide.teacherCue) : "Use the prompt and circulate for evidence-based responses.";
+  const teacherActionText = escHtml(slide.teacherAction || "Model, monitor, and prompt for evidence.");
+  const studentActionText = escHtml(slide.studentAction || "Respond using the lesson scaffold.");
   const notesHtml = `
     <div class="notesSection">
       <h3>🎯 Teacher Cue</h3>
       <div class="notesText">${cueText}</div>
+    </div>
+    <div class="notesSection">
+      <h3>⏱ Pacing Script</h3>
+      <div class="notesText"><b>Teacher Action:</b> ${teacherActionText}<br><b>Student Action:</b> ${studentActionText}</div>
     </div>
     <div class="notesSection">
       <h3>⚠️ Misconceptions</h3>
@@ -4075,30 +4433,61 @@ function downloadPresentPdf() {
     return;
   }
 
+  const pageStyles = Array.from(document.querySelectorAll("style"))
+    .map((style) => style.outerHTML)
+    .join("\n");
+  const cleanPrintVersion = true;
+
   const blocks = slides
     .map((slide, idx) => {
-      const heading = escHtml(slide.heading || `Slide ${idx + 1}`);
-      const primary = escHtml(slide.question || slide.prompt || slide.subtext || "");
-      const items =
-        Array.isArray(slide.items) && slide.items.length
-          ? `<ul>${slide.items.map((i) => `<li>${escHtml(i)}</li>`).join("")}</ul>`
-          : "";
-      const stage = slide.stageType ? `<div class="cue">Stage: ${escHtml(slide.stageType.replaceAll("_", " "))}</div>` : "";
-      const cue = slide.teacherCue ? `<div class="cue">Teacher Cue: ${escHtml(slide.teacherCue)}</div>` : "";
-      return `<section class="page"><h1>${heading}</h1><p>${primary}</p>${items}${stage}${cue}</section>`;
+      const exportSlide =
+        cleanPrintVersion && slide.stageType === "compare_defend"
+          ? ({
+              ...cloneSlide(slide),
+              type: "discussion",
+              heading: slide.heading || "Compare & Defend",
+              prompt: `Option A: ${cleanText(String(slide.prompt || "First possible response."))}\n\nOption B: Defend an alternative response.\n\nWhich is stronger? Why?`,
+            } as SlideDefinition)
+          : slide;
+      const teacherCueText = getSlideTeacherCue(exportSlide);
+      const layoutClass = getLayoutClass(String(exportSlide.stageType || ""));
+      const extraClass = `${stageClass(exportSlide.stageType)}${String(exportSlide.section || "").toLowerCase().includes("coaching") ? " slide--coaching" : ""}`;
+      const stage = stageBadge(exportSlide.stageType);
+      const coachingTag = String(exportSlide.section || "").toLowerCase().includes("coaching") ? `<div class="coachingTag">Coaching Insight</div>` : "";
+      const coachLine = teacherCueText ? `<div class="coachLine">Coach: ${escHtml(cleanText(teacherCueText))}</div>` : "";
+      const alignment = `<div class="alignmentChip">${escHtml(alignmentChip(exportSlide))}</div>`;
+      const rendered = buildRenderedSlideHtml(exportSlide, layoutClass, extraClass, stage, coachingTag, coachLine, alignment);
+      return `<section class="page"><div class="printIndex">Slide ${idx + 1}</div>${rendered}</section>`;
     })
     .join("");
 
-  const html = `<!DOCTYPE html><html><head><title>Present Mode Deck</title><style>
+  const html = `<!DOCTYPE html><html><head><title>Present Mode Deck</title>${pageStyles}<style>
     @page { size: landscape; margin: 16mm; }
-    body { font-family: Inter, Arial, sans-serif; margin:0; color:#111; }
-    .page { page-break-after: always; min-height: 92vh; border: 2px solid #e2e8f0; border-radius: 12px; padding: 24px; }
+    body { font-family: Inter, Arial, sans-serif; margin:0; color:#111; background:#fff; }
+    .page { page-break-after: always; min-height: 92vh; padding: 18px; background:#fff; }
     .page:last-child { page-break-after: auto; }
-    h1 { font-size: 44px; margin: 0 0 18px; }
-    p { font-size: 28px; line-height: 1.35; margin: 0 0 14px; }
-    ul { list-style: none; padding: 0; margin: 0; }
-    li { font-size: 24px; margin: 0 0 10px; padding-left: 12px; border-left: 4px solid #2563eb; }
-    .cue { margin-top: 18px; font-size: 14px; color: #374151; text-transform: uppercase; letter-spacing: .04em; }
+    .page .slide { max-height: none; min-height: auto; box-shadow: none; border-color: #cbd5e1; background: #fff; color: #0f172a; }
+    .page .slide::before { opacity: 1; }
+    .page .slide h1, .page .slide h2, .page .slide h3, .page .slide p, .page .slide li, .page .slide div { color: inherit; }
+    .page .passage-box, .page .writing-box, .page .question-box, .page .vocab-box, .page .debate-box { background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; }
+    .page .coachLine, .page .alignmentChip, .page .stageBadge, .page .slide-stage-label, .page .sectionTag, .page .question-part__label { color: #1e293b; }
+    .page .mcChoice { background: #fff; border: 1px solid #cbd5e1; color: #0f172a; }
+    .page .mcChoice--correct { border-color: #2563eb; }
+    .page .brandMark { color: #0f172a; }
+    .printIndex { font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #475569; margin: 0 0 8px 6px; }
+    .compare-grid { display: block !important; }
+    ${cleanPrintVersion ? `
+    .stageBadge,
+    .slide-stage-label,
+    .alignmentChip,
+    .coachingTag,
+    .lock-indicator,
+    .reveal-indicator,
+    .progressWrap,
+    #present-dock,
+    #slide-counter {
+      display: none !important;
+    }` : ""}
   </style></head><body>${blocks}</body></html>`;
 
   printWindow.document.open();
