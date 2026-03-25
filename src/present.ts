@@ -605,11 +605,14 @@ function cloneSlide(slide: SlideDefinition): SlideDefinition {
 function getStructuredSlides(row: LessonRow | null | undefined): SlideDefinition[] {
   if (!row) return [];
 
-  const candidates = [row.slide_definitions, row.slide_defs, row.slides];
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate) && candidate.length > 0) {
-      return candidate.map((slide) => cloneSlide(slide));
-    }
+  const slideDefs =
+    row.slide_definitions ||
+    row.slide_defs ||
+    row.slides ||
+    extractSlideDefs(row.lesson_text || "");
+
+  if (Array.isArray(slideDefs) && slideDefs.length > 0) {
+    return slideDefs.map((slide) => cloneSlide(slide));
   }
 
   return [];
