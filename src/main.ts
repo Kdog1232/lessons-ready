@@ -3306,7 +3306,7 @@ Include:
         let liveText = "";
         let lastChunk = "";
         let lastRendered = "";
-        let finalLessonText = "";
+        let streamedLessonText = "";
         let finalLessonSections: StructuredLessonSections | undefined;
 
         output.classList.add("typing");
@@ -3339,7 +3339,7 @@ Include:
                 "";
 
               if (typeof candidate === "string" && candidate.trim()) {
-                finalLessonText = candidate;
+                streamedLessonText = candidate;
               }
               const candidateSections =
                 obj?.sections ??
@@ -3360,7 +3360,8 @@ Include:
 
         output.classList.remove("typing");
 
-        lessonText = (finalLessonText || liveText) as string;
+        lessonText = streamedLessonText || liveText;
+        lessonText = lessonText || "";
         lessonSections = finalLessonSections;
         output.innerHTML = renderLessonWithCurriculumBridge(lessonText, {
           publisher: pub,
@@ -3379,6 +3380,7 @@ Include:
         }
         if (!data.ok) throw new Error(data.error || "Unknown error");
         lessonText = (data.lesson_plan || data.prompt_preview || "") as string;
+        lessonText = lessonText || "";
         if (data.sections && typeof data.sections === "object") lessonSections = data.sections as StructuredLessonSections;
       }
 
