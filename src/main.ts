@@ -3341,18 +3341,13 @@ Include:
         if (!trimmed) return;
 
         try {
-          showMessage("🖼️ Generating slides…", true);
-          const slidesAbort = new AbortController();
-          const slidesTimeoutId = window.setTimeout(() => slidesAbort.abort(), 15_000);
           const slidesRes = await fetch(`${SUPABASE_URL}/functions/v1/generate-slides`, {
             method: "POST",
             headers: buildFunctionAuthHeaders(session.access_token),
             body: JSON.stringify({
               lessonText: trimmed,
             }),
-            signal: slidesAbort.signal,
           });
-          clearTimeout(slidesTimeoutId);
 
           if (!slidesRes.ok) {
             const rawSlidesErr = await slidesRes.text();
@@ -3371,14 +3366,9 @@ Include:
 
           if (!slideDefs.length) {
             console.warn("⚠️ No slides returned — fallback triggered");
-            slideDefs = buildFallbackSlides(trimmed);
-            showMessage("No slides yet — fallback triggered. You can still use lesson view.", false);
-          } else {
-            showMessage("Slides ready ✅", true);
           }
         } catch (err) {
-          slideDefs = buildFallbackSlides(trimmed);
-          logClientError("Slide generation failed", err);
+          console.error("❌ Slide generation failed", err);
         }
       };
 
