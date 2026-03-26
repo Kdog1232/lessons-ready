@@ -23,6 +23,44 @@ serve(async (req) => {
     }
 
     const prompt = `
+LESSON INPUT
+
+${lessonText}
+
+INSTRUCTIONS
+
+* Maintain TEKS alignment
+* Use student-friendly language
+* Include engaging but school-appropriate tone
+* Keep responses concise and structured
+
+RIGOR RULES
+
+* Questions must require thinking (not recall)
+* Include evidence-based reasoning where appropriate
+* Include plausible distractors (based on mistakes)
+
+SLIDE STRUCTURE (STRICT)
+
+You MUST generate exactly these stages:
+
+1. objective_lock
+2. verb_definition
+3. model_think_aloud
+4. guided_dok_ladder
+5. compare_defend
+6. independent_transfer
+7. exit_ticket
+
+OUTPUT RULES (CRITICAL)
+
+* Return ONLY valid JSON
+* Do NOT include explanations
+* Do NOT include markdown
+* Do NOT include text outside JSON
+* Do NOT include comments
+
+JSON SCHEMA (STRICT)
 You are generating a HIGH-ENGAGEMENT, HIGH-RIGOR presenter slide deck.
 
 The goal:
@@ -31,14 +69,10 @@ The goal:
 - Use modern, student-friendly engagement (challenge/game style)
 - Stay ORIGINAL (no real brands or copyrighted references)
 
-========================================
 LESSON INPUT
-========================================
 ${lessonText}
 
-========================================
 ENGAGEMENT STYLE (MANDATORY)
-========================================
 
 Make the lesson feel like:
 - a challenge
@@ -55,27 +89,21 @@ DO NOT:
 - reference real brands (Fortnite, MrBeast, etc.)
 - copy real content
 
-========================================
 CONTEXT / SCENARIO (MANDATORY)
-========================================
 
 Create a short scenario (100–200 words max):
 - engaging and modern
 - works across subjects
 - includes a problem or challenge
 
-========================================
 RIGOR RULES
-========================================
 
 - Questions must require thinking
 - Include evidence or reasoning
 - Use STAAR-style structure
 - Include strong distractors (based on mistakes)
 
-========================================
 SLIDE STRUCTURE (STRICT)
-========================================
 
 Use these stageTypes:
 
@@ -87,22 +115,36 @@ Use these stageTypes:
 - independent_transfer  
 - exit_ticket  
 
-========================================
 ENGAGEMENT INSERTS (MANDATORY)
-========================================
 
 Include:
 - 🗣 Turn & Talk
 - ✍️ Quick Write
 - 🤝 Partner Discussion
 
-========================================
 OUTPUT (JSON ONLY)
-========================================
 
 {
   "slide_definitions": [
     {
+REQUIRED RULES
+
+* guided_dok_ladder MUST include EXACTLY 3 questions
+* Each question MUST have:
+
+  * 4 answer choices
+  * correctIndex between 0–3
+* All stageTypes MUST be present exactly once
+* Do NOT skip any stage
+
+FAIL CONDITIONS (DO NOT DO)
+
+* Missing fields
+* Invalid JSON
+* Extra text outside JSON
+* Fewer or more than required slides
+
+Return ONLY the JSON object.
       "stageType": "objective_lock",
       "heading": "Objective",
       "subtext": "I can..."

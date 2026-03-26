@@ -2214,10 +2214,36 @@ qsStandard?.addEventListener("change", () => {
   target.innerHTML = `<div class="${ok ? "ok" : "error"}">${html}</div>`;
 }
 
+function logClientError(context: string, error: unknown) {
+  const msg = error instanceof Error ? error.message : String(error || "Unknown error");
+  console.error(`❌ ${context}:`, error);
+  showMessage(`${esc(context)}: ${esc(msg)}`, false);
+}
+
 function clearMessage() {
   if (message) message.innerHTML = "";
   if (messageApp) messageApp.innerHTML = "";
 }
+
+function buildFallbackSlides(lessonText: string) {
+  return [
+    {
+      type: "headline",
+      stageType: "objective_lock",
+      heading: "Slides unavailable",
+      subtext: "Using lesson fallback. Tap Retry to regenerate slides.",
+      content: String(lessonText || "").slice(0, 500),
+    },
+  ];
+}
+
+window.addEventListener("error", (event) => {
+  logClientError("Unexpected app error", event.error || event.message);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  logClientError("Unhandled async error", event.reason);
+});
 
   function setMeta(text: string) {
   if (!metaLineEl) return;
@@ -3352,6 +3378,12 @@ Include:
         let lastRendered = "";
         let finalLessonText = "";
         let finalLessonSections: StructuredLessonSections | undefined;
+        let firstStreamChunkReceived = false;
+        const streamStartTimeoutId = window.setTimeout(() => {
+          if (!firstStreamChunkReceived) {
+            activeStreamAbort?.abort();
+          }
+        }, 10_000);
 
         output.classList.add("typing");
         output.textContent = " ";
@@ -3360,6 +3392,7 @@ Include:
           res,
           {
             onDelta: (chunk) => {
+              firstStreamChunkReceived = true;
               const merged = applyStreamChunk(liveText, chunk, lastChunk);
               liveText = merged.text;
               lastChunk = merged.lastChunk || lastChunk;
@@ -3408,6 +3441,7 @@ Include:
           },
           activeStreamAbort.signal,
         );
+        clearTimeout(streamStartTimeoutId);
 
         output.classList.remove("typing");
 
@@ -3574,10 +3608,13 @@ try {
 showMessage("Success ✅ Saved to Library", true);
 setStatus("Done");
     } catch (err: any) {
+      const aborted = err?.name === "AbortError";
       const msg =
-        err?.name === "AbortError"
-          ? `AI request timed out after ${Math.round(HARD_TIMEOUT_MS / 1000)} seconds. Try a smaller request or retry.`
-          : String(err?.message || err);
+        aborted && !requestTimedOut
+          ? "Lesson stream did not start within 10 seconds. Please retry."
+          : aborted
+            ? `AI request timed out after ${Math.round(HARD_TIMEOUT_MS / 1000)} seconds. Try a smaller request or retry.`
+            : String(err?.message || err);
 
       if (requestTimedOut) {
         console.error("OpenAI-backed lesson request timed out", {
@@ -3589,7 +3626,14 @@ setStatus("Done");
         });
       }
 
-      showMessage(esc(msg), false);
+      showMessage(
+        `${esc(msg)}<div style="margin-top:8px;"><button id="retryGenerateBtn" class="secondary" type="button">Retry</button></div>`,
+        false,
+      );
+      const retryGenerateBtn = document.getElementById("retryGenerateBtn");
+      if (retryGenerateBtn) {
+        retryGenerateBtn.addEventListener("click", () => generateBtn.click(), { once: true });
+      }
       output.classList.remove("typing");
       output.innerHTML = `<pre style="white-space:pre-wrap;margin:0;">${escapeHtml(msg)}</pre>`;
       setStatus("Error");
