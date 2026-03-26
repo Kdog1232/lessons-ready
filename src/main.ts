@@ -612,8 +612,13 @@ function requireSession(): Session {
 function buildFunctionAuthHeaders(accessToken: string): Record<string, string> {
   const token = String(accessToken || "").trim();
   if (!token) throw new Error("No active session token available for function call.");
+
+  const anon = getAnonKey();
+  if (!anon) throw new Error("Missing Supabase anon key in main.ts.");
+
   return {
     "Content-Type": "application/json",
+    apikey: anon,
     Authorization: `Bearer ${token}`,
   };
 }
@@ -2209,10 +2214,36 @@ qsStandard?.addEventListener("change", () => {
   target.innerHTML = `<div class="${ok ? "ok" : "error"}">${html}</div>`;
 }
 
+function logClientError(context: string, error: unknown) {
+  const msg = error instanceof Error ? error.message : String(error || "Unknown error");
+  console.error(`❌ ${context}:`, error);
+  showMessage(`${esc(context)}: ${esc(msg)}`, false);
+}
+
 function clearMessage() {
   if (message) message.innerHTML = "";
   if (messageApp) messageApp.innerHTML = "";
 }
+
+function buildFallbackSlides(lessonText: string) {
+  return [
+    {
+      type: "headline",
+      stageType: "objective_lock",
+      heading: "Slides unavailable",
+      subtext: "Using lesson fallback. Tap Retry to regenerate slides.",
+      content: String(lessonText || "").slice(0, 500),
+    },
+  ];
+}
+
+window.addEventListener("error", (event) => {
+  logClientError("Unexpected app error", event.error || event.message);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  logClientError("Unhandled async error", event.reason);
+});
 
   function setMeta(text: string) {
   if (!metaLineEl) return;
@@ -3301,6 +3332,55 @@ Include:
       const contentType = (res.headers.get("content-type") || "").toLowerCase();
       let lessonText = "";
       let lessonSections: StructuredLessonSections | undefined;
+      let slideDefs: any[] = [];
+      let slidesStarted = false;
+      let slidesPromise: Promise<void> | null = null;
+
+      const generateSlides = async (text: string) => {
+        const trimmed = String(text || "").trim();
+        if (!trimmed) return;
+
+        try {
+          showMessage("🖼️ Generating slides…", true);
+          const slidesAbort = new AbortController();
+          const slidesTimeoutId = window.setTimeout(() => slidesAbort.abort(), 15_000);
+          const slidesRes = await fetch(`${SUPABASE_URL}/functions/v1/generate-slides`, {
+            method: "POST",
+            headers: buildFunctionAuthHeaders(session.access_token),
+            body: JSON.stringify({
+              lessonText: trimmed,
+            }),
+            signal: slidesAbort.signal,
+          });
+          clearTimeout(slidesTimeoutId);
+
+          if (!slidesRes.ok) {
+            const rawSlidesErr = await slidesRes.text();
+            throw new Error(`Slides request failed (${slidesRes.status}): ${rawSlidesErr}`);
+          }
+
+          const slidesData = await slidesRes.json();
+          slideDefs = Array.isArray(slidesData?.slide_definitions) ? slidesData.slide_definitions : [];
+
+          slideDefs = slideDefs.map((s: any) => ({
+            type: s?.type || "headline",
+            stageType: s?.stageType || "objective_lock",
+            heading: s?.heading || "",
+            ...s,
+          }));
+
+          if (!slideDefs.length) {
+            console.warn("⚠️ No slides returned — fallback triggered");
+            slideDefs = buildFallbackSlides(trimmed);
+            showMessage("No slides yet — fallback triggered. You can still use lesson view.", false);
+          } else {
+            showMessage("Slides ready ✅", true);
+          }
+        } catch (err) {
+          slideDefs = buildFallbackSlides(trimmed);
+          logClientError("Slide generation failed", err);
+        }
+      };
 
       if (wantsStream && contentType.includes("text/event-stream")) {
         let liveText = "";
@@ -3308,6 +3388,12 @@ Include:
         let lastRendered = "";
         let finalLessonText = "";
         let finalLessonSections: StructuredLessonSections | undefined;
+        let firstStreamChunkReceived = false;
+        const streamStartTimeoutId = window.setTimeout(() => {
+          if (!firstStreamChunkReceived) {
+            activeStreamAbort?.abort();
+          }
+        }, 10_000);
 
         output.classList.add("typing");
         output.textContent = " ";
@@ -3316,10 +3402,17 @@ Include:
           res,
           {
             onDelta: (chunk) => {
+              firstStreamChunkReceived = true;
               const merged = applyStreamChunk(liveText, chunk, lastChunk);
               liveText = merged.text;
               lastChunk = merged.lastChunk || lastChunk;
               finalLessonText = liveText;
+
+              if (liveText.length > 800 && liveText.includes("Independent") && !slidesStarted) {
+                slidesStarted = true;
+                const snapshotText = liveText;
+                slidesPromise = generateSlides(snapshotText);
+              }
 
               if (liveText !== lastRendered) {
                 lastRendered = liveText;
@@ -3358,6 +3451,7 @@ Include:
           },
           activeStreamAbort.signal,
         );
+        clearTimeout(streamStartTimeoutId);
 
         output.classList.remove("typing");
 
@@ -3394,29 +3488,11 @@ Include:
       // =============================
 // 🎬 GENERATE SLIDES (NEW)
 // =============================
-let slideDefs: any[] = [];
-
-try {
-  const slidesRes = await fetch(`${SUPABASE_URL}/functions/v1/generate-slides`, {
-    method: "POST",
-    headers: buildFunctionAuthHeaders(session.access_token),
-    body: JSON.stringify({
-      lessonText: lessonText?.trim() ? lessonText : "",
-    }),
-  });
-
-  const slidesData = await slidesRes.json();
-
-  try {
-    const parsed = JSON.parse(slidesData.slidesRaw || "{}");
-    slideDefs = parsed.slide_definitions || [];
-  } catch (e) {
-    console.error("❌ Slide JSON parse failed", e);
-  }
-
-} catch (err) {
-  console.error("❌ Slide generation failed", err);
+if (!slidesStarted) {
+  slidesStarted = true;
+  slidesPromise = generateSlides(lessonText);
 }
+await slidesPromise;
       
       lastLessonPlainText = htmlToPlainText(output.innerHTML);
       downloadPdfBtn.disabled = !lastLessonPlainText.trim();
@@ -3509,7 +3585,7 @@ const row = {
 localStorage.setItem(
   "lr_current_lesson",
   JSON.stringify({
-    lesson_text: finalLessonText || liveText || "",
+    lesson_text: lessonText || "",
     slide_definitions: slideDefs,
   })
 );
@@ -3542,10 +3618,13 @@ try {
 showMessage("Success ✅ Saved to Library", true);
 setStatus("Done");
     } catch (err: any) {
+      const aborted = err?.name === "AbortError";
       const msg =
-        err?.name === "AbortError"
-          ? `AI request timed out after ${Math.round(HARD_TIMEOUT_MS / 1000)} seconds. Try a smaller request or retry.`
-          : String(err?.message || err);
+        aborted && !requestTimedOut
+          ? "Lesson stream did not start within 10 seconds. Please retry."
+          : aborted
+            ? `AI request timed out after ${Math.round(HARD_TIMEOUT_MS / 1000)} seconds. Try a smaller request or retry.`
+            : String(err?.message || err);
 
       if (requestTimedOut) {
         console.error("OpenAI-backed lesson request timed out", {
@@ -3557,7 +3636,14 @@ setStatus("Done");
         });
       }
 
-      showMessage(esc(msg), false);
+      showMessage(
+        `${esc(msg)}<div style="margin-top:8px;"><button id="retryGenerateBtn" class="secondary" type="button">Retry</button></div>`,
+        false,
+      );
+      const retryGenerateBtn = document.getElementById("retryGenerateBtn");
+      if (retryGenerateBtn) {
+        retryGenerateBtn.addEventListener("click", () => generateBtn.click(), { once: true });
+      }
       output.classList.remove("typing");
       output.innerHTML = `<pre style="white-space:pre-wrap;margin:0;">${escapeHtml(msg)}</pre>`;
       setStatus("Error");

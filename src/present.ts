@@ -4315,7 +4315,12 @@ function renderSlide() {
   const notesPanel = document.getElementById("teacher-notes");
 
   if (!slide) {
-    container.innerHTML = `<div class="slide slide-content"><h2>No slide found</h2></div>`;
+    container.innerHTML = `
+      <div class="slide slide-content presenter-state">
+        <h2>No slides yet</h2>
+        <p>Generate a lesson first, then open Present mode again.</p>
+      </div>
+    `;
     if (counter) counter.textContent = "";
     if (notesPanel) notesPanel.innerHTML = "";
     return;
@@ -4355,11 +4360,21 @@ function renderSlide() {
   try {
     container.innerHTML = buildRenderedSlideHtml(slide, layoutClass, extraClass, stage, coachingTag, coachLine, alignment);
   } catch (e: any) {
-    container.innerHTML = `<div class="slide slide-content"><h2>Slide render error</h2><p>${escHtml(e?.message || e)}</p></div>`;
+    container.innerHTML = `
+      <div class="slide slide-content presenter-state presenter-state--error">
+        <h2>Slide render error</h2>
+        <p>${escHtml(e?.message || e)}</p>
+        <button id="retry-render-btn" type="button">Retry slide</button>
+      </div>
+    `;
+    const retryBtn = document.getElementById("retry-render-btn");
+    if (retryBtn) retryBtn.addEventListener("click", () => renderSlide(), { once: true });
   }
 
   const renderedSlide = container.querySelector(".slide") as HTMLElement | null;
   if (renderedSlide) {
+    renderedSlide.classList.add(`stage-${String(slide.stageType || "generic")}`);
+    renderedSlide.classList.add(`type-${String(slide.type || "generic")}`);
     renderedSlide.classList.add("slide-enter");
     if ((slide.items || []).length >= 5) {
       renderedSlide.classList.add("dense");
@@ -4732,8 +4747,9 @@ async function boot() {
   slideContainerEl = document.getElementById("slide-container") as HTMLElement | null;
   if (slideContainerEl) {
     slideContainerEl.innerHTML = `
-      <div class="slide slide-content">
-        <h2>Loading lesson...</h2>
+      <div class="slide slide-content presenter-state presenter-state--loading">
+        <h2>Loading slides...</h2>
+        <p>Please wait while we prepare your presentation.</p>
       </div>
     `;
   }
@@ -4749,7 +4765,15 @@ async function boot() {
   } catch (e: any) {
     const container = document.getElementById("slide-container");
     if (container) {
-      container.innerHTML = `<div class="slide slide-content"><h2>Loading lesson...</h2><p>${escHtml(e?.message || e)}</p></div>`;
+      container.innerHTML = `
+        <div class="slide slide-content presenter-state presenter-state--error">
+          <h2>Unable to load slides</h2>
+          <p>${escHtml(e?.message || e)}</p>
+          <button id="retry-boot-btn" type="button">Retry</button>
+        </div>
+      `;
+      const retryBootBtn = document.getElementById("retry-boot-btn");
+      if (retryBootBtn) retryBootBtn.addEventListener("click", () => boot(), { once: true });
     }
   }
 }
