@@ -142,7 +142,46 @@ function loadStudentView() {
   }
 }
 
-async function submitAnswer(questionId: string, answerIndex: number) {
+type QuestionPayload = {
+  id: string;
+  correctIndex?: number;
+  standard?: string;
+  dok?: number;
+};
+
+function getCurrentQuestionPayload(): QuestionPayload | null {
+  const raw = (document.getElementById("questionInput") as HTMLInputElement | null)?.value.trim() || "";
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<QuestionPayload>;
+    if (parsed && typeof parsed === "object" && parsed.id) {
+      return {
+        id: String(parsed.id),
+        correctIndex: Number.isInteger(parsed.correctIndex) ? Number(parsed.correctIndex) : 0,
+        standard: String(parsed.standard || ""),
+        dok: Number.isInteger(parsed.dok) ? Number(parsed.dok) : 1,
+      };
+    }
+  } catch {
+    // Treat as plain question id when not JSON.
+  }
+
+  return {
+    id: raw,
+    correctIndex: 0,
+    standard: "",
+    dok: 1,
+  };
+}
+
+async function submitAnswer(
+  questionId: string,
+  answerIndex: number,
+  correctIndex: number,
+  standard: string,
+  dok: number,
+) {
   const studentId = localStorage.getItem("studentId");
   const sessionId = localStorage.getItem("sessionId");
 
@@ -159,6 +198,9 @@ async function submitAnswer(questionId: string, answerIndex: number) {
       question_id: questionId,
       student_id: studentId,
       answer_index: answerIndex,
+      correct: answerIndex === correctIndex,
+      standard,
+      dok,
     }),
   });
 
@@ -177,9 +219,16 @@ function bind() {
 
   document.querySelectorAll(".answerBtn").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const questionId = (document.getElementById("questionInput") as HTMLInputElement | null)?.value.trim() || "slide1";
       const answerIndex = Number((btn as HTMLElement).dataset.index || "0");
-      submitAnswer(questionId, answerIndex).catch(() => setStatus("submit-status", "Submission failed."));
+      const question = getCurrentQuestionPayload();
+      if (!question) return;
+      submitAnswer(
+        question.id,
+        answerIndex,
+        question.correctIndex ?? 0,
+        question.standard || "",
+        question.dok || 1,
+      ).catch(() => setStatus("submit-status", "Submission failed."));
     });
   });
 
