@@ -608,8 +608,7 @@ function getStructuredSlides(row: LessonRow | null | undefined): SlideDefinition
   const slideDefs =
     row.slide_definitions ||
     row.slide_defs ||
-    row.slides ||
-    extractSlideDefs(row.lesson_text || "");
+    row.slides;
 
   if (Array.isArray(slideDefs) && slideDefs.length > 0) {
     return slideDefs.map((slide) => cloneSlide(slide));
@@ -701,205 +700,6 @@ function withQuestionSet(slide: SlideDefinition, questionSet: QuestionSet, passa
     next.prompt = passage;
   }
 
-  return next;
-}
-
-function parseLessonTextBlocks(lessonText: string) {
-
-  if (!lessonText) return { passage: "", questions: [] };
-
-  const normalized = String(lessonText || "").trim();
-  const jsonMatch = normalized.match(/\{[\s\S]*\}/);
-  const jsonCandidate = jsonMatch ? jsonMatch[0] : normalized;
-
-  try {
-    const parsed = JSON.parse(jsonCandidate) as {
-      passage?: string;
-      questions?: Array<{ question?: string; choices?: string[]; correctIndex?: number }>;
-    };
-
-    if (parsed && (parsed.passage || Array.isArray(parsed.questions))) {
-      return {
-        passage: cleanText(String(parsed.passage || "")),
-        questions: Array.isArray(parsed.questions)
-          ? parsed.questions.map((question) => ({
-              raw: JSON.stringify(question),
-              question: cleanText(String(question?.question || "Practice Question")),
-              choices: Array.isArray(question?.choices) ? question.choices.map((choice) => cleanText(String(choice || ""))).filter(Boolean) : [],
-              correctIndex: Number.isInteger(question?.correctIndex) ? Number(question?.correctIndex) : undefined,
-            }))
-          : [],
-      };
-    }
-  } catch {
-    // fall through to text parsing
-  }
-
-  const passageMatch =
-    normalized.match(/PASSAGE:\s*([\s\S]*?)(?:QUESTION|$)/i);
-
-  const passage = passageMatch ? passageMatch[1].trim() : "";
-
-  const questions =
-    normalized.split(/QUESTION/i).slice(1).map(block => ({
-      raw: block.trim()
-    }));
-
-  return { passage, questions };
-}
-
-function extractSlideDefs(text: string): SlideDefinition[] {
-  const raw = String(text || "");
-  if (!raw) return [];
-
-  const start = raw.indexOf('"slide_definitions"');
-  if (start === -1) return [];
-
-  const jsonStart = raw.lastIndexOf("{", start);
-  if (jsonStart === -1) return [];
-
-  let depth = 0;
-  let jsonEnd = -1;
-  for (let i = jsonStart; i < raw.length; i += 1) {
-    const char = raw[i];
-    if (char === "{") depth += 1;
-    if (char === "}") {
-      depth -= 1;
-      if (depth === 0) {
-        jsonEnd = i;
-        break;
-      }
-    }
-  }
-
-  if (jsonEnd === -1) return [];
-  const candidate = raw.slice(jsonStart, jsonEnd + 1);
-
-  try {
-    const parsed = JSON.parse(candidate) as { slide_definitions?: unknown };
-    const slides = parsed.slide_definitions;
-    if (!Array.isArray(slides)) return [];
-
-    return slides
-      .filter((slide): slide is Record<string, unknown> => Boolean(slide && typeof slide === "object"))
-      .map((slide) => cloneSlide({ ...(slide as SlideDefinition) }));
-  } catch {
-    return [];
-  }
-}
-const TEST_LESSON = `
-PASSAGE:
-
-In the heart of the forest, there is an ancient tree that tells stories.
-
-QUESTION
-
-question: What is the central idea?
-
-A) The forest is old
-B) Animals gather around the tree
-C) The tree is magical
-D) The owl tells stories
-
-correctIndex: 1
-`;
-
-console.log("TEST PARSER RESULT:", parseLessonTextBlocks(TEST_LESSON));
-
-function buildPassageBullets(passage: string): string[] {
-  return String(passage || "")
-    .split(/(?<=[.!?])\s+/)
-    .map((part) => cleanText(part))
-    .filter(Boolean)
-    .slice(0, 5)
-    .map((part) => trimInjectedText(part, 120));
-}
-
-function trimInjectedText(text: string, max = 120): string {
-  return text.length > max ? `${text.slice(0, max).trimEnd()}...` : text;
-}
-
-function normalizeInjectedItems(items: string[]): string[] {
-  return items
-    .map((item) => cleanText(item))
-    .filter(Boolean)
-    .map((item) => trimInjectedText(item, 120))
-    .slice(0, 5);
-}
-
-
-function parseQuestionBlock(rawQuestion: string): { question: string; choices: string[] } {
-  const lines = String(rawQuestion || "")
-    .split("\n")
-    .map((line) => cleanText(line))
-    .filter(Boolean);
-
-  const questionLine =
-    lines.find((line) => /^question\s*:/i.test(line)) ||
-    lines.find((line) => /\?$/.test(line)) ||
-    lines[0] ||
-    "Practice Question";
-
-  const question = trimInjectedText(questionLine.replace(/^question\s*:/i, "").trim() || "Practice Question", 180);
-  const choices = lines
-    .filter((line) => /^[A-D][).:]/i.test(line))
-    .map((line) => line.replace(/^[A-D][).:]\s*/i, "").trim())
-    .filter(Boolean)
-    .map((choice) => trimInjectedText(choice, 90))
-    .slice(0, 4);
-
-  return { question, choices };
-}
-
-function applyLessonTextToDeck(deck: SlideDefinition[], lessonText?: string): SlideDefinition[] {
-  console.log("Applying lesson text to deck:", lessonText);
-  const parsed = parseLessonTextBlocks(String(lessonText || ""));
-  if (!parsed.passage && !parsed.questions.length) return deck;
-
-  const next = deck.map(cloneSlide);
-  const passageBullets = buildPassageBullets(parsed.passage);
-  const shortPassage = trimInjectedText(cleanText(parsed.passage), 220);
-
-  next.forEach((slide) => {
-    if (slide.type === "question") return;
-
-    if (!String(slide.subtext || "").trim() && shortPassage) {
-      slide.subtext = trimInjectedText(shortPassage, 220);
-    }
-
-    slide.content = {
-      ...(slide.content || {}),
-      passage: slide.content?.passage || shortPassage || undefined,
-    };
-
-    if ((!slide.items || slide.items.length === 0) && passageBullets.length > 0) {
-      slide.items = normalizeInjectedItems(passageBullets);
-    }
-  });
-
-  const questionIndexes = next
-    .map((slide, idx) => ({ slide, idx }))
-    .filter(({ slide }) =>
-      slide.type === "question" ||
-      slide.stageType === "guided_dok_ladder" ||
-      slide.section === "Guided" ||
-      slide.section === "Assessment"
-    )
-    .map(({ idx }) => idx);
-
-  for (let i = 0; i < parsed.questions.length && i < questionIndexes.length; i += 1) {
-    const deckIndex = questionIndexes[i];
-    const parsedQuestion = parseQuestionBlock(parsed.questions[i].raw);
-    next[deckIndex] = withQuestionSet(
-      next[deckIndex],
-      {
-        type: parsedQuestion.choices.length > 0 ? "mc" : "scr",
-        question: parsedQuestion.question,
-        choices: parsedQuestion.choices,
-      },
-      shortPassage ? trimInjectedText(shortPassage, 180) : undefined,
-    );
-  }
   return next;
 }
 
@@ -2983,6 +2783,7 @@ async function loadLesson(lessonId: string): Promise<LessonRow | null> {
   if (lesson) {
     localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(lesson));
     savedLesson = lesson as LessonRow & { slide_definitions?: any[]; id?: string };
+    slides = Array.isArray(savedLesson?.slide_definitions) ? savedLesson.slide_definitions : [];
   }
   return lesson;
 }
@@ -3035,6 +2836,7 @@ async function loadSlides(incomingSlides: any[] = []) {
       if (row) {
         localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(row));
         savedLesson = row as LessonRow & { slide_definitions?: any[]; id?: string };
+        slides = Array.isArray(savedLesson?.slide_definitions) ? savedLesson.slide_definitions : [];
       }
     } catch (e: any) {
       lessonLookupError = String(e?.message || e || "");
@@ -3046,6 +2848,7 @@ async function loadSlides(incomingSlides: any[] = []) {
           if (row) {
             localStorage.setItem(LR_CURRENT_LESSON_KEY, JSON.stringify(row));
             savedLesson = row as LessonRow & { slide_definitions?: any[]; id?: string };
+            slides = Array.isArray(savedLesson?.slide_definitions) ? savedLesson.slide_definitions : [];
           }
           lessonLookupError = "";
         } else {
@@ -3094,83 +2897,32 @@ async function loadSlides(incomingSlides: any[] = []) {
   applyPresentationTheme();
 
   const storedSlideDefinitions = getStructuredSlides(row);
+  const resolvedSlideDefinitions = storedSlideDefinitions.length > 0
+    ? storedSlideDefinitions
+    : getStructuredSlides(savedLesson as LessonRow | null);
 
-  if (resolvedSlideDefinitions.length > 0) {
-    currentExecutionConfig = null;
-    renderSkillPanel();
-    renderAlignmentProof(row);
-    baseSlides = resolvedSlideDefinitions;
-    normalizeSlidesForSettings();
-    currentIndex = 0;
-    return;
-  }
-
-  const selectedMode = String(params.get("instruction_mode") || "core").toLowerCase();
-  const skillPlaybook = await fetchSkillPlaybook(skillType, headers);
-  const instructionMode = await fetchInstructionMode(selectedMode, headers);
-  const gradeBand = resolveGradeBand(grade);
-  const scaling = (skillPlaybook.complexity_notes && skillPlaybook.complexity_notes[gradeBand]) || {};
-  const executionConfig = buildExecutionConfig(
-    (skillBuilders[skillType] || skillBuilders.generic)(),
-    skillPlaybook,
-    scaling,
-    instructionMode,
-  );
-  currentExecutionConfig = executionConfig;
+  currentExecutionConfig = null;
   renderSkillPanel();
   renderAlignmentProof(row);
 
-  {
-    const lockedTemplateSlides = buildSkillLockedDeck(
-      skillType,
-      tekDescription,
-      dok,
-      grade,
-      verb,
-      priority,
-      executionConfig,
-    );
-    baseSlides = lockedTemplateSlides.map(cloneSlide);
-
-    baseSlides = enforceSkillLock(baseSlides, skillType);
-    baseSlides.unshift(buildBrandedSplashSlide(
-      tekDescription,
-      grade,
-      priority,
-      dok,
-    ));
-
-    // Only fall back to text injection when no structured slide data exists.
-    if (row.lesson_text) {
-      const parsed = parseLessonTextBlocks(row.lesson_text);
-      console.log("Parsed lesson text fallback:", parsed);
-      baseSlides = applyLessonTextToDeck(baseSlides, row.lesson_text);
-    }
-
-    const assessmentExists = baseSlides.some((slide) => slide.type === "question");
-    if (!assessmentExists) {
-      const mc = generateSkillAlignedMCQ(skillType);
-      const insertIndex = resolveAssessmentInsertIndex(baseSlides);
-
-      baseSlides.splice(insertIndex, 0, {
-        type: "question",
-        stageType: "guided_dok_ladder",
-        heading: "Check for Understanding",
-        question: mc.question,
-        answerChoices: mc.answerChoices,
-        correctIndex: mc.correctIndex,
-        section: "Assessment",
-        durationSeconds: 150,
-      });
-    }
+  if (resolvedSlideDefinitions.length === 0) {
+    console.error("⚠️ No structured slides found");
+    baseSlides = [
+      {
+        type: "headline",
+        stageType: "objective",
+        heading: "Lesson Error",
+        subtext: "Slides could not be generated. Please regenerate the lesson.",
+      },
+    ];
+  } else {
+    baseSlides = resolvedSlideDefinitions.map(cloneSlide);
   }
-
-  baseSlides = buildSlidesFinal(baseSlides);
   normalizeSlidesForSettings();
   slides = baseSlides;
   currentIndex = 0;
-  console.log("✅ Playbook-driven slides:", slides);
-  console.log("🎯 FINAL SLIDES:", slides.map((s) => s.stageType));
+  console.log("✅ Structured slides loaded:", slides);
+  console.log("🎯 FINAL SLIDES:", slides.map((s) => s.stageType || s.type));
   return;
 }
 function buildBrandedSplashSlide(
