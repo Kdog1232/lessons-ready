@@ -150,11 +150,9 @@ type LessonRow = {
   dok_target?: string;
   staar_priority?: string;
   skill_display_name?: string;
-  grade_level?: number | string;
+  grade?: number | string;
   lesson_text?: string;
   slide_definitions?: SlideDefinition[];
-  slide_defs?: SlideDefinition[];
-  slides?: SlideDefinition[];
 };
 type MasteryTracker = {
   guidedQuestions: number;
@@ -182,6 +180,9 @@ type GenerateLessonPayload = {
 type SavedSession = {
   access_token?: string;
   refresh_token?: string;
+  user?: {
+    id?: string;
+  };
 };
 
 type LiveSessionRow = {
@@ -604,17 +605,7 @@ function cloneSlide(slide: SlideDefinition): SlideDefinition {
 
 function getStructuredSlides(row: LessonRow | null | undefined): SlideDefinition[] {
   if (!row) return [];
-
-  const slideDefs =
-    row.slide_definitions ||
-    row.slide_defs ||
-    row.slides;
-
-  if (Array.isArray(slideDefs) && slideDefs.length > 0) {
-    return slideDefs.map((slide) => cloneSlide(slide));
-  }
-
-  return [];
+  return Array.isArray(row.slide_definitions) ? row.slide_definitions.map(cloneSlide) : [];
 }
 
 function getSlideFrame(slide: SlideDefinition): SlideFrame | undefined {
@@ -2631,7 +2622,7 @@ function normalizeSlidesForSettings() {
   if (currentIndex >= slides.length) currentIndex = Math.max(0, slides.length - 1);
 }
 
-async function logPresentationEvent(slideIndex: number, stageType?: SlideType) {
+async function logPresentationEvent(slideIndex: number) {
   if (!lessonIdGlobal) return;
   const token = getSavedToken();
   const headers: Record<string, string> = {
@@ -2647,9 +2638,10 @@ async function logPresentationEvent(slideIndex: number, stageType?: SlideType) {
       headers,
       body: JSON.stringify({
         lesson_id: lessonIdGlobal,
+        user_id: getSavedSession()?.user?.id || null,
         slide_index: slideIndex,
-        timestamp: new Date().toISOString(),
-        stage_type: stageType || null,
+        presented_at: new Date().toISOString(),
+        duration_seconds: null,
       }),
     });
   } catch (e) {
@@ -2658,73 +2650,30 @@ async function logPresentationEvent(slideIndex: number, stageType?: SlideType) {
 }
 
 async function fetchLessonRow(lessonId: string, headers: Record<string, string>): Promise<LessonRow | null> {
-  const selectAttempts = [
-    "lesson_mode,standard_label,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band,lesson_text,slide_definitions,slide_defs,slides",
-    "lesson_mode,canonical_skill,cognitive_verb,dok_target,grade,lesson_text,slide_definitions,slide_defs,slides",
-    "lesson_mode,standard_label,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band,slide_definitions,slide_defs,slides",
-    "lesson_mode,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band,lesson_text,slide_definitions,slide_defs,slides",
-    "lesson_mode,canonical_skill,cognitive_verb,dok_target,grade,lesson_text",
-    "lesson_mode,standard_label,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band",
-    "lesson_mode,standard_label,canonical_skill,cognitive_verb,dok_target",
-    "lesson_mode,standard_label,canonical_skill,cognitive_verb",
-    "lesson_mode,standard_label,canonical_skill",
-    "lesson_mode,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band,lesson_text",
-    "lesson_mode,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade_level,grade,grade_band",
-    "lesson_mode,canonical_skill,cognitive_verb,dok_target",
-    "lesson_mode,canonical_skill,cognitive_verb",
-    "lesson_mode,canonical_skill",
-  ];
+  const lessonSelect =
+    "lesson_mode,standard_label,canonical_skill,cognitive_verb,dok_target,staar_priority,skill_display_name,grade,lesson_text,slide_definitions";
+  const query = `select=${lessonSelect}&id=eq.${encodeURIComponent(lessonId)}&limit=1`;
+  const url = `${SUPABASE_URL}/rest/v1/lessons?${query}`;
+  const res = await fetch(url, { headers });
+  const body = await res.text();
 
-  let lastErrorMessage = "";
-
-  for (const select of selectAttempts) {
-
-    const query = `select=${select}&id=eq.${encodeURIComponent(lessonId)}&limit=1`;
-    const url = `${SUPABASE_URL}/rest/v1/lessons?${query}`;
-    const res = await fetch(url, { headers });
-
-    const body = await res.text();
-
-    if (res.ok) {
-      try {
-        const rows = JSON.parse(body);
-        if (Array.isArray(rows) && rows.length > 0) {
-          return rows[0] as LessonRow;
-        }
-      } catch {
-        throw new Error("Lesson JSON parse failed.");
+  if (res.ok) {
+    try {
+      const rows = JSON.parse(body);
+      if (Array.isArray(rows) && rows.length > 0) {
+        return rows[0] as LessonRow;
       }
+      return null;
+    } catch {
+      throw new Error("Lesson JSON parse failed.");
     }
-
-    lastErrorMessage = `Failed to load slides (${res.status}): ${body.slice(0, 120)}`;
-
-    if (isJwtExpiredError(res.status, body)) {
-      throw new Error("SESSION_EXPIRED");
-    }
-
-    const isMissingColumn =
-      res.status === 400 &&
-      (body.includes("canonical_skill") ||
-        body.includes("cognitive_verb") ||
-        body.includes("dok_target") ||
-        body.includes("staar_priority") ||
-        body.includes("skill_display_name") ||
-        body.includes("grade_level") ||
-        body.includes("grade") ||
-        body.includes("grade_band") ||
-        body.includes("standard_label") ||
-        body.includes("lesson_text") ||
-        body.includes("slide_definitions") ||
-        body.includes("slide_defs") ||
-        body.includes("slides"));
-
-    if (!isMissingColumn) {
-      throw new Error(lastErrorMessage);
-    }
-
   }
 
-  throw new Error(lastErrorMessage || "Failed to load slides.");
+  if (isJwtExpiredError(res.status, body)) {
+    throw new Error("SESSION_EXPIRED");
+  }
+
+  throw new Error(`Failed to load slides (${res.status}): ${body.slice(0, 120)}`);
 }
 function buildGenerateLessonPayload(params: URLSearchParams): GenerateLessonPayload | null {
   const grade = String(params.get("grade") || "").trim();
@@ -2760,9 +2709,7 @@ function coerceLessonRow(input: unknown): LessonRow | null {
     dok_target: String(raw.dok_target || raw.dok || "").trim() || undefined,
     staar_priority: String(raw.staar_priority || raw.priority || "").trim() || undefined,
     skill_display_name: String(raw.skill_display_name || raw.skillDisplayName || raw.skillFocus || "").trim() || undefined,
-    grade_level: (raw.grade_level ?? raw.gradeLevel ?? raw.grade ?? undefined) as LessonRow["grade_level"],
-    grade: (raw.grade ?? raw.grade_level ?? undefined) as LessonRow["grade"],
-    grade_band: String(raw.grade_band || raw.gradeBand || "").trim() || undefined,
+    grade: (raw.grade ?? raw.grade_level ?? raw.gradeLevel ?? undefined) as LessonRow["grade"],
   };
   if (!row.standard_label && !row.canonical_skill) return null;
   return row;
@@ -2892,7 +2839,7 @@ async function loadSlides(incomingSlides: any[] = []) {
   currentDok = dok;
   currentPriority = priority;
   currentTek = tekDescription;
-  const grade = normalizeGrade(row.grade_level ?? row.grade ?? row.grade_band);
+  const grade = normalizeGrade(row.grade);
   currentSkillType = skillType;
   applyPresentationTheme();
 
@@ -4198,7 +4145,7 @@ function renderSlide() {
   if (lessonIdGlobal) localStorage.setItem(resumeKey(lessonIdGlobal), String(currentIndex));
   startSlideTimer(stageDuration);
   if (slide.stageType) {
-    logPresentationEvent(currentIndex, slide.stageType).catch(() => {});
+    logPresentationEvent(currentIndex).catch(() => {});
   }
 }
 
@@ -4491,9 +4438,7 @@ async function boot() {
   console.log("lesson from DB:", lesson);
   console.log(
     "slides:",
-    (lesson as { slides?: unknown; slide_definitions?: unknown; slide_defs?: unknown } | null)?.slide_definitions ||
-    (lesson as { slide_defs?: unknown } | null)?.slide_defs ||
-    (lesson as { slides?: unknown } | null)?.slides,
+    (lesson as { slide_definitions?: unknown } | null)?.slide_definitions,
   );
 
   slideContainerEl = document.getElementById("slide-container") as HTMLElement | null;
