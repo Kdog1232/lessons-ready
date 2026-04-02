@@ -681,6 +681,43 @@ function buildFunctionAuthHeaders(accessToken: string): Record<string, string> {
   };
 }
 
+async function saveSlideDefinitionsToLesson(
+  lessonId: string,
+  slideDefinitions: any[],
+) {
+  const session = requireSession();
+
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/lessons?id=eq.${encodeURIComponent(lessonId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        apikey: getAnonKey(),
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify({
+        slide_definitions: Array.isArray(slideDefinitions)
+          ? slideDefinitions
+          : [],
+      }),
+    },
+  );
+
+  const text = await res.text();
+
+  if (!res.ok) {
+    throw new Error(`Failed to save slide_definitions (${res.status}): ${text}`);
+  }
+
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return text;
+  }
+}
+
 // -------------------------
 // PostgREST helper
 // -------------------------
@@ -3509,7 +3546,7 @@ Include:
       let slidesStarted = false;
       let slidesPromise: Promise<void> | null = null;
 
-      const generateSlides = async (text: string) => {
+      const generateSlides = async (text: string, lessonId?: string) => {
         const trimmed = String(text || "").trim();
         if (!trimmed) return;
 
@@ -3518,6 +3555,7 @@ Include:
             method: "POST",
             headers: buildFunctionAuthHeaders(session.access_token),
             body: JSON.stringify({
+              structuredLesson: lessonSections || null,
               lessonText: trimmed,
             }),
           });
@@ -3527,8 +3565,11 @@ Include:
             throw new Error(`Slides request failed (${slidesRes.status}): ${rawSlidesErr}`);
           }
 
-          const slidesData = await slidesRes.json();
-          slideDefs = Array.isArray(slidesData?.slide_definitions) ? slidesData.slide_definitions : [];
+          const slidesJson = await slidesRes.json();
+          const generatedSlides = Array.isArray(slidesJson?.slide_definitions)
+            ? slidesJson.slide_definitions
+            : [];
+          slideDefs = generatedSlides;
 
           slideDefs = slideDefs.map((s: any) => ({
             type: s?.type || "headline",
@@ -3536,6 +3577,11 @@ Include:
             heading: s?.heading || "",
             ...s,
           }));
+
+          if (slideDefs.length && lessonId) {
+            await saveSlideDefinitionsToLesson(lessonId, slideDefs);
+            console.log("✅ Saved slide_definitions:", slideDefs.length);
+          }
 
           if (!slideDefs.length) {
             console.warn("⚠️ No slides returned — fallback triggered");
@@ -3780,6 +3826,11 @@ localStorage.setItem(
 );
       lastLessonId = saved?.id || null;
       lastLessonFavorite = false;
+
+      if (slideDefs.length && lastLessonId) {
+        await saveSlideDefinitionsToLesson(lastLessonId, slideDefs);
+        console.log("✅ Saved slide_definitions:", slideDefs.length);
+      }
 
       favoriteBtn.disabled = !lastLessonId;
 favoriteBtn.textContent = "☆ Favorite";
