@@ -34,7 +34,7 @@ const SUPABASE_STATUS_FN_URL =
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
 
 // ✅ Longer timeout
-const HARD_TIMEOUT_MS = 60000; // 60 seconds
+const HARD_TIMEOUT_MS = 180000;
 const STREAM_TIMEOUT_MS = 25000; // 25 seconds to allow backend/OpenAI startup latency
 
 // ✅ Stripe publishable key (SAFE in frontend)
