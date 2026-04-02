@@ -191,6 +191,257 @@ function extractSectionBlocksFromPlainText(text: string) {
   return out;
 }
 
+type SlideQuestion = {
+  id: string;
+  question: string;
+  choices: string[];
+  correctIndex: number;
+  standard: string;
+  dok: string;
+};
+
+type StructuredLessonForSlides = {
+  doNow: string;
+  objective: string;
+  vocab: string[];
+  model: {
+    passage: string;
+    thinkAloud: string;
+  };
+  guided: {
+    questions: SlideQuestion[];
+  };
+  strategy: {
+    steps: string[];
+  };
+  collaborativeTask: string;
+  independent: {
+    questions: SlideQuestion[];
+  };
+  exitTicket: {
+    questions: SlideQuestion[];
+  };
+};
+
+function buildStructuredLessonForSlides(opts: {
+  lessonText: string;
+  lessonSections?: any;
+  standardValue?: string;
+  dokValue?: string;
+}): StructuredLessonForSlides {
+  const lessonText = String(opts.lessonText || "").trim();
+  const standardValue = String(opts.standardValue || "");
+  const dokValue = String(opts.dokValue || "");
+  const fallbackSource = lessonText
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(" ");
+  const blocks = extractSectionBlocksFromPlainText(lessonText);
+  const sections = opts.lessonSections && typeof opts.lessonSections === "object"
+    ? opts.lessonSections
+    : {};
+
+  const getBlockLines = (needles: string[]) => {
+    const hit = blocks.find((b) =>
+      needles.some((needle) => b.heading.toLowerCase().includes(needle.toLowerCase())),
+    );
+    return (hit?.lines || []).map((l) => l.trim()).filter(Boolean);
+  };
+  const sectionValue = (keys: string[]) => {
+    for (const key of keys) {
+      const value = (sections as any)?.[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return "";
+  };
+  const sectionList = (keys: string[]) => {
+    for (const key of keys) {
+      const value = (sections as any)?.[key];
+      if (Array.isArray(value)) {
+        const out = value.map((v) => String(v || "").trim()).filter(Boolean);
+        if (out.length) return out;
+      }
+    }
+    return [] as string[];
+  };
+
+  const clampChoices = (choices: string[]) => {
+    const sanitized = choices
+      .map((c) => String(c || "").trim())
+      .filter(Boolean)
+      .slice(0, 4);
+    while (sanitized.length < 4) sanitized.push(`Option ${sanitized.length + 1}`);
+    return sanitized;
+  };
+
+  const makeQuestion = (seed: {
+    question: string;
+    choices?: string[];
+    correctIndex?: number;
+  }, idx: number): SlideQuestion => {
+    const clean = String(seed.question || "").replace(/^\d+[\).:\-]?\s*/, "").trim();
+    const prompt = clean || `Question ${idx + 1}`;
+    const choices = clampChoices(seed.choices && seed.choices.length ? seed.choices : [
+      "Use strong text evidence.",
+      "Use one weak detail only.",
+      "Restate without evidence.",
+      "Give an unrelated opinion.",
+    ]);
+    const validCorrect = Number.isInteger(seed.correctIndex) ? Number(seed.correctIndex) : 0;
+    const correctIndex = Math.min(3, Math.max(0, validCorrect));
+    return {
+      id: `q_${idx + 1}`,
+      question: prompt.endsWith("?") ? prompt : `${prompt}?`,
+      choices,
+      correctIndex,
+      standard: standardValue || "",
+      dok: dokValue || "",
+    };
+  };
+
+  const parseQuestionsFromLines = (lines: string[]) => {
+    const normalized = lines.map((l) => String(l || "").trim()).filter(Boolean);
+    const results: Array<{ question: string; choices: string[]; correctIndex?: number }> = [];
+    let current: { question: string; choices: string[]; correctIndex?: number } | null = null;
+
+    const pushCurrent = () => {
+      if (!current?.question) return;
+      results.push(current);
+      current = null;
+    };
+
+    for (const raw of normalized) {
+      const line = raw.replace(/^[-•]\s*/, "").trim();
+      const qMatch = line.match(/^(?:q(?:uestion)?\s*)?(\d+[\).:\-]?\s*)?(.+\?)$/i);
+      const choiceMatch = line.match(/^[A-D][\).:\-]\s*(.+)$/i);
+      const answerMatch = line.match(/^answer\s*[:\-]\s*([A-D1-4])/i);
+
+      if (qMatch && !choiceMatch) {
+        pushCurrent();
+        current = { question: qMatch[2].trim(), choices: [] };
+        continue;
+      }
+
+      if (choiceMatch) {
+        if (!current) current = { question: "Select the best answer.", choices: [] };
+        current.choices.push(choiceMatch[1].trim());
+        continue;
+      }
+
+      if (answerMatch && current) {
+        const rawAnswer = answerMatch[1].toUpperCase();
+        const map: Record<string, number> = { A: 0, B: 1, C: 2, D: 3, "1": 0, "2": 1, "3": 2, "4": 3 };
+        current.correctIndex = map[rawAnswer] ?? 0;
+        continue;
+      }
+
+      if (line.includes("?")) {
+        pushCurrent();
+        current = { question: line, choices: [] };
+      }
+    }
+    pushCurrent();
+
+    return results.slice(0, 12);
+  };
+
+  const fallbackQuestions = () => {
+    const base = [
+      "Which detail best supports the lesson objective?",
+      "What inference is most supported by the evidence?",
+      "Which revision most improves the response using academic vocabulary?",
+    ];
+    return base.map((q, idx) => makeQuestion({ question: q }, idx));
+  };
+
+  const objective =
+    sectionValue(["objective", "learningObjective"]) ||
+    getBlockLines(["objective", "i can"]).find((l) => !/^[-•]/.test(l)) ||
+    "Students will demonstrate mastery of the target skill using evidence.";
+
+  const doNow =
+    sectionValue(["doNow", "warmup", "opening"]) ||
+    getBlockLines(["do now", "warm-up", "warm up", "opening", "hook", "rehearsal"]).join(" ") ||
+    "Complete a quick warm-up that previews today’s objective.";
+
+  const vocabFromSections = sectionList(["vocab", "vocabulary", "academicVocabulary"]);
+  const vocab = vocabFromSections.length
+    ? vocabFromSections
+    : getBlockLines(["academic vocabulary", "vocabulary"])
+      .map((l) => l.replace(/^[-•]\s*/, "").trim())
+      .filter(Boolean)
+      .slice(0, 8);
+
+  const modelPassage =
+    sectionValue(["modelPassage", "passage"]) ||
+    getBlockLines(["model", "passage"]).join(" ") ||
+    `Use this anchor text excerpt for modeling: ${fallbackSource || "Teacher models close reading of a short passage."}`;
+
+  const modelThinkAloud =
+    sectionValue(["modelThinkAloud", "thinkAloud", "teacherModel"]) ||
+    getBlockLines(["think aloud", "modeling", "teacher notes"]).join(" ") ||
+    "Model a think-aloud that cites evidence, explains reasoning, and connects to the objective.";
+
+  const strategyStepsFromSections = sectionList(["strategySteps", "steps", "successCriteria"]);
+  const strategySteps = strategyStepsFromSections.length
+    ? strategyStepsFromSections
+    : getBlockLines(["strategy", "success criteria", "steps"])
+      .map((l) => l.replace(/^[-•\d.)\s]+/, "").trim())
+      .filter(Boolean)
+      .slice(0, 6);
+  const normalizedStrategySteps = strategySteps.length
+    ? strategySteps
+    : [
+      "Read the prompt and annotate key words.",
+      "Select the strongest evidence from the text.",
+      "Write a response that explains reasoning clearly.",
+    ];
+
+  const collaborativeTask =
+    sectionValue(["collaborativeTask", "guidedPractice"]) ||
+    getBlockLines(["collaborative", "guided practice", "turn and talk"]).join(" ") ||
+    "Work with a partner to compare evidence and justify your best answer choice.";
+
+  const guidedQuestionsRaw = parseQuestionsFromLines(
+    getBlockLines(["guided", "guided practice", "cfu", "check for understanding"]),
+  );
+  const independentQuestionsRaw = parseQuestionsFromLines(
+    getBlockLines(["independent", "independent practice"]),
+  );
+  const exitQuestionsRaw = parseQuestionsFromLines(
+    getBlockLines(["exit ticket", "closure"]),
+  );
+
+  const guidedQuestions = guidedQuestionsRaw.map((q, idx) => makeQuestion(q, idx));
+  const independentQuestions = independentQuestionsRaw.map((q, idx) => makeQuestion(q, idx));
+  const exitQuestions = exitQuestionsRaw.map((q, idx) => makeQuestion(q, idx));
+
+  return {
+    doNow,
+    objective,
+    vocab: (Array.isArray(vocab) ? vocab : []).slice(0, 12),
+    model: {
+      passage: modelPassage,
+      thinkAloud: modelThinkAloud,
+    },
+    guided: {
+      questions: guidedQuestions.length ? guidedQuestions : fallbackQuestions(),
+    },
+    strategy: {
+      steps: normalizedStrategySteps,
+    },
+    collaborativeTask,
+    independent: {
+      questions: independentQuestions.length ? independentQuestions : fallbackQuestions(),
+    },
+    exitTicket: {
+      questions: exitQuestions.length ? exitQuestions : fallbackQuestions(),
+    },
+  };
+}
+
 function resolveEngagementTemplate(skillFocus: string, subjectValue: string): "neutral" | "sports" | "gaming" | "real-world" | "holiday" {
   const text = `${skillFocus || ""} ${subjectValue || ""}`.toLowerCase();
   if (/(football|basketball|soccer|sports|athlete)/.test(text)) return "sports";
@@ -3543,53 +3794,6 @@ Include:
       let lessonText = "";
       let lessonSections: StructuredLessonSections | undefined;
       let slideDefs: any[] = [];
-      let slidesStarted = false;
-      let slidesPromise: Promise<void> | null = null;
-
-      const generateSlides = async (text: string, lessonId?: string) => {
-        const trimmed = String(text || "").trim();
-        if (!trimmed) return;
-
-        try {
-          const slidesRes = await fetch(`${SUPABASE_URL}/functions/v1/generate-slides`, {
-            method: "POST",
-            headers: buildFunctionAuthHeaders(session.access_token),
-            body: JSON.stringify({
-              structuredLesson: lessonSections || null,
-              lessonText: trimmed,
-            }),
-          });
-
-          if (!slidesRes.ok) {
-            const rawSlidesErr = await slidesRes.text();
-            throw new Error(`Slides request failed (${slidesRes.status}): ${rawSlidesErr}`);
-          }
-
-          const slidesJson = await slidesRes.json();
-          const generatedSlides = Array.isArray(slidesJson?.slide_definitions)
-            ? slidesJson.slide_definitions
-            : [];
-          slideDefs = generatedSlides;
-
-          slideDefs = slideDefs.map((s: any) => ({
-            type: s?.type || "headline",
-            stageType: s?.stageType || "objective_lock",
-            heading: s?.heading || "",
-            ...s,
-          }));
-
-          if (slideDefs.length && lessonId) {
-            await saveSlideDefinitionsToLesson(lessonId, slideDefs);
-            console.log("✅ Saved slide_definitions:", slideDefs.length);
-          }
-
-          if (!slideDefs.length) {
-            console.warn("⚠️ No slides returned — fallback triggered");
-          }
-        } catch (err) {
-          console.error("❌ Slide generation failed", err);
-        }
-      };
 
       if (wantsStream && contentType.includes("text/event-stream")) {
         let liveText = "";
@@ -3635,12 +3839,6 @@ Include:
                 liveText = merged.text;
                 lastChunk = merged.lastChunk || lastChunk;
                 finalLessonText = liveText;
-
-                if (liveText.length > 800 && liveText.includes("Independent") && !slidesStarted) {
-                  slidesStarted = true;
-                  const snapshotText = liveText;
-                  slidesPromise = generateSlides(snapshotText);
-                }
 
                 if (liveText !== lastRendered) {
                   lastRendered = liveText;
@@ -3720,15 +3918,6 @@ Include:
 });
       output.style.opacity = "1";
       animateOutputReveal(output);
-      // =============================
-// 🎬 GENERATE SLIDES (NEW)
-// =============================
-if (!slidesStarted) {
-  slidesStarted = true;
-  slidesPromise = generateSlides(lessonText);
-}
-await slidesPromise;
-      
       lastLessonPlainText = htmlToPlainText(output.innerHTML);
       downloadPdfBtn.disabled = !lastLessonPlainText.trim();
       if (exportPackBtn) exportPackBtn.disabled = !lastLessonPlainText.trim();
@@ -3816,6 +4005,55 @@ const row = {
       }
 
       const saved = Array.isArray(inserted) ? inserted[0] : inserted;
+      const savedLessonId = String(saved?.id || "").trim();
+      if (!savedLessonId) {
+        throw new Error("Lesson save succeeded but no lesson id was returned.");
+      }
+
+      const structuredLesson = buildStructuredLessonForSlides({
+        lessonText,
+        lessonSections,
+        standardValue: standard.value.trim(),
+        dokValue: String(canonical?.dok_target || ""),
+      });
+      console.log("🧱 structuredLesson for slides:", structuredLesson);
+      console.log("🧾 slide pipeline lesson id:", savedLessonId);
+
+      const slidesRes = await fetch(`${SUPABASE_URL}/functions/v1/generate-slides`, {
+        method: "POST",
+        headers: buildFunctionAuthHeaders(session.access_token),
+        body: JSON.stringify({ structuredLesson }),
+      });
+      if (!slidesRes.ok) {
+        const rawSlidesErr = await slidesRes.text();
+        throw new Error(`Slide generation failed (${slidesRes.status}): ${rawSlidesErr}`);
+      }
+
+      const slidesJson = await slidesRes.json();
+      const generatedSlides = Array.isArray(slidesJson?.slide_definitions)
+        ? slidesJson.slide_definitions
+        : [];
+      console.log("🎯 generated slide count:", generatedSlides.length);
+
+      if (!generatedSlides.length) {
+        throw new Error("Slide generation returned no slide_definitions. Presenter will not open.");
+      }
+
+      slideDefs = generatedSlides.map((s: any) => ({
+        type: s?.type || "headline",
+        stageType: s?.stageType || "objective_lock",
+        heading: s?.heading || "",
+        ...s,
+      }));
+
+      try {
+        await saveSlideDefinitionsToLesson(savedLessonId, slideDefs);
+        console.log("✅ Saved slide_definitions for lesson:", savedLessonId);
+        console.log("🧾 slide save status: success");
+      } catch (saveErr) {
+        console.error("🧾 slide save status: failure", saveErr);
+        throw saveErr;
+      }
 
 localStorage.setItem(
   "lr_current_lesson",
@@ -3824,13 +4062,8 @@ localStorage.setItem(
     slide_definitions: slideDefs,
   })
 );
-      lastLessonId = saved?.id || null;
+      lastLessonId = savedLessonId || null;
       lastLessonFavorite = false;
-
-      if (slideDefs.length && lastLessonId) {
-        await saveSlideDefinitionsToLesson(lastLessonId, slideDefs);
-        console.log("✅ Saved slide_definitions:", slideDefs.length);
-      }
 
       favoriteBtn.disabled = !lastLessonId;
 favoriteBtn.textContent = "☆ Favorite";
