@@ -35,6 +35,7 @@ const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
 
 // ✅ Longer timeout
 const HARD_TIMEOUT_MS = 60000; // 60 seconds
+const STREAM_TIMEOUT_MS = 25000; // 25 seconds to allow backend/OpenAI startup latency
 
 // ✅ Stripe publishable key (SAFE in frontend)
 const STRIPE_PUBLISHABLE_KEY =
@@ -682,6 +683,7 @@ async function postgrest(
 // -------------------------
 type StreamHooks = {
   onDelta?: (text: string) => void;
+  onStart?: (obj: any) => void;
   onFinal?: (obj: any) => void;
   onError?: (obj: any) => void;
 };
@@ -724,6 +726,10 @@ async function readSSEStream(
         hooks.onFinal?.(obj);
         continue;
       }
+      if (eventName === "start") {
+        hooks.onStart?.(obj);
+        continue;
+      }
       if (eventName === "error") {
         hooks.onError?.(obj);
         continue;
@@ -735,6 +741,10 @@ async function readSSEStream(
 
       if (inferredType === "final") {
         hooks.onFinal?.(obj);
+        continue;
+      }
+      if (inferredType === "start" || inferredType === "starting") {
+        hooks.onStart?.(obj);
         continue;
       }
       if (inferredType === "error") {
@@ -3383,14 +3393,17 @@ Include:
           if (!firstStreamChunkReceived) {
             activeStreamAbort?.abort();
           }
-        }, 10_000);
+        }, STREAM_TIMEOUT_MS);
 
         output.classList.add("typing");
-        output.textContent = " ";
+        output.textContent = "Generating lesson… (this may take up to 30 seconds)";
 
         await readSSEStream(
           res,
           {
+            onStart: () => {
+              firstStreamChunkReceived = true;
+            },
             onDelta: (chunk) => {
               firstStreamChunkReceived = true;
               const merged = applyStreamChunk(liveText, chunk, lastChunk);
@@ -3611,7 +3624,7 @@ setStatus("Done");
       const aborted = err?.name === "AbortError";
       const msg =
         aborted && !requestTimedOut
-          ? "Lesson stream did not start within 10 seconds. Please retry."
+          ? `Lesson stream did not start within ${Math.round(STREAM_TIMEOUT_MS / 1000)} seconds. Please retry.`
           : aborted
             ? `AI request timed out after ${Math.round(HARD_TIMEOUT_MS / 1000)} seconds. Try a smaller request or retry.`
             : String(err?.message || err);
