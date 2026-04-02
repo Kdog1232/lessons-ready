@@ -106,12 +106,69 @@ function esc(s: any) {
   return escapeHtml(String(s ?? ""));
 }
 
-(window as any).openPresentMode = function (lessonId: string) {
-  if (!lessonId) {
-    window.location.href = "/present.html";
+function setButtonBusy(
+  btn: HTMLButtonElement | null | undefined,
+  busy: boolean,
+  busyLabel?: string,
+) {
+  if (!btn) return;
+  const anyBtn = btn as any;
+  if (busy) {
+    if (!anyBtn.__originalLabel) anyBtn.__originalLabel = btn.textContent || "";
+    btn.disabled = true;
+    if (busyLabel) btn.textContent = busyLabel;
+    btn.setAttribute("aria-busy", "true");
     return;
   }
-  window.location.href = `/present.html?lessonId=${encodeURIComponent(lessonId)}`;
+  btn.disabled = false;
+  btn.removeAttribute("aria-busy");
+  if (anyBtn.__originalLabel) btn.textContent = anyBtn.__originalLabel;
+}
+
+function validateEmailLike(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || "").trim());
+}
+
+function renderEmptyLessonStateHtml(mode: "idle" | "generating" = "idle") {
+  if (mode === "generating") {
+    return `
+      <div class="authBox" style="margin:0;">
+        <div class="sectionTitle" style="margin-top:0;">Preparing your lesson…</div>
+        <div class="miniHelp" style="margin:0;">Please keep this tab open while we build a classroom-ready teacher plan.</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="authBox" style="margin:0;">
+      <div class="sectionTitle" style="margin-top:0;">Your lesson will appear here</div>
+      <div class="miniHelp" style="margin:0;">Set your lesson inputs, then click <b>Generate</b> to create a teacher-ready plan.</div>
+    </div>
+  `;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+(window as any).openPresentMode = function (lessonId: string) {
+  const existing = document.getElementById("presentLaunchToast");
+  if (existing) existing.remove();
+  const toast = document.createElement("div");
+  toast.id = "presentLaunchToast";
+  toast.innerHTML = `<div class="pill" style="position:fixed;right:16px;bottom:16px;z-index:9999;">Launching Presenter View…</div>`;
+  document.body.appendChild(toast);
+
+  const launch = () => {
+    if (toast.parentElement) toast.remove();
+    if (!lessonId) {
+      window.location.href = "/present.html";
+      return;
+    }
+    window.location.href = `/present.html?lessonId=${encodeURIComponent(lessonId)}`;
+  };
+
+  window.setTimeout(launch, 180);
 };
 
 function extractSectionBlocksFromPlainText(text: string) {
@@ -896,6 +953,8 @@ function formatLessonToHtml(rawText: string) {
     inOl = false;
   };
 
+  const numberedSectionRegex = /^\s*\d+\s*[\)\.]\s+\S.+$/;
+
   const pushSection = (icon: string, title: string) => {
     const safeTitle = title.replace(/<\/?b>/g, "").trim();
     if (!safeTitle) return;
@@ -908,6 +967,12 @@ function formatLessonToHtml(rawText: string) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const t = line.trim();
+
+    if (numberedSectionRegex.test(t)) {
+      flushLists();
+      out.push(`<div class="secHead"><div class="secTitle">${t}</div></div>`);
+      continue;
+    }
 
     const emOnly = t.match(emojiHeadRegex);
     if (emOnly && (emOnly[2] ?? "").trim() === "") {
@@ -1189,18 +1254,21 @@ function stripLegacyCurriculumBridgeHtml(html: string) {
   const root = document.createElement("div");
   root.innerHTML = html || "";
 
-  // Remove section headings that look like legacy bridge maps + their immediate table/list blocks
+  // Remove section headings that look like legacy bridge maps + their immediate table/list blocks.
+  // Keep numbered lesson headings intact (e.g., "2) 🗺️ Curriculum Bridge Map").
   const secHeads = Array.from(root.querySelectorAll(".secHead"));
   for (const head of secHeads) {
     const titleEl = head.querySelector(".secTitle");
-    const title = (titleEl?.textContent || head.textContent || "").toLowerCase();
+    const rawTitle = (titleEl?.textContent || head.textContent || "").trim();
+    const title = rawTitle.toLowerCase();
+    const isNumberedSectionHeading = /^\d+\s*[\)\.]/.test(rawTitle);
     const looksLikeBridge =
       title.includes("curriculum bridge") ||
       title.includes("bridge map") ||
       title.includes("curriculum components") ||
       title.includes("curriculum map");
 
-    if (!looksLikeBridge) continue;
+    if (!looksLikeBridge || isNumberedSectionHeading) continue;
 
     const next = head.nextElementSibling;
     head.remove();
@@ -1228,23 +1296,7 @@ function stripLegacyCurriculumBridgeHtml(html: string) {
     if (looksLikeLegacy) t.remove();
   }
 
-// 🔥 Remove numbered Curriculum Bridge section headings like:
-// "2) 🗺️ Curriculum Bridge Map"
-const allNodes = Array.from(root.querySelectorAll("*"));
-for (const node of allNodes) {
-  const txt = (node.textContent || "").trim().toLowerCase();
-
-  const looksNumberedBridge =
-    txt.includes("curriculum bridge map") &&
-    (txt.startsWith("2)") ||
-     txt.startsWith("2.") ||
-     txt.match(/^\d+\)/));
-
-  if (looksNumberedBridge) {
-    node.remove();
-  }
-}
-return root.innerHTML;
+  return root.innerHTML;
 }
 
 
@@ -1327,10 +1379,13 @@ function injectBridgeIntoSection2(cleanHtml: string, bridgeHtml: string) {
 
   const secHeads = Array.from(root.querySelectorAll(".secHead"));
   const section2Head = secHeads.find((head) => {
-    const title = (head.querySelector(".secTitle")?.textContent || head.textContent || "")
-      .toLowerCase()
-      .trim();
-    return /(^|\b)section\s*2(\b|:)/i.test(title) || title.includes("section 2");
+    const rawTitle = (head.querySelector(".secTitle")?.textContent || head.textContent || "").trim();
+    const title = rawTitle.toLowerCase();
+    return (
+      /^\s*2\s*[\)\.]/.test(rawTitle) ||
+      /(^|\b)section\s*2(\b|:)/i.test(title) ||
+      title.includes("section 2")
+    );
   });
 
   const bridgeWrap = document.createElement("div");
@@ -1354,14 +1409,15 @@ function injectBridgeIntoSection2(cleanHtml: string, bridgeHtml: string) {
     return root.innerHTML;
   }
 
-  // fallback when section 2 heading is not present: place bridge near the top for immediate scan visibility
+  // Fallback: never prepend above section 0.
   const firstSection = root.querySelector(".secHead");
   if (firstSection) {
-    firstSection.insertAdjacentElement("beforebegin", bridgeNode);
-  } else {
-    root.prepend(bridgeNode);
+    firstSection.insertAdjacentElement("afterend", bridgeNode);
+    return root.innerHTML;
   }
-  return root.innerHTML;
+
+  // If no section structure exists, leave lesson untouched.
+  return cleanHtml;
 }
 async function fetchCurriculumAlignment(opts: {
   publisher: string;
@@ -1462,16 +1518,9 @@ function renderLessonWithCurriculumBridge(lessonText: string, opts: {
       const rewiredHtml = stripLegacyCurriculumBridgeHtml(baseHtml);
       const bridgeHtml = buildCurriculumBridgeHtml(opts);
       const withBridge = injectBridgeIntoSection2(rewiredHtml, bridgeHtml);
-      
-      const walkthrough = buildWalkthroughLookForsHtml(
-        opts.publisher,
-        opts.standard
-      );
-      
-      const engagement = buildEngagementBoostHtml();
-      const topSignals = `${modeBadge}${walkthrough}${engagement}`;
-      
-      return `${topSignals}${withBridge}`;
+
+      // Keep only compact badge at top; bridge content is inserted into section 2.
+      return `${modeBadge}${withBridge}`;
     }
       
     // -------------------------
@@ -1927,6 +1976,30 @@ const authStatusPill = getElOpt<HTMLElement>("authStatusPill");
 const message = getElOpt<HTMLElement>("message");
 const messageApp = getElOpt<HTMLElement>("message_app");
 
+  const maybeSubmitAuthOnEnter = (e: KeyboardEvent) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (logInBtn && (logInBtn.style.display || "inline-block") !== "none" && !logInBtn.disabled) {
+      logInBtn.click();
+      return;
+    }
+    if (signUpBtn && !signUpBtn.disabled) signUpBtn.click();
+  };
+  authEmail?.addEventListener("keydown", maybeSubmitAuthOnEnter);
+  authPassword?.addEventListener("keydown", maybeSubmitAuthOnEnter);
+
+  function setAuthBusy(
+    busy: boolean,
+    activeBtn?: HTMLButtonElement | null,
+    busyLabel?: string,
+  ) {
+    setButtonBusy(activeBtn || null, busy, busyLabel);
+    const peers = [signUpBtn, logInBtn, forgotPwBtn].filter(Boolean) as HTMLButtonElement[];
+    for (const btn of peers) {
+      if (!activeBtn || btn !== activeBtn) btn.disabled = busy;
+    }
+  }
+
   // Billing + top buttons (SAFE)
 const billingBtnSubscribe = getElOpt<HTMLButtonElement>("billingBtn_subscribe");
 const billingBtn = getElOpt<HTMLButtonElement>("billingBtn");
@@ -2207,6 +2280,56 @@ qsStandard?.addEventListener("change", () => {
   statusPill.textContent = text;
 }
 
+  function animateOutputReveal(target: HTMLElement) {
+    target.style.transition = "opacity .26s ease, transform .26s ease";
+    target.style.opacity = "0";
+    target.style.transform = "translateY(8px)";
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        target.style.opacity = "1";
+        target.style.transform = "translateY(0)";
+      });
+    });
+  }
+
+  function setGenerationActionLock(locked: boolean) {
+    const btns = [
+      openLibraryBtn,
+      copyBtn,
+      copyDocsBtn,
+      printBtn,
+      downloadPdfBtn,
+      exportPackBtn,
+      favoriteBtn,
+    ].filter(Boolean) as HTMLButtonElement[];
+    for (const btn of btns) {
+      const anyBtn = btn as any;
+      if (locked) {
+        anyBtn.__wasDisabledBeforeGenerate = btn.disabled;
+        btn.disabled = true;
+      } else {
+        btn.disabled = Boolean(anyBtn.__wasDisabledBeforeGenerate);
+      }
+    }
+  }
+
+  const generationStages = [
+    "Analyzing lesson inputs…",
+    "Aligning standards and rigor…",
+    "Building teacher plan…",
+    "Finalizing lesson output…",
+  ];
+
+  function startGenerationStageTicker() {
+    let idx = 0;
+    setStatus(generationStages[idx]);
+    const timer = window.setInterval(() => {
+      idx = (idx + 1) % generationStages.length;
+      setStatus(generationStages[idx]);
+    }, 2400);
+    return () => window.clearInterval(timer);
+  }
+
   function activeMessageEl(): HTMLElement | null {
   const appIsVisible = appView ? appView.style.display !== "none" : false;
 
@@ -2359,12 +2482,15 @@ function showLibrary(show: boolean) {
   // ✅ BUTTON WIRING
   // -------------------------
   addOnce(signUpBtn, "signup", async () => {
+    setAuthBusy(true, signUpBtn, "Creating Account…");
     try {
       clearMessage();
       const email = authEmail?.value?.trim();
-const pw = authPassword?.value?.trim();
+      const pw = authPassword?.value?.trim();
 
-if (!email || !pw) return showMessage("Enter email + password.", false);
+      if (!email || !pw) return showMessage("Enter email + password.", false);
+      if (!validateEmailLike(email)) return showMessage("Enter a valid school email address.", false);
+      if (pw.length < 8) return showMessage("Password must be at least 8 characters.", false);
 
       await signUp(email, pw);
       showMessage("Account created ✅ Logged in.", true);
@@ -2374,15 +2500,19 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
       refreshAuthUI();
     } catch (e: any) {
       showMessage(`Sign up failed: ${esc(e?.message || e)}`, false);
+    } finally {
+      setAuthBusy(false, signUpBtn);
     }
   });
 
   addOnce(logInBtn, "login", async () => {
+    setAuthBusy(true, logInBtn, "Logging In…");
     try {
       clearMessage();
       const email = authEmail?.value?.trim();
       const pw = authPassword?.value?.trim();
       if (!email || !pw) return showMessage("Enter email + password.", false);
+      if (!validateEmailLike(email)) return showMessage("Enter a valid email address.", false);
 
       await logIn(email, pw);
       showMessage("Logged in ✅", true);
@@ -2392,19 +2522,25 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
       refreshAuthUI();
     } catch (e: any) {
       showMessage(`Login failed: ${esc(e?.message || e)}`, false);
+    } finally {
+      setAuthBusy(false, logInBtn);
     }
   });
 
   if (forgotPwBtn) {
     addOnce(forgotPwBtn, "forgot", async () => {
+      setAuthBusy(true, forgotPwBtn, "Sending Reset…");
       try {
         clearMessage();
         const email = authEmail?.value?.trim();
         if (!email) return showMessage("Enter your email first.", false);
+        if (!validateEmailLike(email)) return showMessage("Enter a valid email address first.", false);
         await supabaseAuthPOST("recover", { email });
         showMessage("Password reset email sent ✅ Check your inbox.", true);
       } catch (e: any) {
         showMessage(`Reset failed: ${esc(e?.message || e)}`, false);
+      } finally {
+        setAuthBusy(false, forgotPwBtn);
       }
     });
   }
@@ -2510,6 +2646,10 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
     downloadPdfBtn &&
     output
   ) {
+  if (!String(output.innerHTML || "").trim() || output.textContent?.trim() === "(nothing yet)") {
+    output.innerHTML = renderEmptyLessonStateHtml("idle");
+  }
+
   // -------------------------
   // Presets
   // -------------------------
@@ -2764,11 +2904,15 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
   }
 
   openLibraryBtn.addEventListener("click", async () => {
+    setButtonBusy(openLibraryBtn, true, "Opening…");
     try {
       showLibrary(true);
+      showMessage("Loading your saved lessons…", true);
       await loadLibrary();
     } catch (e: any) {
       showMessage(`Library: ${esc(e?.message || e)}`, false);
+    } finally {
+      setButtonBusy(openLibraryBtn, false);
     }
   });
 
@@ -2819,6 +2963,7 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
           lesson: data.curriculum_lesson || "",
           audienceView: (audienceView?.value as OutputAudienceView) || "teacher",
         });
+        animateOutputReveal(output);
         lastLessonPlainText = htmlToPlainText(output.innerHTML);
         downloadPdfBtn.disabled = !lastLessonPlainText.trim();
         if (exportPackBtn) exportPackBtn.disabled = !lastLessonPlainText.trim();
@@ -2954,6 +3099,7 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
     );
 
     try {
+      setButtonBusy(downloadPdfBtn, true, "Building PDF…");
       showMessage("📄 Building PDF…", true);
       await downloadTextAsPdf({
         title: "Lessons-Ready Lesson Plan",
@@ -2964,6 +3110,8 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
       showMessage("PDF downloaded ✅", true);
     } catch (e: any) {
       showMessage(`PDF error: ${esc(e?.message || e)}`, false);
+    } finally {
+      setButtonBusy(downloadPdfBtn, false);
     }
   });
 
@@ -2984,7 +3132,7 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
         });
 
         showMessage("📦 Building lesson pack ZIP…", true);
-        exportPackBtn.disabled = true;
+        setButtonBusy(exportPackBtn, true, "Exporting…");
 
         const validSession = getSessionIfValidForCurrentProject();
         if (!validSession?.access_token) {
@@ -3038,6 +3186,7 @@ if (!email || !pw) return showMessage("Enter email + password.", false);
       } catch (e: any) {
         showMessage(`Export error: ${esc(e?.message || e)}`, false);
       } finally {
+        setButtonBusy(exportPackBtn, false);
         exportPackBtn.disabled = !((lastLessonPlainText || "").trim());
       }
     });
@@ -3156,9 +3305,15 @@ THEME-SPECIFIC FOCUS (${std || "theme"}):
     if (activeStreamAbort) activeStreamAbort.abort();
     activeStreamAbort = new AbortController();
     let requestTimedOut = false;
+    const stopStageTicker = startGenerationStageTicker();
 
     clearMessage();
-    output.innerHTML = "";
+    const hadPriorLesson = Boolean((lastLessonPlainText || "").trim());
+    if (hadPriorLesson) {
+      output.style.transition = "opacity .2s ease, filter .2s ease";
+      output.style.filter = "blur(1px)";
+      output.style.opacity = "0.7";
+    }
     lastLessonPlainText = "";
     downloadPdfBtn.disabled = true;
     if (exportPackBtn) exportPackBtn.disabled = true;
@@ -3170,8 +3325,16 @@ setDisplay(garage, "none");
 const fbStatus = getElOpt<HTMLElement>("feedbackStatus");
 if (fbStatus) fbStatus.innerHTML = "";
 
-    generateBtn.disabled = true;
-    setStatus("Working…");
+    setButtonBusy(generateBtn, true, "Generating…");
+    generateBtn.style.pointerEvents = "none";
+    setGenerationActionLock(true);
+    setStatus("Starting generation…");
+    showMessage("Generation started. Preparing lesson workspace…", true);
+    await sleep(380);
+
+    output.innerHTML = renderEmptyLessonStateHtml("generating");
+    output.style.filter = "none";
+    output.style.opacity = "0.92";
 
     const timeoutId = setTimeout(() => {
       try {
@@ -3194,7 +3357,7 @@ if (fbStatus) fbStatus.innerHTML = "";
       const check = validateSkillFocus();
       if (!check.ok) {
         showMessage(esc(check.message), false);
-        setStatus("Idle");
+        setStatus("Ready");
         return;
       }
 
@@ -3389,6 +3552,7 @@ Include:
         let finalLessonText = "";
         let finalLessonSections: StructuredLessonSections | undefined;
         let firstStreamChunkReceived = false;
+        let connectingDotsTimer: number | null = null;
         const streamStartTimeoutId = window.setTimeout(() => {
           if (!firstStreamChunkReceived) {
             activeStreamAbort?.abort();
@@ -3396,65 +3560,84 @@ Include:
         }, STREAM_TIMEOUT_MS);
 
         output.classList.add("typing");
-        output.textContent = "Generating lesson… (this may take up to 30 seconds)";
-
-        await readSSEStream(
-          res,
-          {
-            onStart: () => {
-              firstStreamChunkReceived = true;
-            },
-            onDelta: (chunk) => {
-              firstStreamChunkReceived = true;
-              const merged = applyStreamChunk(liveText, chunk, lastChunk);
-              liveText = merged.text;
-              lastChunk = merged.lastChunk || lastChunk;
-              finalLessonText = liveText;
-
-              if (liveText.length > 800 && liveText.includes("Independent") && !slidesStarted) {
-                slidesStarted = true;
-                const snapshotText = liveText;
-                slidesPromise = generateSlides(snapshotText);
-              }
-
-              if (liveText !== lastRendered) {
-                lastRendered = liveText;
-                output.innerHTML = (audienceView?.value === "student")
-                  ? buildStudentWorksheetHtml(liveText, { includeTopSignals: true })
-                  : formatLessonToHtml(liveText);
-              }
-            },
-
-            onFinal: (obj) => {
-              const candidate =
-                obj?.lesson_plan ??
-                obj?.lessonPlan ??
-                obj?.data?.lesson_plan ??
-                obj?.data?.lessonPlan ??
-                obj?.result?.lesson_plan ??
-                obj?.result?.lessonPlan ??
-                "";
-
-              if (typeof candidate === "string" && candidate.trim()) {
-                finalLessonText = candidate;
-              }
-              const candidateSections =
-                obj?.sections ??
-                obj?.data?.sections ??
-                obj?.result?.sections;
-              if (candidateSections && typeof candidateSections === "object") {
-                finalLessonSections = candidateSections as StructuredLessonSections;
-              }
-            },
-
-            onError: (obj) => {
-              const msg = obj?.error || obj?.message || obj?.detail || JSON.stringify(obj || {});
-              throw new Error(String(msg));
-            },
-          },
-          activeStreamAbort.signal,
+        output.innerHTML = renderEmptyLessonStateHtml("generating");
+        output.insertAdjacentHTML(
+          "beforeend",
+          `<div id="streamConnectMsg" class="miniHelp" style="margin-top:8px;">Connecting to live generation stream.</div>`,
         );
-        clearTimeout(streamStartTimeoutId);
+        const connectMsg = document.getElementById("streamConnectMsg");
+        let dots = 1;
+        connectingDotsTimer = window.setInterval(() => {
+          if (!connectMsg) return;
+          dots = (dots % 3) + 1;
+          connectMsg.textContent = `Connecting to live generation stream${".".repeat(dots)}`;
+        }, 420);
+        setStatus("Connecting to generation stream…");
+
+        try {
+          await readSSEStream(
+            res,
+            {
+              onStart: () => {
+                firstStreamChunkReceived = true;
+                if (connectingDotsTimer) window.clearInterval(connectingDotsTimer);
+                setStatus("Stream connected. Building lesson…");
+              },
+              onDelta: (chunk) => {
+                firstStreamChunkReceived = true;
+                const merged = applyStreamChunk(liveText, chunk, lastChunk);
+                liveText = merged.text;
+                lastChunk = merged.lastChunk || lastChunk;
+                finalLessonText = liveText;
+
+                if (liveText.length > 800 && liveText.includes("Independent") && !slidesStarted) {
+                  slidesStarted = true;
+                  const snapshotText = liveText;
+                  slidesPromise = generateSlides(snapshotText);
+                }
+
+                if (liveText !== lastRendered) {
+                  lastRendered = liveText;
+                  output.style.opacity = "1";
+                  output.innerHTML = (audienceView?.value === "student")
+                    ? buildStudentWorksheetHtml(liveText, { includeTopSignals: true })
+                    : formatLessonToHtml(liveText);
+                }
+              },
+
+              onFinal: (obj) => {
+                const candidate =
+                  obj?.lesson_plan ??
+                  obj?.lessonPlan ??
+                  obj?.data?.lesson_plan ??
+                  obj?.data?.lessonPlan ??
+                  obj?.result?.lesson_plan ??
+                  obj?.result?.lessonPlan ??
+                  "";
+
+                if (typeof candidate === "string" && candidate.trim()) {
+                  finalLessonText = candidate;
+                }
+                const candidateSections =
+                  obj?.sections ??
+                  obj?.data?.sections ??
+                  obj?.result?.sections;
+                if (candidateSections && typeof candidateSections === "object") {
+                  finalLessonSections = candidateSections as StructuredLessonSections;
+                }
+              },
+
+              onError: (obj) => {
+                const msg = obj?.error || obj?.message || obj?.detail || JSON.stringify(obj || {});
+                throw new Error(String(msg));
+              },
+            },
+            activeStreamAbort.signal,
+          );
+        } finally {
+          clearTimeout(streamStartTimeoutId);
+          if (connectingDotsTimer) window.clearInterval(connectingDotsTimer);
+        }
 
         output.classList.remove("typing");
 
@@ -3467,6 +3650,7 @@ Include:
           lesson: lesson.value.trim(),
           audienceView: (audienceView?.value as OutputAudienceView) || "teacher",
         });
+        animateOutputReveal(output);
       } else {
         const raw = await res.text();
         let data: any = null;
@@ -3488,6 +3672,8 @@ Include:
     unit: unit.value.trim() || "",
     lesson: lesson.value.trim() || "",
 });
+      output.style.opacity = "1";
+      animateOutputReveal(output);
       // =============================
 // 🎬 GENERATE SLIDES (NEW)
 // =============================
@@ -3618,8 +3804,26 @@ try {
   console.warn("usage_events insert failed", e);
 }
 
-showMessage("Success ✅ Saved to Library", true);
-setStatus("Done");
+await sleep(320);
+showMessage(
+  `Success ✅ Lesson ready, saved to Library, and ready to present.
+   <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+     <button id="successPresentBtn" class="secondary" type="button">Open Presenter</button>
+     <button id="successLibraryBtn" class="secondary" type="button">Open Library</button>
+   </div>`,
+  true,
+);
+const successPresentBtn = document.getElementById("successPresentBtn");
+if (successPresentBtn) {
+  successPresentBtn.addEventListener("click", () => {
+    if (lastLessonId) (window as any).openPresentMode(lastLessonId);
+  }, { once: true });
+}
+const successLibraryBtn = document.getElementById("successLibraryBtn");
+if (successLibraryBtn) {
+  successLibraryBtn.addEventListener("click", () => openLibraryBtn.click(), { once: true });
+}
+setStatus("Ready");
     } catch (err: any) {
       const aborted = err?.name === "AbortError";
       const msg =
@@ -3639,8 +3843,14 @@ setStatus("Done");
         });
       }
 
+      const userFacingMsg = requestTimedOut
+        ? `Generation timed out after ${Math.round(HARD_TIMEOUT_MS / 1000)} seconds. Your inputs are still here — retry when ready.`
+        : msg.includes("did not start within")
+          ? "The stream took too long to start. Please retry — your settings are unchanged."
+          : msg;
+
       showMessage(
-        `${esc(msg)}<div style="margin-top:8px;"><button id="retryGenerateBtn" class="secondary" type="button">Retry</button></div>`,
+        `${esc(userFacingMsg)}<div style="margin-top:8px;"><button id="retryGenerateBtn" class="secondary" type="button">Retry Generation</button></div>`,
         false,
       );
       const retryGenerateBtn = document.getElementById("retryGenerateBtn");
@@ -3648,12 +3858,26 @@ setStatus("Done");
         retryGenerateBtn.addEventListener("click", () => generateBtn.click(), { once: true });
       }
       output.classList.remove("typing");
-      output.innerHTML = `<pre style="white-space:pre-wrap;margin:0;">${escapeHtml(msg)}</pre>`;
+      output.innerHTML = `
+        <div class="authBox" style="margin:0;">
+          <div class="sectionTitle" style="margin-top:0;">Generation needs attention</div>
+          <div class="miniHelp" style="margin:0 0 8px;">${escapeHtml(userFacingMsg)}</div>
+          <div style="margin:0 0 8px;"><button id="retryGenerateInlineBtn" class="secondary" type="button">Retry Generation</button></div>
+          <pre style="white-space:pre-wrap;margin:0;max-height:180px;overflow:auto;">${escapeHtml(msg)}</pre>
+        </div>
+      `;
+      const retryInlineBtn = document.getElementById("retryGenerateInlineBtn");
+      if (retryInlineBtn) {
+        retryInlineBtn.addEventListener("click", () => generateBtn.click(), { once: true });
+      }
       setStatus("Error");
     } finally {
+      stopStageTicker();
       clearTimeout(timeoutId);
-      generateBtn.disabled = false;
-      if (statusPill.textContent === "Working…") setStatus("Idle");
+      setButtonBusy(generateBtn, false);
+      generateBtn.style.pointerEvents = "";
+      setGenerationActionLock(false);
+      if (statusPill && generationStages.includes(statusPill.textContent || "")) setStatus("Idle");
       refreshAuthUI();
     }
   });
