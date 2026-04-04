@@ -129,6 +129,7 @@ type SlideDefinition = {
   items?: string[];
   question?: string;
   prompt?: string;
+  passage?: string;
   section?: string;
   notes?: string;
   durationSeconds?: number;
@@ -140,6 +141,7 @@ type SlideDefinition = {
   correctIndex?: number;
   frame?: SlideFrame;
   content?: SlideContent;
+  questions?: Array<{ question?: string; choices?: string[] }>;
 };
 
 type LessonRow = {
@@ -625,7 +627,16 @@ function getSlideTeacherCue(slide: SlideDefinition): string {
 }
 
 function getSlidePassage(slide: SlideDefinition): string {
-  return cleanText(String(slide.content?.passage || (slide as any).passage || slide.subtext || slide.prompt || ""));
+  return cleanText(
+    String(
+      slide?.content?.passage ||
+      (slide as any)?.content ||
+      slide?.passage ||
+      slide?.subtext ||
+      slide?.prompt ||
+      "",
+    ),
+  );
 }
 
 function getQuestionSet(slide: SlideDefinition): QuestionSet | undefined {
@@ -3617,6 +3628,26 @@ function cleanItems(items: unknown): string[] {
   return items.map((item) => cleanText(String(item || ""))).filter(Boolean);
 }
 
+function renderGenericQuestions(slide: SlideDefinition): string {
+  if (!Array.isArray(slide.questions) || !slide.questions.length) return "";
+
+  return `
+    <div class="questionSet questionSet--mc">
+      ${slide.questions
+        .map((q, i) => {
+          const choices = cleanItems(q?.choices || []);
+          return `
+            <div class="question-part">
+              <p class="question-text">${escHtml(cleanText(String(q?.question || `Question ${i + 1}`)))}</p>
+              ${choices.length ? renderChoiceList(choices) : ""}
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
 function limitText(text: string, maxLength = 220): string {
   const trimmed = String(text || "").trim();
   if (!trimmed) return "";
@@ -3834,6 +3865,9 @@ function buildRenderedSlideHtml(
   alignment: string,
 ): string {
   const stageHeader = slideStageLabel(slide.stageType);
+  const passage = getSlidePassage(slide);
+  console.log("RENDER SLIDE:", slide);
+  console.log("PASSAGE:", passage);
   const lockIndicator = locked ? `<div class="lock-indicator">Answers Locked</div>` : "";
   const revealIndicator = currentSlideRevealed ? `<div class="reveal-indicator">Answer Revealed</div>` : "";
 
@@ -3876,14 +3910,14 @@ function buildRenderedSlideHtml(
         <div class="brandMark">LR</div>
         <div class="brandKicker">Instruction Launch</div>
         <h1 class="fade-in" style="animation-delay:0.05s">${escHtml(limitText(cleanText(String(slide.heading || "Lessons-Ready")), 80))}</h1>
-        <p class="splashSubtext fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.subtext || "")), 220))}</p>
+        <p class="splashSubtext fade-in" style="animation-delay:0.15s">${escHtml(limitText(passage, 220))}</p>
         <div class="splashMeta fade-in" style="animation-delay:0.25s">${escHtml(limitText(cleanText(String(slide.notes || "")), 180))}</div>
       </div>
     `;
   }
 
   if (slide.stageType === "hook") {
-    const hookText = limitText(cleanText(String(slide.subtext || slide.prompt || "")), 160);
+    const hookText = limitText(passage, 160);
     const hookMode = slide.hookType || "scenario";
     return `
       <div class="slide slide-content ${layoutClass} slide--energy${extraClass}">
@@ -3899,8 +3933,8 @@ function buildRenderedSlideHtml(
   if (slide.type === "headline") {
     const headlineBody =
       slide.stageType === "verb_definition"
-        ? `<div class="vocab-box interactive fade-in" style="animation-delay:0.05s"><h2>${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 90)) || "Skill Focus")}</h2><p>${escHtml(limitText(cleanText(String(slide.subtext || "")), 240))}</p></div><div class="vocab-box interactive fade-in" style="animation-delay:0.15s"><h2>Student-Friendly Move</h2><p>Say the verb in your own words, then name the evidence you need.</p></div>`
-        : `<div class="sectionTag fade-in" style="animation-delay:0.05s">${escHtml(limitText(cleanText(String(slide.section || "")), 40))}</div><h1 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 90)) || "Lesson Focus")}</h1><p class="fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.subtext || "")), 240))}</p>`;
+        ? `<div class="vocab-box interactive fade-in" style="animation-delay:0.05s"><h2>${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 90)) || "Skill Focus")}</h2><p>${escHtml(limitText(passage, 240))}</p></div><div class="vocab-box interactive fade-in" style="animation-delay:0.15s"><h2>Student-Friendly Move</h2><p>Say the verb in your own words, then name the evidence you need.</p></div>`
+        : `<div class="sectionTag fade-in" style="animation-delay:0.05s">${escHtml(limitText(cleanText(String(slide.section || "")), 40))}</div><h1 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 90)) || "Lesson Focus")}</h1><p class="fade-in" style="animation-delay:0.15s">${escHtml(limitText(passage, 240))}</p>`;
 
     return `<div class="slide slide-content ${layoutClass} slide--headline${extraClass}">${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}${headlineBody}${coachLine}${alignment}</div>`;
   }
@@ -3921,7 +3955,7 @@ function buildRenderedSlideHtml(
         <div class="slide slide-content ${layoutClass} slide--split${extraClass}">
           ${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}
           <h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "Vocabulary")), 80)))}</h2>
-          <p class="slideSubtext fade-in" style="animation-delay:0.12s">${escHtml(limitText(cleanText(String(slide.subtext || "Word → student-friendly definition → example")), 220))}</p>
+          <p class="slideSubtext fade-in" style="animation-delay:0.12s">${escHtml(limitText(passage || "Word → student-friendly definition → example", 220))}</p>
           <div class="fade-in" style="animation-delay:0.2s">${vocabCards}</div>
           ${coachLine}${alignment}
         </div>
@@ -3948,8 +3982,9 @@ function buildRenderedSlideHtml(
       <div class="slide slide-content ${layoutClass} slide--split${extraClass}">
         ${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}
         <h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 80)) || "Key Ideas")}</h2>
-        <p class="slideSubtext fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.subtext || "")), 220))}</p>
+        <p class="slideSubtext fade-in" style="animation-delay:0.15s">${escHtml(limitText(passage, 220))}</p>
         <ul class="fade-in" style="animation-delay:0.25s">${items.slice(0, visibleCount).map((item) => `<li>${escHtml(limitText(item, 120))}</li>`).join("")}</ul>
+        ${renderGenericQuestions(slide)}
         ${coachLine}${alignment}
       </div>
     `;
@@ -3966,7 +4001,8 @@ function buildRenderedSlideHtml(
       <div class="slide slide-content ${layoutClass} slide--writing${extraClass}">
         ${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}<h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 80)) || "Writing")}</h2>
         <div class="${slide.stageType === "exit_ticket" ? "question-box" : "writing-box"} interactive fade-in" style="animation-delay:0.15s">
-          <p class="promptPrimary">${escHtml(limitText(cleanText(String(slide.subtext || "")), 240))}</p>
+          <p class="promptPrimary">${escHtml(limitText(passage, 240))}</p>
+          ${renderGenericQuestions(slide)}
           <div class="cerScaffold"><div>Claim</div><div>Evidence</div><div>Reasoning</div></div>
           ${cerFrame}
           ${model}
@@ -3978,12 +4014,12 @@ function buildRenderedSlideHtml(
 
   if (slide.type === "energy") {
     const contrastClass = currentIndex % 4 === 0 ? " slide--contrast" : "";
-    return `<div class="slide slide-content ${layoutClass} slide--energy${contrastClass}${extraClass}">${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}<h1 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 80)) || "Energy Break")}</h1><p class="fade-in" style="animation-delay:0.15s">${escHtml(limitText(cleanText(String(slide.subtext || "")), 200))}</p>${coachLine}${alignment}</div>`;
+    return `<div class="slide slide-content ${layoutClass} slide--energy${contrastClass}${extraClass}">${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}<h1 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "")), 80)) || "Energy Break")}</h1><p class="fade-in" style="animation-delay:0.15s">${escHtml(limitText(passage, 200))}</p>${renderGenericQuestions(slide)}${coachLine}${alignment}</div>`;
   }
 
   if (slide.type === "discussion") {
     const stem = revealStep > 0 ? `<p class="revealBlock">Sentence stem reveal: "I agree because the text says..."</p>` : "";
-    const promptClean = escHtml(limitText(cleanText(String(slide.prompt || "Discuss with your partner.")), 220));
+    const promptClean = escHtml(limitText(passage || "Discuss with your partner.", 220));
     const discussionBody =
       slide.stageType === "compare_defend"
         ? `<div class="debate-box interactive fade-in" style="animation-delay:0.15s"><h3>Option A</h3><p>${promptClean}</p></div><div class="debate-box interactive fade-in" style="animation-delay:0.25s"><h3>Option B</h3><p>Defend the stronger answer with evidence.</p></div>`
@@ -3999,7 +4035,8 @@ function buildRenderedSlideHtml(
     `;
   }
 
-  return `<div class="slide slide-content ${layoutClass}${extraClass}">${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}<h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "Slide")), 80)) || "Slide")}</h2>${coachLine}${alignment}</div>`;
+  const genericItems = cleanItems(slide.items || []);
+  return `<div class="slide slide-content ${layoutClass}${extraClass}">${lockIndicator}${revealIndicator}${stageHeader}${stage}${coachingTag}<h2 class="fade-in" style="animation-delay:0.05s">${escHtml(cleanHeading(limitText(cleanText(String(slide.heading || "Slide")), 80)) || "Slide")}</h2><p class="slideSubtext fade-in" style="animation-delay:0.12s">${escHtml(limitText(passage, 260))}</p>${genericItems.length ? `<ul class="fade-in" style="animation-delay:0.2s">${genericItems.map((item) => `<li>${escHtml(limitText(item, 140))}</li>`).join("")}</ul>` : ""}${renderGenericQuestions(slide)}${coachLine}${alignment}</div>`;
 }
 
 function renderSlide() {
