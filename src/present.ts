@@ -509,7 +509,6 @@ async function refreshTokenIfPossible(): Promise<string> {
 function buildSupabaseHeaders(includeContentType = true): Record<string, string> {
   const headers: Record<string, string> = {
     apikey: SUPABASE_ANON_KEY,
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`
   };
 
   if (includeContentType) {

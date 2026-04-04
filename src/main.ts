@@ -2376,7 +2376,6 @@ async function loadStandardsFor(gradeVal: string, subjectVal: string) {
       {
         headers: {
           apikey: anon,
-          Authorization: `Bearer ${anon}`,
         },
       }
     );
