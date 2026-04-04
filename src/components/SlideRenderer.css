@@ -1,0 +1,43 @@
+.slide-card {
+  background: #0f172a;
+  border-radius: 20px;
+  padding: 32px;
+  max-width: 900px;
+  margin: auto;
+  color: white;
+}
+
+.slide-heading {
+  font-size: 32px;
+  margin-bottom: 16px;
+}
+
+.slide-text {
+  font-size: 20px;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+.slide-list li {
+  margin-top: 8px;
+}
+
+.question-card {
+  margin-top: 16px;
+  padding: 16px;
+  background: #1e293b;
+  border-radius: 10px;
+}
+
+.choice {
+  margin-top: 6px;
+}
+
+.stage-chip {
+  font-size: 12px;
+  background: #22c55e;
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  margin-bottom: 12px;
+}
