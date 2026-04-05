@@ -13,13 +13,16 @@ serve(async (req) => {
   }
 
   try {
+    const jsonResponse = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+
     const { lessonText } = await req.json();
 
     if (!lessonText) {
-      return new Response(
-        JSON.stringify({ error: "Missing lessonText" }),
-        { status: 400, headers: corsHeaders },
-      );
+      return jsonResponse({ error: "Missing lessonText" }, 400);
     }
 
     const prompt = `
@@ -240,14 +243,21 @@ Return ONLY the JSON object.
       ? parsed.slide_definitions
       : [];
 
+    return jsonResponse({ slide_definitions: slideDefinitions });
+  } catch (error) {
+    console.error("UNHANDLED ERROR:", error);
     return new Response(
-      JSON.stringify({ slide_definitions: slideDefinitions }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
-      { status: 500, headers: corsHeaders },
+      JSON.stringify({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      {
+        status: 500,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      },
     );
   }
 });
