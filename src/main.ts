@@ -2068,7 +2068,91 @@ function setCachedSubStatus(status: SubscriptionState, raw?: string) {
 
 let subscriptionStatusLoading = false;
 
+let bootstrapAuthPromise: Promise<Session | null> | null = null;
+
+async function syncSavedSessionToSupabase(): Promise<Session | null> {
+  const saved = getSavedSession();
+  if (!saved?.access_token || !saved?.refresh_token) return null;
+
+  const { data, error } = await supabase.auth.setSession({
+    access_token: saved.access_token,
+    refresh_token: saved.refresh_token,
+  });
+
+  if (error) {
+    console.warn("Supabase setSession failed during bootstrap:", error.message);
+    return null;
+  }
+
+  const session = data?.session;
+  if (!session?.access_token) return null;
+
+  const synced: Session = {
+    access_token: session.access_token,
+    refresh_token: session.refresh_token || saved.refresh_token,
+    user: {
+      id: session.user?.id || saved.user?.id,
+      email: session.user?.email ?? saved.user?.email ?? null,
+    },
+  };
+  setSavedSession(synced);
+  return synced;
+}
+
+async function bootstrapAuth(): Promise<Session | null> {
+  if (bootstrapAuthPromise) return bootstrapAuthPromise;
+
+  bootstrapAuthPromise = (async () => {
+    const { data } = await supabase.auth.getSession();
+    if (data?.session) {
+      return {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        user: {
+          id: data.session.user?.id || "",
+          email: data.session.user?.email ?? null,
+        },
+      };
+    }
+
+    const synced = await syncSavedSessionToSupabase();
+    if (synced?.access_token) return synced;
+
+    // If no session, wait for auth state change
+    return new Promise<Session | null>((resolve, reject) => {
+      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session?.access_token) {
+          listener.subscription.unsubscribe();
+          const nextSession: Session = {
+            access_token: session.access_token,
+            refresh_token: session.refresh_token,
+            user: {
+              id: session.user?.id || "",
+              email: session.user?.email ?? null,
+            },
+          };
+          setSavedSession(nextSession);
+          resolve(nextSession);
+        }
+      });
+
+      // Timeout after 3 seconds
+      window.setTimeout(() => {
+        listener.subscription.unsubscribe();
+        reject(new Error("Auth not initialized"));
+      }, 3000);
+    });
+  })().catch((err) => {
+    bootstrapAuthPromise = null;
+    throw err;
+  });
+
+  return bootstrapAuthPromise;
+}
+
 async function getAuthHeaders() {
+  await bootstrapAuth();
+
   // force refresh
   await supabase.auth.getUser();
 
@@ -2090,6 +2174,8 @@ async function getAuthHeaders() {
 }
 
 async function fetchWithAuth(url: string, options: RequestInit = {}) {
+  await bootstrapAuth();
+
   const doFetch = async () => {
     const authHeaders = await getAuthHeaders();
     const mergedHeaders: HeadersInit = {
@@ -4244,6 +4330,12 @@ setStatus("Ready");
 
   // ✅ Load subscription cache ASAP so UI doesn’t flash “unknown”
   loadCachedSubStatus(60_000);
+
+  // Ensure Supabase auth is initialized as soon as the app boots.
+  bootstrapAuth().catch(() => {
+    setView(false);
+    showMessage("Please log in to continue.", false);
+  });
 
   // Initial UI state
   setStatus("Idle");
