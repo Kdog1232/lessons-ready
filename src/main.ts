@@ -3,6 +3,7 @@ console.log("✅ src/main.ts loaded");
 console.log("🧪 test branch build validation active");
 import { generateDefaultSkillFocus } from "./utils/skillFocus";
 import { resolveCanonicalStandard } from "./save-lessons";
+import { createClient } from "@supabase/supabase-js";
 // -------------------------
 // ✅ CONFIG
 // -------------------------
@@ -32,6 +33,7 @@ const SUPABASE_STATUS_FN_URL =
 
 // ✅ Supabase anon/public key
 const SUPABASE_ANON_KEY = "sb_publishable_HsaM0F2t0OJNjHt48hdYgw_OzBD_ylJ";
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ✅ Longer timeout
 const HARD_TIMEOUT_MS = 180000;
@@ -2066,6 +2068,53 @@ function setCachedSubStatus(status: SubscriptionState, raw?: string) {
 
 let subscriptionStatusLoading = false;
 
+async function getAuthHeaders() {
+  // force refresh
+  await supabase.auth.getUser();
+
+  const { data, error } = await supabase.auth.getSession();
+  if (error) {
+    console.error("Session error:", error.message);
+    throw new Error("Auth session failed");
+  }
+
+  const token = data?.session?.access_token;
+  if (!token) {
+    throw new Error("User not authenticated");
+  }
+
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+async function fetchWithAuth(url: string, options: RequestInit = {}) {
+  const doFetch = async () => {
+    const authHeaders = await getAuthHeaders();
+    const mergedHeaders: HeadersInit = {
+      ...authHeaders,
+      ...(options.headers || {}),
+    };
+    return fetch(url, {
+      ...options,
+      headers: mergedHeaders,
+    });
+  };
+
+  try {
+    let response = await doFetch();
+    if (response.status === 401) {
+      await supabase.auth.getUser();
+      response = await doFetch();
+    }
+    return response;
+  } catch (error) {
+    console.error("Authenticated fetch failed:", error);
+    throw error;
+  }
+}
+
 async function fetchSubscriptionStatus(force = false) {
   const s = getSavedSession();
   if (!s?.access_token) {
@@ -2080,17 +2129,9 @@ async function fetchSubscriptionStatus(force = false) {
   subscriptionStatusLoading = true;
 
   try {
-    const anon = getAnonKey();
-    const session = requireSession();
-
     // ✅ IMPORTANT: STATUS must hit dynamic-api (NOT create-checkout-session)
-    const res = await fetch(SUPABASE_STATUS_FN_URL, {
+    const res = await fetchWithAuth(SUPABASE_STATUS_FN_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: anon,
-        Authorization: `Bearer ${session.access_token}`,
-      },
       body: JSON.stringify({ action: "status" }),
     });
 
@@ -2199,15 +2240,9 @@ async function openPortal(
   const anon = getAnonKey();
   if (!anon) throw new Error("Missing Supabase anon key in main.ts.");
 
-  const session = await ensureLoggedInForBilling(authEmail, authPassword);
-
-  const res = await fetch(SUPABASE_PORTAL_FN_URL, {
+  await ensureLoggedInForBilling(authEmail, authPassword);
+  const res = await fetchWithAuth(SUPABASE_PORTAL_FN_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: anon,
-      Authorization: `Bearer ${session.access_token}`,
-    },
     body: JSON.stringify({
       action: "portal",
       return_url: getPortalReturnUrl(),
