@@ -3058,3 +3058,44 @@ async function callOpenAIStreamProxyWithQualityFloor(args: {
     }
   });
   }
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  try {
+    const jsonResponse = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      });
+
+    return jsonResponse(
+      {
+        ok: false,
+        error: "Handler entrypoint is not wired to request logic.",
+      },
+      500,
+    );
+  } catch (error) {
+    console.error("UNHANDLED ERROR:", error);
+
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      {
+        status: 500,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  }
+});
