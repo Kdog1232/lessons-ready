@@ -1357,7 +1357,7 @@ function formatLessonToHtml(rawText: string) {
 
 
 
-type OutputAudienceView = "teacher" | "student";
+type OutputAudienceView = "teacher" | "student" | "slides";
 
 function buildStudentWorksheetHtml(rawText: string, opts?: { includeTopSignals?: boolean }) {
   const source = (rawText || "").replaceAll("\r\n", "\n");
@@ -1429,6 +1429,81 @@ function buildStudentWorksheetHtml(rawText: string, opts?: { includeTopSignals?:
       <p style="margin-top:0;"><b>Directions:</b> Read each text carefully. Answer each question in complete sentences using text evidence.</p>
       ${renderedQuestions}
       <div style="margin-top:10px; font-size:12px; color:rgba(255,255,255,.78);">Rubric tip: use evidence, reasoning, and academic vocabulary in every response.</div>
+    </div>
+  `;
+}
+
+function buildSlideDeckViewHtml(rawText: string, opts?: { includeTopSignals?: boolean }) {
+  const source = (rawText || "").replaceAll("\r\n", "\n");
+  const lines = source.split("\n");
+  const sectionRegex = /^\s*(\d+)\s*[\)\.]\s+(.+)$/;
+  const sections: Array<{ title: string; bullets: string[] }> = [];
+
+  let current: { title: string; bullets: string[] } | null = null;
+  for (const rawLine of lines) {
+    const t = rawLine.trim();
+    if (!t) continue;
+
+    const match = t.match(sectionRegex);
+    if (match) {
+      if (current) sections.push(current);
+      current = { title: match[2].trim(), bullets: [] };
+      continue;
+    }
+
+    if (!current) continue;
+    const cleaned = t.replace(/^[-•]\s*/, "").trim();
+    if (!cleaned) continue;
+    if (current.bullets.length < 4) current.bullets.push(cleaned);
+  }
+  if (current) sections.push(current);
+
+  const slideCards = (sections.length ? sections.slice(0, 9) : [{ title: "Lesson Snapshot", bullets: lines.filter((l) => l.trim()).slice(0, 4) }])
+    .map((section, index) => {
+      const icon = index === 0 ? "🎯" : index % 3 === 0 ? "🧠" : index % 3 === 1 ? "📘" : "✅";
+      const bulletsHtml = (section.bullets.length ? section.bullets : ["Add teacher talking points.", "Add student task direction."])
+        .map((bullet) => `<li style="margin:0 0 6px;">${escapeHtml(bullet)}</li>`)
+        .join("");
+
+      return `
+        <article style="
+          background:linear-gradient(145deg, rgba(29,39,64,.95), rgba(17,24,39,.96));
+          border:1px solid rgba(88,184,255,.34);
+          border-radius:14px;
+          padding:14px;
+          box-shadow:0 10px 22px rgba(2,8,20,.28);
+          min-height:170px;
+        ">
+          <div style="display:flex; align-items:center; gap:8px; font-weight:900; font-size:14px; margin:0 0 8px;">
+            <span>${icon}</span>
+            <span>Slide ${index + 1}</span>
+          </div>
+          <div style="font-size:13px; font-weight:800; margin:0 0 8px; color:#f8fbff;">${escapeHtml(section.title)}</div>
+          <ul style="margin:0; padding-left:18px; font-size:12px; line-height:1.45; color:rgba(236,244,255,.93);">
+            ${bulletsHtml}
+          </ul>
+        </article>
+      `;
+    })
+    .join("");
+
+  const optionalTop = opts?.includeTopSignals
+    ? `
+      <div class="authBox" style="margin:0 0 10px;">
+        <div class="sectionTitle" style="margin-top:0;">🎥 Presenter Slide View Active</div>
+        <div class="miniHelp" style="margin:0;">Same lesson data, remixed into quick speaker cards for a slide-by-slide delivery flow.</div>
+      </div>
+    `
+    : "";
+
+  return `
+    ${optionalTop}
+    <div class="authBox" style="margin:0 0 10px;">
+      <div class="sectionTitle" style="margin-top:0;">Slide Deck Preview</div>
+      <div class="miniHelp" style="margin:0 0 10px;">Use these cards as your presenter flow: objective → modeling → practice → check for understanding.</div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px;">
+        ${slideCards}
+      </div>
     </div>
   `;
 }
@@ -1789,7 +1864,9 @@ function renderLessonWithCurriculumBridge(lessonText: string, opts: {
   const baseHtml =
     audienceView === "student"
       ? buildStudentWorksheetHtml(lessonText, { includeTopSignals: true })
-      : formatLessonToHtml(lessonText);
+      : audienceView === "slides"
+        ? buildSlideDeckViewHtml(lessonText, { includeTopSignals: true })
+        : formatLessonToHtml(lessonText);
 
       const publisherSelected = Boolean((opts.publisher || "").trim());
       if (!publisherSelected) return baseHtml;
@@ -1801,7 +1878,7 @@ function renderLessonWithCurriculumBridge(lessonText: string, opts: {
         lesson: opts.lesson,
       });
       
-      if (audienceView === "student") {
+      if (audienceView === "student" || audienceView === "slides") {
         return `${modeBadge}${baseHtml}`;
       }
       
@@ -2675,6 +2752,13 @@ qsStandard?.addEventListener("change", () => {
   const feedbackStatus = getElOpt<HTMLElement>("feedbackStatus");
 
   let lastLessonPlainText = "";
+  let lastLessonRawText = "";
+  let lastLessonRenderMeta: {
+    publisher: string;
+    standard: string;
+    unit: string;
+    lesson: string;
+  } | null = null;
   let activeStreamAbort: AbortController | null = null;
   let lastLessonId: string | null = null;
   let lastLessonFavorite = false;
@@ -2881,6 +2965,17 @@ function showLibrary(show: boolean) {
   if (isGeneratorPage) {
     refreshPublisherUI();
     publisher?.addEventListener("change", refreshPublisherUI);
+    audienceView?.addEventListener("change", () => {
+      if (!output || !lastLessonRawText || !lastLessonRenderMeta) return;
+      output.innerHTML = renderLessonWithCurriculumBridge(lastLessonRawText, {
+        ...lastLessonRenderMeta,
+        audienceView: (audienceView?.value as OutputAudienceView) || "teacher",
+      });
+      animateOutputReveal(output);
+      lastLessonPlainText = htmlToPlainText(output.innerHTML);
+      downloadPdfBtn.disabled = !lastLessonPlainText.trim();
+      if (exportPackBtn) exportPackBtn.disabled = !lastLessonPlainText.trim();
+    });
   }
 
   // ✅ Keep mode access correct if user changes mode
@@ -2958,6 +3053,8 @@ function showLibrary(show: boolean) {
   showMessage("Logged out ✅", true);
   lastLessonId = null;
   lastLessonFavorite = false;
+  lastLessonRawText = "";
+  lastLessonRenderMeta = null;
   if (favoriteBtn) {
     favoriteBtn.textContent = "☆ Favorite";
     favoriteBtn.disabled = true;
@@ -3371,6 +3468,15 @@ function showLibrary(show: boolean) {
           lesson: data.curriculum_lesson || "",
           audienceView: (audienceView?.value as OutputAudienceView) || "teacher",
         });
+        lastLessonRawText = data.lesson_text || "";
+        lastLessonRenderMeta = {
+          publisher: publisher.value === "Other"
+            ? (publisherOther.value.trim() || "Other")
+            : publisher.value,
+          standard: data.standard_label || "",
+          unit: data.curriculum_unit || "",
+          lesson: data.curriculum_lesson || "",
+        };
         animateOutputReveal(output);
         lastLessonPlainText = htmlToPlainText(output.innerHTML);
         downloadPdfBtn.disabled = !lastLessonPlainText.trim();
@@ -3963,9 +4069,13 @@ Include:
                 if (liveText !== lastRendered) {
                   lastRendered = liveText;
                   output.style.opacity = "1";
-                  output.innerHTML = (audienceView?.value === "student")
-                    ? buildStudentWorksheetHtml(liveText, { includeTopSignals: true })
-                    : formatLessonToHtml(liveText);
+                  output.innerHTML = renderLessonWithCurriculumBridge(liveText, {
+                    publisher: pub,
+                    standard: standard.value.trim(),
+                    unit: unit.value.trim(),
+                    lesson: lesson.value.trim(),
+                    audienceView: (audienceView?.value as OutputAudienceView) || "teacher",
+                  });
                 }
               },
 
@@ -4033,9 +4143,17 @@ Include:
     output.innerHTML = renderLessonWithCurriculumBridge(lessonText, {
      publisher: pub,
      standard: getSelectedStandardDisplay(),
-    unit: unit.value.trim() || "",
-    lesson: lesson.value.trim() || "",
-});
+     unit: unit.value.trim() || "",
+     lesson: lesson.value.trim() || "",
+     audienceView: (audienceView?.value as OutputAudienceView) || "teacher",
+    });
+      lastLessonRawText = lessonText;
+      lastLessonRenderMeta = {
+        publisher: pub,
+        standard: getSelectedStandardDisplay(),
+        unit: unit.value.trim() || "",
+        lesson: lesson.value.trim() || "",
+      };
       output.style.opacity = "1";
       animateOutputReveal(output);
       lastLessonPlainText = htmlToPlainText(output.innerHTML);
