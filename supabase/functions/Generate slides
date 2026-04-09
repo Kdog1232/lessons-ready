@@ -1,0 +1,156 @@
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  try {
+    const { structuredLesson } = await req.json();
+
+    if (!structuredLesson) {
+      return new Response(
+        JSON.stringify({ error: "Missing structuredLesson" }),
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    /* =========================================================
+       🧠 SAFE HELPERS
+       ========================================================= */
+
+    const safeArray = (arr: any, fallback: any[] = []) =>
+      Array.isArray(arr) ? arr : fallback;
+
+    const wrapContent = (text: any) => ({
+      passage: typeof text === "string" ? text : "",
+    });
+
+    const normalizeQuestions = (questions: any[] = []) => {
+      return safeArray(questions).map((q, i) => {
+        const choices = safeArray(q?.choices).slice(0, 4);
+
+        while (choices.length < 4) {
+          choices.push("Option");
+        }
+
+        return {
+          id: q?.id || `q_${i}`,
+          question: q?.question || "Question",
+          choices,
+          correctIndex:
+            typeof q?.correctIndex === "number" &&
+            q.correctIndex >= 0 &&
+            q.correctIndex < 4
+              ? q.correctIndex
+              : 0,
+          standard: q?.standard || "",
+          dok: q?.dok || "",
+        };
+      });
+    };
+
+    /* =========================================================
+       🎬 SLIDE BUILD (MATCHES FRONTEND)
+       ========================================================= */
+
+    const slides = [
+      {
+        stageType: "do_now",
+        heading: "Do Now",
+        content: wrapContent(structuredLesson.doNow),
+      },
+
+      {
+        stageType: "objective",
+        heading: "Objective",
+        content: wrapContent(structuredLesson.objective),
+      },
+
+      {
+        stageType: "vocabulary",
+        heading: "Academic Vocabulary",
+        items: safeArray(structuredLesson.vocab),
+      },
+
+      {
+        stageType: "model",
+        heading: "I Do",
+        content: wrapContent(structuredLesson.model?.passage),
+        teacherNotes: structuredLesson.model?.thinkAloud || "",
+      },
+
+      {
+        stageType: "guided",
+        heading: "We Do",
+        questions: normalizeQuestions(
+          structuredLesson.guided?.questions
+        ),
+      },
+
+      {
+        stageType: "strategy",
+        heading: "Steps for Success",
+        items: safeArray(structuredLesson.strategy?.steps),
+      },
+
+      {
+        stageType: "collaborative",
+        heading: "Collaborative Practice",
+        content: wrapContent(structuredLesson.collaborativeTask),
+      },
+
+      {
+        stageType: "independent",
+        heading: "You Do",
+        questions: normalizeQuestions(
+          structuredLesson.independent?.questions
+        ),
+      },
+
+      {
+        stageType: "exit_ticket",
+        heading: "Exit Ticket",
+        questions: normalizeQuestions(
+          structuredLesson.exitTicket?.questions
+        ),
+      },
+    ];
+
+    /* =========================================================
+       🛡️ FINAL SAFETY
+       ========================================================= */
+
+    if (!slides.length) {
+      slides.push({
+        stageType: "objective",
+        heading: "Objective",
+        content: { passage: "Lesson unavailable" },
+      });
+    }
+
+    return new Response(
+      JSON.stringify({ slide_definitions: slides }),
+      {
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+  } catch (err) {
+    return new Response(
+      JSON.stringify({
+        error: err instanceof Error ? err.message : String(err),
+      }),
+      { status: 500, headers: corsHeaders }
+    );
+  }
+});
