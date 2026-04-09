@@ -29,100 +29,342 @@ serve(async (req) => {
     const safeArray = (arr: any, fallback: any[] = []) =>
       Array.isArray(arr) ? arr : fallback;
 
+    const cleanText = (text: any) => {
+      if (typeof text !== "string") return "";
+
+      return text
+        // Remove teacher workflow labels and the rest of their line
+        .replace(/-?\s*Hook:.*$/gim, "")
+        .replace(/-?\s*Model:.*$/gim, "")
+        .replace(/-?\s*Guided Practice:.*$/gim, "")
+        .replace(/-?\s*Independent Practice:.*$/gim, "")
+
+        // Remove admin/system notice lines
+        .replace(/Admin-Safe Notice.*$/gim, "")
+        .replace(/ORIGINAL instructional content.*$/gim, "")
+
+        // Remove simple ordered-list numbering like 1) 2)
+        .replace(/\d+\)\s*/g, "")
+
+        // Normalize whitespace
+        .replace(/\n+/g, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+    };
+
+    const compressText = (text: string) => {
+      if (!text) return "";
+
+      const sentences = text
+        .split(".")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (!sentences.length) return "";
+
+      const compact = sentences.slice(0, 2).join(". ");
+      return compact.endsWith(".") ? compact : `${compact}.`;
+    };
+
+    const firstSentence = (text: any) => {
+      const cleaned = cleanText(text);
+      if (!cleaned) return "";
+      const [first] = cleaned
+        .split(".")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return first ? `${first}.` : "";
+    };
+
+    const splitIntoMultipleSlides = (text: string, maxChars = 120) => {
+      const cleaned = cleanText(text);
+      if (!cleaned) return [];
+      if (cleaned.length <= maxChars) return [cleaned];
+
+      const sentences = cleaned
+        .split(/(?<=[.!?])\s+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      const chunks: string[] = [];
+      let current = "";
+
+      for (const sentence of sentences) {
+        const candidate = current ? `${current} ${sentence}` : sentence;
+        if (candidate.length <= maxChars) {
+          current = candidate;
+          continue;
+        }
+
+        if (current) chunks.push(current);
+
+        if (sentence.length <= maxChars) {
+          current = sentence;
+          continue;
+        }
+
+        const words = sentence.split(" ");
+        let wordChunk = "";
+        for (const word of words) {
+          const wordCandidate = wordChunk ? `${wordChunk} ${word}` : word;
+          if (wordCandidate.length <= maxChars) {
+            wordChunk = wordCandidate;
+          } else {
+            if (wordChunk) chunks.push(wordChunk);
+            wordChunk = word;
+          }
+        }
+        current = wordChunk;
+      }
+
+      if (current) chunks.push(current);
+      return chunks.filter(Boolean);
+    };
+
     const wrapContent = (text: any) => ({
-      passage: typeof text === "string" ? text : "",
+      passage: compressText(cleanText(text)),
     });
 
     const normalizeQuestions = (questions: any[] = []) => {
-      return safeArray(questions).map((q, i) => {
-        const choices = safeArray(q?.choices).slice(0, 4);
+      return safeArray(questions)
+        .map((q, i) => {
+          const choices = safeArray(q?.choices)
+            .slice(0, 4)
+            .map((choice: any) => cleanText(choice))
+            .filter(Boolean);
 
-        while (choices.length < 4) {
-          choices.push("Option");
-        }
+          while (choices.length < 4) {
+            choices.push("Option");
+          }
 
-        return {
-          id: q?.id || `q_${i}`,
-          question: q?.question || "Question",
-          choices,
-          correctIndex:
-            typeof q?.correctIndex === "number" &&
-            q.correctIndex >= 0 &&
-            q.correctIndex < 4
+          const correctIndex =
+            typeof q?.correctIndex === "number" && q.correctIndex >= 0 && q.correctIndex < 4
               ? q.correctIndex
-              : 0,
-          standard: q?.standard || "",
-          dok: q?.dok || "",
-        };
-      });
+              : 0;
+
+          return {
+            id: q?.id || `q_${i}`,
+            question: cleanText(q?.question || "Question"),
+            choices,
+            correctIndex,
+            hint: cleanText(q?.hint || "Look back at the strongest evidence word or phrase before choosing."),
+            reinforce: cleanText(q?.reinforce || "Strong choice—now justify it with one piece of textual evidence."),
+            standard: cleanText(q?.standard || ""),
+            dok: cleanText(q?.dok || ""),
+          };
+        })
+        .filter((q) => q.question);
+    };
+
+    const normalizeVocabCards = (vocab: any[] = []) => {
+      return safeArray(vocab)
+        .map((entry: any) => {
+          const raw = cleanText(String(entry || ""));
+          if (!raw) return null;
+          const [term, ...rest] = raw.split(":");
+          const definition = rest.join(":").trim();
+          return {
+            term: cleanText(term),
+            definition: cleanText(definition || "Define this word in your own words."),
+          };
+        })
+        .filter(Boolean);
+    };
+
+    const createMatchingPairs = (vocabCards: Array<{ term: string; definition: string }>) => {
+      const pairs = vocabCards.slice(0, 4).filter((card) => card.term && card.definition);
+      return {
+        left: pairs.map((pair) => pair.term),
+        right: pairs.map((pair) => pair.definition),
+      };
     };
 
     /* =========================================================
-       🎬 SLIDE BUILD (MATCHES FRONTEND)
+       🎬 SLIDE BUILD (INTERACTION-FIRST CHOREOGRAPHY)
        ========================================================= */
 
-    const slides = [
-      {
-        stageType: "do_now",
-        heading: "Do Now",
-        content: wrapContent(structuredLesson.doNow),
-      },
+    const slides: any[] = [];
 
-      {
-        stageType: "objective",
-        heading: "Objective",
-        content: wrapContent(structuredLesson.objective),
-      },
+    const groupLabel = (group: string) =>
+      group === "launch"
+        ? "Launch"
+        : group === "passage_block"
+          ? "Guided Practice"
+          : group === "vocab_block"
+            ? "Vocabulary Phase"
+            : group === "discussion_block"
+              ? "Discussion Phase"
+              : "Practice";
 
-      {
-        stageType: "vocabulary",
-        heading: "Academic Vocabulary",
-        items: safeArray(structuredLesson.vocab),
-      },
+    const pushTransition = (prompt: string, group: string) => {
+      slides.push({
+        stageType: "transition",
+        heading: "Now, think about this…",
+        prompt: cleanText(prompt),
+        slideGroup: group,
+        teacherMoment: "Stop & think, then call on one student to share before advancing.",
+        phaseLabel: groupLabel(group),
+      });
+    };
 
-      {
-        stageType: "model",
-        heading: "I Do",
-        content: wrapContent(structuredLesson.model?.passage),
-        teacherNotes: structuredLesson.model?.thinkAloud || "",
-      },
+    const pushContentSlides = (base: any, text: any, group: string) => {
+      const chunks = splitIntoMultipleSlides(String(text || ""), 120);
+      if (!chunks.length) {
+        slides.push({ ...base, content: wrapContent(text), slideGroup: group });
+        return;
+      }
+      chunks.forEach((chunk, idx) => {
+        slides.push({
+          ...base,
+          heading: idx === 0 ? base.heading : `${base.heading} (${idx + 1})`,
+          content: { passage: chunk },
+          slideGroup: group,
+        });
+      });
+    };
 
-      {
-        stageType: "guided",
-        heading: "We Do",
-        questions: normalizeQuestions(
-          structuredLesson.guided?.questions
-        ),
-      },
+    const pushMcBlock = (heading: string, questions: any[], group: string, maxSlides = 3) => {
+      const normalized = normalizeQuestions(questions).slice(0, maxSlides);
+      normalized.forEach((question, idx) => {
+        slides.push({
+          stageType: "mc_interactive",
+          heading: `${heading}${normalized.length > 1 ? ` ${idx + 1}` : ""}`,
+          questions: [question],
+          slideGroup: group,
+          teacherMoment: "Give 10 silent seconds, then have students defend their choice with evidence.",
+          phaseLabel: groupLabel(group),
+          momentumStep: idx === 0 ? "think" : idx === 1 ? "apply" : "defend",
+          difficulty: idx === 0 ? "easy" : idx === 1 ? "medium" : "hard",
+        });
+      });
+    };
 
-      {
-        stageType: "strategy",
-        heading: "Steps for Success",
-        items: safeArray(structuredLesson.strategy?.steps),
-      },
+    const detectLessonContext = () => {
+      const source = cleanText(
+        `${structuredLesson.model?.passage || ""} ${structuredLesson.doNow || ""} ${structuredLesson.collaborativeTask || ""}`,
+      ).toLowerCase();
 
-      {
-        stageType: "collaborative",
-        heading: "Collaborative Practice",
-        content: wrapContent(structuredLesson.collaborativeTask),
-      },
+      if (/(compete|competition|winner|race|team|champion|win)/.test(source)) return "competition";
+      if (/(mystery|clue|infer|evidence|detective|solve)/.test(source)) return "inference";
+      if (/(experiment|science|data|result|hypothesis)/.test(source)) return "science";
+      if (/(character|conflict|motivation|theme|story)/.test(source)) return "literary";
+      return "general";
+    };
 
-      {
-        stageType: "independent",
-        heading: "You Do",
-        questions: normalizeQuestions(
-          structuredLesson.independent?.questions
-        ),
-      },
+    const buildWowHook = () => {
+      const context = detectLessonContext();
+      const hooks: Record<string, string> = {
+        competition: "Who really deserves to win—and why?",
+        inference: "Which clue changes your mind first—and what does it prove?",
+        science: "What result matters most—and how can you prove it?",
+        literary: "Which character choice changes everything—and why?",
+        general: "What is your strongest claim right now—and can you defend it?",
+      };
 
-      {
-        stageType: "exit_ticket",
-        heading: "Exit Ticket",
-        questions: normalizeQuestions(
-          structuredLesson.exitTicket?.questions
-        ),
-      },
-    ];
+      const candidate = cleanText(
+        structuredLesson.doNow || structuredLesson.collaborativeTask || structuredLesson.guided?.prompt || hooks[context],
+      );
+      if (!candidate) return hooks[context];
+      const clipped = splitIntoMultipleSlides(candidate, 100)[0] || candidate;
+      return /[?]$/.test(clipped) ? clipped : `${clipped}?`;
+    };
+
+    const connectedFollowUp = (step: "prove" | "apply" | "defend") => {
+      if (step === "prove") return "Now let’s prove it with evidence…";
+      if (step === "apply") return "Great. Now apply that thinking to a new question…";
+      return "Last push: defend your answer in writing…";
+    };
+
+        // Launch block (instant wow + low cognitive load ramp)
+    slides.push({
+      stageType: "hook_wow",
+      heading: "🔥 Hook",
+      prompt: buildWowHook(),
+      slideGroup: "launch",
+      phaseLabel: "Hook",
+      teacherMoment: "Cold-call one student to defend a position in one sentence.",
+    });
+
+    pushContentSlides(
+      { stageType: "objective", heading: "Objective", phaseLabel: "Launch" },
+      structuredLesson.objective,
+      "launch",
+    );
+    pushContentSlides(
+      { stageType: "model", heading: "I Do", teacherNotes: "", phaseLabel: "Launch" },
+      firstSentence(structuredLesson.model?.passage),
+      "launch",
+    );
+
+    // Passage reasoning block (single task type: MC)
+    pushTransition(
+      structuredLesson.guided?.prompt || connectedFollowUp("prove"),
+      "passage_block",
+    );
+    pushMcBlock("We Do", structuredLesson.guided?.questions, "passage_block", 2);
+    pushMcBlock("You Do", structuredLesson.independent?.questions, "passage_block", 2);
+    pushMcBlock("Exit Ticket", structuredLesson.exitTicket?.questions, "passage_block", 1);
+
+    // Vocabulary block (single task type sequence)
+    const vocabCards = normalizeVocabCards(structuredLesson.vocab);
+    if (vocabCards.length) {
+      pushTransition(connectedFollowUp("apply"), "vocab_block");
+      slides.push({
+        stageType: "vocab_cards",
+        heading: "Vocabulary Cards",
+        words: vocabCards,
+        slideGroup: "vocab_block",
+        teacherMoment: "Have students read each term aloud and paraphrase the definition.",
+        phaseLabel: "Vocabulary Phase",
+      });
+
+      const matching = createMatchingPairs(vocabCards);
+      if (matching.left.length >= 2) {
+        slides.push({
+          stageType: "matching",
+          heading: "Match It",
+          prompt: "Match each term with the best meaning.",
+          left: matching.left,
+          right: matching.right,
+          slideGroup: "vocab_block",
+          teacherMoment: "Ask pairs to justify one match before checking whole class.",
+          phaseLabel: "Vocabulary Phase",
+        });
+      }
+    }
+
+    // Discussion and response block
+    pushTransition(connectedFollowUp("defend"), "discussion_block");
+    slides.push({
+      stageType: "discussion",
+      heading: "Turn & Talk",
+      prompt: cleanText(
+        structuredLesson.collaborativeTask ||
+          structuredLesson.guided?.prompt ||
+          "Turn to a partner: what evidence supports your answer and why?",
+      ),
+      slideGroup: "discussion_block",
+      teacherMoment: "Partner A speaks for 20 seconds, Partner B responds with one new idea.",
+      phaseLabel: "Discussion Phase",
+    });
+
+    slides.push({
+      stageType: "short_response",
+      heading: "Quick Write",
+      prompt: cleanText(
+        structuredLesson.exitTicket?.prompt ||
+          structuredLesson.exitTicket?.question ||
+          "Write 2-3 sentences that justify your answer with evidence.",
+      ),
+      slideGroup: "discussion_block",
+      teacherMoment: "Circulate, spotlight one strong exemplar, then revise one sentence together.",
+      phaseLabel: "Discussion Phase",
+    });
+
+    slides.forEach((slide, idx) => {
+      slide.sequenceIndex = idx + 1;
+      slide.totalSlides = slides.length;
+      if (!slide.phaseLabel && slide.slideGroup) slide.phaseLabel = groupLabel(String(slide.slideGroup));
+    });
 
     /* =========================================================
        🛡️ FINAL SAFETY
