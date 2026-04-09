@@ -3063,24 +3063,167 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+  if (req.method !== "POST") {
+    return jsonResponse({ ok: false, error: "Method not allowed." }, 405);
+  }
 
   try {
-    const jsonResponse = (body: unknown, status = 200) =>
-      new Response(JSON.stringify(body), {
-        status,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-      });
+    const debugReqId = crypto.randomUUID();
+    const body = (await req.json()) as GenerateLessonRequest;
+    const payload = normalizePayload(body || ({} as GenerateLessonRequest));
 
-    return jsonResponse(
-      {
-        ok: false,
-        error: "Handler entrypoint is not wired to request logic.",
-      },
-      500,
+    required("subject", payload.subject);
+    required("standard", payload.standard);
+    required("skillFocus", payload.skillFocus);
+
+    const plan = await enforcePlanOrBlock(req, debugReqId);
+    if (plan.blocked) return plan.blocked;
+
+    const mode = normalizeMode(payload);
+    const style = normalizeOutputStyle(payload.outputStyle as any);
+    const model = resolveModel(payload.model);
+    const stream = payload.stream === true;
+    const pacingMode = isPacingMode(payload);
+    const heavy =
+      style === "teacher_only" ||
+      style === "student_only" ||
+      mode === "full" ||
+      pacingMode;
+
+    const subject = String(payload.subject || "").trim();
+    const subjectLower = subject.toLowerCase();
+    const isELAR =
+      subjectLower === "elar" ||
+      subjectLower === "ela" ||
+      subjectLower.includes("english") ||
+      subjectLower.includes("language arts") ||
+      subjectLower.includes("reading") ||
+      subjectLower.includes("rla");
+    const practiceOn = pacingMode
+      ? false
+      : Boolean(payload.generatePracticePassageAndMCQs);
+    const worksheetOn = pacingMode ? false : Boolean(payload.worksheetPack?.enabled);
+    const assessmentsOn = pacingMode ? false : practiceOn || worksheetOn;
+
+    const state = normalizeStateValue(payload.state || "");
+    const strandAnchor = getStrandAnchor(
+      state,
+      subject,
+      String(payload.standard || ""),
     );
+    const playbookHint = `${String(payload.teacherNotes || "")} ${String(
+      payload.subNotes || "",
+    )}`;
+
+    const admin =
+      SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+        ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        : null;
+
+    const curriculumContext = admin
+      ? await getCurriculumContext(admin, payload)
+      : ({
+          foundLesson: false,
+          components: {},
+          playbook: null,
+          debug: {
+            attempted: false,
+            foundPlaybook: false,
+          },
+        } as CurriculumContext);
+
+    if (admin && plan.userId) {
+      logLessonGenerationNonBlocking({
+        admin,
+        userId: plan.userId,
+        payload,
+        debugReqId,
+      });
+    }
+
+    const curriculumContextBlock = buildCurriculumContextBlock(curriculumContext);
+    const playbookBlock = buildPlaybookInstructionsBlock(curriculumContext.playbook || []);
+    const districtRigorOn = looksLikeDistrictRigor(`${playbookBlock}\n${playbookHint}`);
+    const backbone = buildInstructionalBackbone({
+      payload,
+      districtRigorOn,
+      strandAnchor,
+      assessmentsOn,
+      isELAR,
+      pacingMode,
+    });
+    const instructions = buildInstructions(
+      payload,
+      curriculumContextBlock,
+      playbookBlock,
+      backbone,
+    );
+
+    if (stream) {
+      return await callOpenAIStreamProxyWithQualityFloor({
+        instructions,
+        debugReqId,
+        mode,
+        model,
+        style,
+        heavy,
+        isPacing: pacingMode,
+        assessmentsOn,
+        isELAR,
+        districtRigorOn,
+      });
+    }
+
+    const draft = await callOpenAINonStream(
+      instructions,
+      debugReqId,
+      mode,
+      model,
+      style,
+      heavy,
+    );
+
+    const issues = validateLessonOutputLite({
+      text: draft,
+      isPacing: pacingMode,
+      assessmentsOn,
+      isELAR,
+      districtRigorOn,
+    });
+
+    let lessonPlan = draft;
+    let repaired = false;
+    let issuesAfter = issues;
+    if (issues.length) {
+      lessonPlan = await repairLessonOnce({
+        draft,
+        issues,
+        debugReqId,
+        mode,
+        model,
+        style,
+        heavy,
+      });
+      issuesAfter = validateLessonOutputLite({
+        text: lessonPlan,
+        isPacing: pacingMode,
+        assessmentsOn,
+        isELAR,
+        districtRigorOn,
+      });
+      repaired = true;
+    }
+
+    return jsonResponse({
+      ok: true,
+      debugReqId,
+      repaired,
+      repair_issues_initial: issues,
+      repair_issues_after: issuesAfter,
+      lesson_plan: lessonPlan,
+      sections: lessonPlan,
+      context_debug: curriculumContext.debug,
+    });
   } catch (error) {
     console.error("UNHANDLED ERROR:", error);
 
