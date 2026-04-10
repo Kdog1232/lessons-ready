@@ -184,25 +184,12 @@ serve(async (req) => {
 
     const slides: any[] = [];
 
-    const groupLabel = (group: string) =>
-      group === "launch"
-        ? "Launch"
-        : group === "passage_block"
-          ? "Guided Practice"
-          : group === "vocab_block"
-            ? "Vocabulary Phase"
-            : group === "discussion_block"
-              ? "Discussion Phase"
-              : "Practice";
-
     const pushTransition = (prompt: string, group: string) => {
       slides.push({
         stageType: "transition",
-        heading: "Now, think about this…",
+        heading: "",
         prompt: cleanText(prompt),
         slideGroup: group,
-        teacherMoment: "Stop & think, then call on one student to share before advancing.",
-        phaseLabel: groupLabel(group),
       });
     };
 
@@ -215,25 +202,21 @@ serve(async (req) => {
       chunks.forEach((chunk, idx) => {
         slides.push({
           ...base,
-          heading: idx === 0 ? base.heading : `${base.heading} (${idx + 1})`,
+          heading: idx === 0 ? base.heading : "",
           content: { passage: chunk },
           slideGroup: group,
         });
       });
     };
 
-    const pushMcBlock = (heading: string, questions: any[], group: string, maxSlides = 3) => {
+    const pushMcBlock = (questions: any[], group: string, maxSlides = 3) => {
       const normalized = normalizeQuestions(questions).slice(0, maxSlides);
-      normalized.forEach((question, idx) => {
+      normalized.forEach((question) => {
         slides.push({
           stageType: "mc_interactive",
-          heading: `${heading}${normalized.length > 1 ? ` ${idx + 1}` : ""}`,
+          heading: cleanText(question?.question || ""),
           questions: [question],
           slideGroup: group,
-          teacherMoment: "Give 10 silent seconds, then have students defend their choice with evidence.",
-          phaseLabel: groupLabel(group),
-          momentumStep: idx === 0 ? "think" : idx === 1 ? "apply" : "defend",
-          difficulty: idx === 0 ? "easy" : idx === 1 ? "medium" : "hard",
         });
       });
     };
@@ -277,20 +260,18 @@ serve(async (req) => {
         // Launch block (instant wow + low cognitive load ramp)
     slides.push({
       stageType: "hook_wow",
-      heading: "🔥 Hook",
+      heading: "",
       prompt: buildWowHook(),
       slideGroup: "launch",
-      phaseLabel: "Hook",
-      teacherMoment: "Cold-call one student to defend a position in one sentence.",
     });
 
     pushContentSlides(
-      { stageType: "objective", heading: "Objective", phaseLabel: "Launch" },
+      { stageType: "objective", heading: "" },
       structuredLesson.objective,
       "launch",
     );
     pushContentSlides(
-      { stageType: "model", heading: "I Do", teacherNotes: "", phaseLabel: "Launch" },
+      { stageType: "model", heading: "", teacherNotes: "" },
       firstSentence(structuredLesson.model?.passage),
       "launch",
     );
@@ -300,9 +281,9 @@ serve(async (req) => {
       structuredLesson.guided?.prompt || connectedFollowUp("prove"),
       "passage_block",
     );
-    pushMcBlock("We Do", structuredLesson.guided?.questions, "passage_block", 2);
-    pushMcBlock("You Do", structuredLesson.independent?.questions, "passage_block", 2);
-    pushMcBlock("Exit Ticket", structuredLesson.exitTicket?.questions, "passage_block", 1);
+    pushMcBlock(structuredLesson.guided?.questions, "passage_block", 2);
+    pushMcBlock(structuredLesson.independent?.questions, "passage_block", 2);
+    pushMcBlock(structuredLesson.exitTicket?.questions, "passage_block", 1);
 
     // Vocabulary block (single task type sequence)
     const vocabCards = normalizeVocabCards(structuredLesson.vocab);
@@ -310,24 +291,20 @@ serve(async (req) => {
       pushTransition(connectedFollowUp("apply"), "vocab_block");
       slides.push({
         stageType: "vocab_cards",
-        heading: "Vocabulary Cards",
+        heading: "",
         words: vocabCards,
         slideGroup: "vocab_block",
-        teacherMoment: "Have students read each term aloud and paraphrase the definition.",
-        phaseLabel: "Vocabulary Phase",
       });
 
       const matching = createMatchingPairs(vocabCards);
       if (matching.left.length >= 2) {
         slides.push({
           stageType: "matching",
-          heading: "Match It",
+          heading: "",
           prompt: "Match each term with the best meaning.",
           left: matching.left,
           right: matching.right,
           slideGroup: "vocab_block",
-          teacherMoment: "Ask pairs to justify one match before checking whole class.",
-          phaseLabel: "Vocabulary Phase",
         });
       }
     }
@@ -336,34 +313,29 @@ serve(async (req) => {
     pushTransition(connectedFollowUp("defend"), "discussion_block");
     slides.push({
       stageType: "discussion",
-      heading: "Turn & Talk",
+      heading: "",
       prompt: cleanText(
         structuredLesson.collaborativeTask ||
           structuredLesson.guided?.prompt ||
           "Turn to a partner: what evidence supports your answer and why?",
       ),
       slideGroup: "discussion_block",
-      teacherMoment: "Partner A speaks for 20 seconds, Partner B responds with one new idea.",
-      phaseLabel: "Discussion Phase",
     });
 
     slides.push({
       stageType: "short_response",
-      heading: "Quick Write",
+      heading: "",
       prompt: cleanText(
         structuredLesson.exitTicket?.prompt ||
           structuredLesson.exitTicket?.question ||
           "Write 2-3 sentences that justify your answer with evidence.",
       ),
       slideGroup: "discussion_block",
-      teacherMoment: "Circulate, spotlight one strong exemplar, then revise one sentence together.",
-      phaseLabel: "Discussion Phase",
     });
 
     slides.forEach((slide, idx) => {
       slide.sequenceIndex = idx + 1;
       slide.totalSlides = slides.length;
-      if (!slide.phaseLabel && slide.slideGroup) slide.phaseLabel = groupLabel(String(slide.slideGroup));
     });
 
     /* =========================================================
@@ -373,7 +345,7 @@ serve(async (req) => {
     if (!slides.length) {
       slides.push({
         stageType: "objective",
-        heading: "Objective",
+        heading: "",
         content: { passage: "Lesson unavailable" },
       });
     }

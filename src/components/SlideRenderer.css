@@ -8,6 +8,18 @@
   border: 1px solid rgba(255, 255, 255, 0.09);
 }
 
+.slide-card--transition {
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .slide-meta-row {
   display: flex;
   align-items: center;
@@ -45,15 +57,15 @@
 }
 
 .question-text {
-  font-size: 24px;
+  font-size: 2.2rem;
   font-weight: 700;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
 
 .choice-card {
-  margin-top: 10px;
+  margin-bottom: 12px;
   background: linear-gradient(145deg, #1d4ed8, #1e40af);
-  padding: 14px;
+  padding: 20px;
   border-radius: 12px;
   font-size: 18px;
   font-weight: 600;
@@ -148,26 +160,13 @@
   background: rgba(34, 197, 94, 0.25);
 }
 
-.action-callout,
-.narrative-bridge,
-.teacher-moment {
+.action-callout {
   margin-top: 16px;
   padding: 12px 14px;
   border-left: 4px solid #f59e0b;
   background: rgba(245, 158, 11, 0.15);
   border-radius: 8px;
   font-weight: 600;
-}
-
-.narrative-bridge {
-  border-left-color: #60a5fa;
-  background: rgba(96, 165, 250, 0.15);
-}
-
-.teacher-moment {
-  border-left-color: #22c55e;
-  background: rgba(34, 197, 94, 0.15);
-  font-size: 15px;
 }
 
 .reveal-pop {
@@ -199,8 +198,10 @@
   color: #e0f2fe;
 }
 
-.stage-transition .slide-heading {
-  font-size: 30px;
+.transition-heading {
+  font-size: clamp(3rem, 7vw, 5rem);
+  line-height: 1.08;
+  margin: 0;
 }
 
 .stage-mc_interactive .question-card,
@@ -274,6 +275,7 @@
   padding: 10px 12px;
   border-radius: 10px;
   font-weight: 600;
+  animation: reveal-up 220ms ease both;
 }
 
 .feedback-box--good {
@@ -282,8 +284,8 @@
 }
 
 .feedback-box--hint {
-  background: rgba(250, 204, 21, 0.18);
-  border: 1px solid rgba(253, 224, 71, 0.45);
+  background: rgba(148, 163, 184, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.35);
 }
 
 .slide-loading .skeleton {
