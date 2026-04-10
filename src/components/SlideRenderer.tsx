@@ -27,12 +27,8 @@ type Slide = {
   left?: string[];
   right?: string[];
   slideGroup?: string;
-  teacherMoment?: string;
-  teacherNotes?: string;
   sequenceIndex?: number;
   totalSlides?: number;
-  phaseLabel?: string;
-  momentumStep?: "think" | "apply" | "defend" | string;
 };
 
 export function getSlidePassage(slide: any): string {
@@ -44,30 +40,6 @@ export function getSlidePassage(slide: any): string {
 type SlideRendererProps = {
   slide?: Slide | null;
 };
-
-function stageLabel(stageType?: string): string {
-  const type = String(stageType || "");
-  if (type === "hook_wow") return "Wow Hook";
-  if (type === "objective") return "Objective";
-  if (type === "model") return "I Do";
-  if (type === "mc_interactive") return "Guided Practice";
-  if (type === "discussion") return "Discussion";
-  if (type === "short_response") return "Quick Write";
-  if (type === "matching") return "Matching";
-  if (type === "vocab_cards") return "Vocabulary";
-  if (type === "transition") return "Bridge";
-  return type.toUpperCase() || "SLIDE";
-}
-
-function groupLabel(group?: string): string {
-  const value = String(group || "");
-  if (!value) return "";
-  return value
-    .replace(/_/g, " ")
-    .split(" ")
-    .map((word) => (word ? `${word[0].toUpperCase()}${word.slice(1)}` : word))
-    .join(" ");
-}
 
 export default function SlideRenderer({ slide }: SlideRendererProps) {
   const [revealed, setRevealed] = useState(false);
@@ -92,9 +64,9 @@ export default function SlideRenderer({ slide }: SlideRendererProps) {
   }
 
   const passage = getSlidePassage(slide);
-  const heading = String(slide.heading || slide.stageType || "Lesson Slide");
+  const heading = String(slide.heading || "").trim();
   const stageType = String(slide.stageType || "generic");
-  const isInteractive = ["mc_interactive", "discussion", "short_response", "matching"].includes(stageType);
+  const isInteractive = ["mc_interactive", "discussion", "short_response", "matching", "vocab_cards"].includes(stageType);
   const progressText = useMemo(() => {
     if (!slide.totalSlides || !slide.sequenceIndex) return "";
     return `Slide ${slide.sequenceIndex} of ${slide.totalSlides}`;
@@ -117,34 +89,56 @@ export default function SlideRenderer({ slide }: SlideRendererProps) {
     );
   }
 
-  return (
-    <div className={`slide-card stage-${stageType}`}>
-      <div className="slide-meta-row">
-        {slide.stageType && <div className="stage-chip">{stageLabel(slide.stageType)}</div>}
-        {slide.phaseLabel && <div className="phase-chip">{slide.phaseLabel}</div>}
-        {slide.slideGroup && <div className="group-chip">{groupLabel(slide.slideGroup)}</div>}
-        {slide.momentumStep && <div className="phase-chip">{slide.momentumStep.toUpperCase()}</div>}
-        {progressText && <div className="progress-chip">{progressText}</div>}
-      </div>
+  const transitionText = slide.prompt || passage || heading;
+  let stageBody: React.ReactNode = null;
 
-      <h2 className="slide-heading">{heading}</h2>
+  switch (stageType) {
+    case "mc_interactive":
+      if (!Array.isArray(slide.questions) || !slide.questions.length) {
+        stageBody = null;
+        break;
+      }
+      {
+        const q = slide.questions[0];
+        const id = q.id || "q_0";
+        const selected = selectedAnswers[id];
+        const isCorrect = selected === q.correctIndex;
+        const showFeedback = Number.isInteger(selected);
+        stageBody = (
+          <div className="question-block">
+            <div className="question-card reveal-pop">
+              <h1 className="question-text">{q.question}</h1>
+              {Array.isArray(q.choices) &&
+                q.choices.map((choice, j) => {
+                  const correct = revealed && q.correctIndex === j;
+                  const chosen = selected === j;
+                  return (
+                    <button
+                      key={`${choice}-${j}`}
+                      className={`choice-card ${correct ? "choice-card--correct" : ""} ${chosen ? "choice-card--selected" : ""}`}
+                      style={{ animationDelay: `${j * 80}ms` }}
+                      type="button"
+                      disabled={locked}
+                      onClick={() => selectChoice(q, 0, j)}
+                    >
+                      <span className="choice-letter">{String.fromCharCode(65 + j)}</span>
+                      <span>{choice}</span>
+                    </button>
+                  );
+                })}
 
-      {passage && <p className="slide-text">{passage}</p>}
-
-      {stageType === "transition" && <div className="narrative-bridge">Now, act on the previous idea before moving on.</div>}
-
-      {stageType === "vocab_cards" && Array.isArray(slide.words) && slide.words.length > 0 && (
-        <div className="vocab-grid">
-          {slide.words.map((word, i) => (
-            <article key={`${word.term}-${i}`} className="vocab-tile reveal-pop" style={{ animationDelay: `${i * 80}ms` }}>
-              <h3>{word.term}</h3>
-              <p>{word.definition}</p>
-            </article>
-          ))}
-        </div>
-      )}
-
-      {stageType === "matching" && Array.isArray(slide.left) && Array.isArray(slide.right) && (
+              {showFeedback && (
+                <div className={`feedback-box ${isCorrect ? "feedback-box--good" : "feedback-box--hint"}`}>
+                  {isCorrect ? q.reinforce || "Correct—defend your evidence." : q.hint || "Try again. Re-read the strongest clue."}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+      break;
+    case "matching":
+      stageBody = Array.isArray(slide.left) && Array.isArray(slide.right) ? (
         <div className="matching-grid">
           <div>
             <h3 className="section-title">Terms</h3>
@@ -163,52 +157,49 @@ export default function SlideRenderer({ slide }: SlideRendererProps) {
             ))}
           </div>
         </div>
-      )}
-
-      {Array.isArray(slide.questions) && slide.questions.length > 0 && (
-        <div className="question-block">
-          {slide.questions.map((q, i) => {
-            const id = q.id || `q_${i}`;
-            const selected = selectedAnswers[id];
-            const isCorrect = selected === q.correctIndex;
-            const showFeedback = Number.isInteger(selected);
-            return (
-              <div key={`${q.question}-${i}`} className="question-card reveal-pop" style={{ animationDelay: `${i * 100}ms` }}>
-                <p className="question-text">{q.question}</p>
-                {Array.isArray(q.choices) &&
-                  q.choices.map((choice, j) => {
-                    const correct = revealed && q.correctIndex === j;
-                    const chosen = selected === j;
-                    return (
-                      <button
-                        key={`${choice}-${j}`}
-                        className={`choice-card ${correct ? "choice-card--correct" : ""} ${chosen ? "choice-card--selected" : ""}`}
-                        style={{ animationDelay: `${j * 80}ms` }}
-                        type="button"
-                        disabled={locked}
-                        onClick={() => selectChoice(q, i, j)}
-                      >
-                        <span className="choice-letter">{String.fromCharCode(65 + j)}</span>
-                        <span>{choice}</span>
-                      </button>
-                    );
-                  })}
-
-                {showFeedback && (
-                  <div className={`feedback-box ${isCorrect ? "feedback-box--good" : "feedback-box--hint"}`}>
-                    {isCorrect ? q.reinforce || "Correct—defend your evidence." : q.hint || "Try again. Re-read the strongest clue."}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+      ) : null;
+      break;
+    case "vocab_cards":
+      stageBody = Array.isArray(slide.words) && slide.words.length > 0 ? (
+        <div className="vocab-grid">
+          {slide.words.map((word, i) => (
+            <article key={`${word.term}-${i}`} className="vocab-tile reveal-pop" style={{ animationDelay: `${i * 80}ms` }}>
+              <h3>{word.term}</h3>
+              <p>{word.definition}</p>
+            </article>
+          ))}
         </div>
-      )}
+      ) : null;
+      break;
+    case "discussion":
+      stageBody = slide.prompt ? <div className="action-callout">Partner A shares first. Partner B cites evidence.</div> : null;
+      break;
+    case "short_response":
+      stageBody = <div className="action-callout">Write 2-3 sentences. Include one direct piece of evidence.</div>;
+      break;
+    case "transition":
+      stageBody = null;
+      break;
+    default:
+      stageBody = passage ? <p className="slide-text">{passage}</p> : null;
+      break;
+  }
 
-      {stageType === "discussion" && slide.prompt && <div className="action-callout">Partner A shares first. Partner B must cite evidence.</div>}
-      {stageType === "short_response" && (
-        <div className="action-callout">Write 2-3 sentences. Include one direct piece of evidence.</div>
+  return (
+    <div className={`slide-card stage-${stageType} ${stageType === "transition" ? "slide-card--transition" : ""}`}>
+      <div className="slide-meta-row">
+        {progressText && <div className="progress-chip">{progressText}</div>}
+      </div>
+
+      {(stageType === "discussion" || stageType === "short_response") && <h2 className="slide-heading">{slide.prompt || heading}</h2>}
+      {stageType === "transition" && <h2 className="slide-heading transition-heading">{transitionText || "Next"}</h2>}
+      {stageType !== "mc_interactive" && stageType !== "discussion" && stageType !== "short_response" && stageType !== "transition" && heading && (
+        <h2 className="slide-heading">{heading}</h2>
       )}
+      {stageType !== "mc_interactive" && stageType !== "discussion" && stageType !== "short_response" && stageType !== "transition" && stageBody}
+      {stageType === "mc_interactive" && stageBody}
+      {stageType === "discussion" && stageBody}
+      {stageType === "short_response" && stageBody}
 
       {isInteractive && (
         <div className="control-row">
@@ -217,19 +208,6 @@ export default function SlideRenderer({ slide }: SlideRendererProps) {
           <button type="button" onClick={() => setTimerSeconds((s) => s + 60)}>+1:00 Timer</button>
           <button type="button">Next Slide →</button>
           <span className="timer-badge">Timer: {Math.floor(timerSeconds / 60)}:{String(timerSeconds % 60).padStart(2, "0")}</span>
-        </div>
-      )}
-
-      {slide.teacherMoment && (
-        <div className="teacher-moment">
-          <strong>Teacher Moment:</strong> {slide.teacherMoment}
-        </div>
-      )}
-
-      {!isInteractive && slide.teacherNotes && (
-        <div className="teacher-notes">
-          <strong>Teacher Notes:</strong>
-          <p>{slide.teacherNotes}</p>
         </div>
       )}
     </div>
