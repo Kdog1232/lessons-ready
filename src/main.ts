@@ -8,11 +8,29 @@ import { createClient } from "@supabase/supabase-js";
 // ✅ CONFIG
 // -------------------------
 const path = window.location.pathname;
+<<<<<<< codex/fix-multiple-issues-in-main.ts-3i9guy
+
+// ✅ ONLY presenter if explicitly present page
+const isPresenterPage =
+  path === "/present.html" ||
+  path.startsWith("/present");
+
+// ✅ ONLY generator if root or index
+const isGeneratorPage =
+  path === "/" ||
+  path === "/index.html";
+
+// 🔍 Debug log (keep this for now)
+console.log("PATH:", path);
+console.log("isPresenterPage:", isPresenterPage);
+console.log("isGeneratorPage:", isGeneratorPage);
+=======
 const isGeneratorPage =
   path === "/" ||
   path.includes("index");
 
 const isPresenterPage = path.includes("present");
+>>>>>>> main
 const SUPABASE_URL = "https://pinplfyymnpfctwcpzol.supabase.co";
 
 // ✅ Lesson generation (keep as-is)
@@ -2441,9 +2459,13 @@ async function openPortal(
 // -------------------------
 // App
 // -------------------------
+<<<<<<< codex/fix-multiple-issues-in-main.ts-3i9guy
+function initGenerator() {
+=======
 if (isPresenterPage) {
   console.log("🎥 Presenter page detected — skipping generator init");
 } else {
+>>>>>>> main
 try {
   // Views
   const landingView = getElOpt<HTMLElement>("landingView");
@@ -4465,3 +4487,16 @@ setStatus("Ready");
   alert(String(err?.message || err));
 }
 }
+<<<<<<< codex/fix-multiple-issues-in-main.ts-3i9guy
+
+if (isPresenterPage) {
+  console.log("🎥 Presenter page detected — skipping generator init");
+} else if (isGeneratorPage) {
+  console.log("🧠 Generator page detected — initializing...");
+  initGenerator();
+} else {
+  console.log("⚠️ Unknown route — defaulting to generator");
+  initGenerator();
+}
+=======
+>>>>>>> main
